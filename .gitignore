@@ -30,6 +30,11 @@ code/**/sft_results/
 code/**/rm_results/
 code/**/ppo_results/
 code/**/preference_data.json
+!code/chapter01_cartpole/output/
+!code/chapter01_cartpole/output/training_metrics_seed42.csv
+code/chapter01_cartpole/output/*.pth
+code/chapter01_cartpole/output/*.png
+!code/chapter01_cartpole/output/training_metrics_seed42.csv
 code/**/geometry_dataset/
 .claude/*
 

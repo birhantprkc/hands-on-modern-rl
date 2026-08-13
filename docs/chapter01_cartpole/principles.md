@@ -12,10 +12,10 @@
 
 那么，什么才是"恰当的决策"？我们从一个经典任务入手——CartPole（倒立摆）。正如 `print("Hello World")` 是编程入门的第一步，用几十行代码让一根杆子在小车上保持平衡，是踏入强化学习领域的标准起点。
 
-![CartPole 智能体在三个典型姿态下的对比](./images/cartpole-real-env-frames.png)
+![训练后策略在 Gymnasium CartPole-v1 中的实测帧](./images/cartpole_frames_seed42.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>图 1-1：CartPole 智能体的三个典型姿态：轻微左倾、接近直立与轻微右倾。图中的虚线给出了竖直参考方向，可以看到高分策略并不是让杆子完全静止，而是在小幅摆动中持续纠偏。</em>
+  <em>图 1-1：仓库中的纯 PyTorch PPO 以 seed=42 训练后，在 Gymnasium <code>CartPole-v1</code> 中进行一次确定性评估。图像由环境的 <code>rgb_array</code> 渲染直接生成；该回合运行到 500 步上限，标题中的角度来自对应时刻的环境观测。</em>
 </div>
 
 你可能会问：训练这样一个智能体需要什么硬件条件？
@@ -23,17 +23,16 @@
 事实上，这个任务的计算需求很低，普通个人电脑（包括 Intel Mac、Apple Silicon、Windows/Linux）均可运行：
 
 - **不需要显卡 (GPU)**：该任务的计算量很小，CPU 即可完成训练。
-- **内存占用极小**：运行时的内存占用通常在 100MB~200MB 左右。
-- **模型参数量极少**：使用的神经网络策略（`MlpPolicy`）只有两层，每层 64 个神经元，参数量仅数千个。
+- **模型规模很小**：配套纯 PyTorch 策略的 Actor 和 Critic 各有两层、每层 64 个神经元；脚本默认使用 CPU。
 
-在这个过程中，我们将使用 Gymnasium（当前 RL 环境的绝对标准）作为训练场，并引入 Stable Baselines3 (SB3) 算法库。如果说 PyTorch 是造汽车的零件，那么 SB3 就是已经组装好的发动机，它把前沿的 PPO 算法封装成了几行极简的代码。
+在这个过程中，我们使用 Gymnasium 提供 CartPole 环境，并给出 Stable Baselines3（SB3）封装版和纯 PyTorch 版两种 PPO 实现。前者用于快速跑通，后者展开采样、优势计算和参数更新。
 
 本章不要求读者事先掌握复杂的微积分或高维矩阵运算。接下来直接动手，用代码实现一个 CartPole 智能体。
 
-![PPO 训练 CartPole 的完整流程](./images/rl-training-loop.svg)
+![PPO 训练 CartPole 的流程示意](./images/rl-training-loop.svg)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>图 1-2：PPO 训练 CartPole 的完整流程。整个流程在个人电脑上不到 30 秒即可完成。</em>
+  <em>图 1-2：PPO 训练流程示意图，用于说明数据流，不是实验结果。实际耗时取决于 CPU、Python 与依赖版本。</em>
 </div>
 
 ### 安装依赖
@@ -71,6 +70,19 @@ python 2-pytorch_ppo.py
 python 2-pytorch_ppo.py --gui
 ```
 
+如果要复现本章 1.2 和 1.3 节展示的曲线，使用固定配置：
+
+```bash
+python 2-pytorch_ppo.py \
+  --seed 42 \
+  --iterations 40 \
+  --steps-per-rollout 2048 \
+  --swanlab-mode disabled \
+  --log-csv output/training_metrics_seed42.csv
+```
+
+该次实测的原始记录保存在 [training_metrics_seed42.csv](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/output/training_metrics_seed42.csv)，页面曲线由 [plot_curves.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/plot_curves.py) 从 CSV 直接生成。
+
 运行后你会看到控制台快速滚动训练日志，训练完成后模型会自动保存到 `output/` 目录。
 
 关于 `--gui` 参数：训练阶段始终是 headless（无渲染），速度不受影响。`--gui` 只控制训练结束后的演示环节是否弹出 CartPole 动画窗口。开启 GUI 时每帧需要等待屏幕刷新（约 16ms），演示会慢一些；关闭 GUI 时演示环节纯计算，几秒内跑完。
@@ -88,12 +100,12 @@ swanlab watch swanlog
 - `http://127.0.0.1:5092`
 - `http://localhost:5092`
 
-浏览器打开本地地址后，你通常会先看到这样的 SwanLab 项目页：
+浏览器打开本地地址后，会先看到 SwanLab 项目页。下面两张图是**界面示例**，只说明入口和页面结构，不作为本章实测数据来源：
 
 ![浏览器访问本地 SwanLab 看板后的项目页截图](./images/cartpole-swanlab-dashboard.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>浏览器访问 <code>http://127.0.0.1:5092</code> 后，通常会先进入这样的项目页。左侧能看到实验列表；点进某个实验后，再切到 <code>Chart</code> 标签，就能继续看训练曲线。</em>
+  <em>SwanLab 项目页界面示例。软件版本变化后布局可能不同；左侧实验列表用于选择运行记录。</em>
 </div>
 
 点进实验后，你会看到类似下面这样的曲线页：
@@ -101,7 +113,7 @@ swanlab watch swanlog
 ![进入某个实验后的 SwanLab 曲线页截图](./images/cartpole-swanlab-experiment-chart.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>这是进入某个实验、再点击 <code>Chart</code> 后的页面。这里会按 <code>rollout</code>、<code>time</code>、<code>train</code> 等分组展示指标曲线。</em>
+  <em>SwanLab 曲线页界面示例。正式分析使用配套 CSV 中的原始数值，不从截图估读。</em>
 </div>
 
 你最先该看的曲线通常是 `rollout/ep_rew_mean`，也就是”平均每局得分”。它持续上升，即表明智能体的表现正在改善。
@@ -179,15 +191,15 @@ print(f"终止条件: 位置 ±{env.unwrapped.x_threshold}, "
 
 把这些数值整理成表格，就是智能体每帧收到的 4 维观测向量：
 
-| 编号 | 含义       | 观测空间边界                   | 实际常见范围     |
-| ---- | ---------- | ------------------------------ | ---------------- |
-| 0    | 小车位置   | -4.8 ~ 4.8                     | -4.8 ~ 4.8       |
-| 1    | 小车速度   | 无硬限制（Gymnasium 设为 inf） | 约 -3 ~ +3       |
-| 2    | 杆子角度   | -0.4189 ~ 0.4189 rad (≈ ±24°)  | -0.21 ~ 0.21 rad |
-| 3    | 杆子角速度 | 无硬限制（Gymnasium 设为 inf） | 约 -3 ~ +3       |
+| 编号 | 含义       | `observation_space` 中的边界    |
+| ---- | ---------- | ------------------------------- |
+| 0    | 小车位置   | -4.8 ~ 4.8                      |
+| 1    | 小车速度   | `-inf` ~ `inf`                  |
+| 2    | 杆子角度   | -0.4189 ~ 0.4189 rad（约 ±24°） |
+| 3    | 杆子角速度 | `-inf` ~ `inf`                  |
 
 ::: warning 为什么速度是 inf？
-小车速度和杆子角速度没有硬上限——它们由物理引擎每帧计算，理论上可以取任意值。Gymnasium 因此把这两个维度的观测边界设为 `inf`。但在实际训练中，由于回合很快结束（杆子一倒就 reset），速度通常只落在 **-3 ~ +3** 的范围内，远没有到"无穷"。
+Gymnasium 没有为小车速度和杆角速度声明有限的观测边界，因此这两个维度显示为 `inf`。若要讨论某次训练中的经验范围，应从该次轨迹数据计算最小值和最大值；这里不凭印象给出区间。
 :::
 
 这 4 个数字就是对当前局面的完整描述。智能体无法访问环境内部的状态转移规则或物理参数，其决策所依据的全部信息就是这 4 个数值。
@@ -232,7 +244,7 @@ print(f"最大步数: {env.spec.max_episode_steps}")  # 输出: 500
 
 策略就是"在状态 s 下选择动作 a 的规则"。在 CartPole 中，策略回答的问题就是：**"给定当前的小车位置、速度、杆角度、角速度，应该向左推还是向右推？"**
 
-用数学语言说，策略是一个从状态到动作概率分布的映射：π(a|s)。在离散动作空间中，它输出每个动作被选中的概率。训练开始时，π(左) ≈ 0.5, π(右) ≈ 0.5（随机初始化）；训练结束后，π 会学会在杆子右倾时输出 π(右) ≈ 0.95。
+用数学语言说，策略是一个从状态到动作概率分布的映射：π(a|s)。在离散动作空间中，它输出每个动作被选中的概率。配套代码把 Actor 输出层初始化得很小，因此训练开始时两个动作概率接近 `0.5`。训练后概率如何变化取决于完整状态，不能只根据杆子倾斜方向写成固定百分比。
 
 ```mermaid
 flowchart LR
@@ -249,8 +261,8 @@ flowchart LR
     end
 
     subgraph 动作概率["动作概率"]
-        a1["π(向左) = 0.3"]
-        a2["π(向右) = 0.7"]
+        a1["π(向左 | s)"]
+        a2["π(向右 | s)"]
     end
 
     s1 & s2 & s3 & s4 --> h1 --> h2 --> a1 & a2
@@ -354,8 +366,7 @@ Actor 和 Critic 使用**各自独立的隐藏层**，避免梯度冲突。Actor
 有了网络，下一步是让它和环境交互，收集训练数据。这个过程叫做 **Rollout**：
 
 ```python
-def collect_rollout(model, env, num_steps=2048):
-    obs, _ = env.reset()
+def collect_rollout(model, env, obs, num_steps=2048):
     transitions = []
 
     for _ in range(num_steps):
@@ -384,10 +395,12 @@ def collect_rollout(model, env, num_steps=2048):
         if terminated or truncated:
             obs, _ = env.reset()
 
-    return transitions
+    return transitions, obs
 ```
 
-这段代码有一个**关键的工程细节**：它区分了 `terminated`（杆子倾倒，回合自然结束）和 `truncated`（达到 500 步上限，但杆子仍保持平衡）。这个区分对训练效果影响显著——如果把 truncated 也当作 `terminated` 来处理，价值函数会在回合被截断处错误地置零，智能体会学到"达到 500 步是坏事"，从而无法收敛到最优策略。这是 RL 工程实践中常见的陷阱之一，配套代码对此做了正确处理。
+这段代码区分 `terminated`（杆子倾倒或小车越界）和 `truncated`（达到 500 步上限）。若把 `truncated` 当作自然终止，价值目标会在时间上限处错误置零。配套代码在自然终止处令 `next_value=0`，在时间截断和 rollout 中途结束处继续用 `V(s')` bootstrap。
+
+配套脚本还把 `obs` 传入下一轮采样。rollout 只是训练批次边界，不能在每个 rollout 开头无条件 `reset` 环境。
 
 另一个值得留意的地方：配套代码中的采样方式不是直接选概率最大的动作，而是**按概率随机抽取**：
 
@@ -396,7 +409,7 @@ dist = torch.distributions.Categorical(logits=logits)
 action = dist.sample()  # 按概率随机抽取，而非 argmax
 ```
 
-即使网络输出的向右推概率为 90%，仍有 10% 的概率选择向左。这种随机性保证了持续的探索，对应下一节（1.2 节）将讨论的“策略熵”。
+例如某个状态下向右概率为 90%，采样时仍有 10% 的概率选择向左。这种随机性保留了探索，对应下一节讨论的策略熵。
 
 #### GAE 优势估计
 
@@ -476,7 +489,7 @@ flowchart LR
         A --> B --> C
     end
 
-    END["训练好的策略\n杆子右倾 → π(右)≈0.95"]
+    END["训练后的策略\n根据完整状态调整动作概率"]
 
     START --> LOOP
     C -->|"重复"| A
@@ -493,10 +506,11 @@ flowchart LR
 model = ActorCritic()
 optimizer = Adam(model.parameters(), lr=3e-4)
 env = gym.make("CartPole-v1")
+obs, _ = env.reset(seed=42)
 
 for iteration in range(40):
     # 第一步：收集经验数据（2048 步）
-    transitions = collect_rollout(model, env, 2048)
+    transitions, obs = collect_rollout(model, env, obs, 2048)
 
     # 第二步：计算 GAE 优势
     advantages, returns = compute_gae(transitions)
@@ -505,11 +519,11 @@ for iteration in range(40):
     metrics = ppo_update(model, optimizer, transitions, advantages, returns)
 ```
 
-这三步循环，就是 `model.learn(total_timesteps=80000)` 的本质。SB3 将这个循环封装为一行代码，并提供了一整套经过充分验证的默认超参数（学习率、批量大小、裁剪范围、GAE 参数等），使使用者无需关注底层细节即可完成训练。
+这三步循环构成 `model.learn(total_timesteps=80000)` 的主要数据流。SB3 还处理批次、日志、设备、环境封装和多种边界条件，纯 PyTorch 版本保留了本章需要观察的核心部分。
 
 我们的 [2-pytorch_ppo.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py) 用纯 PyTorch 实现了这条数据流：独立 Actor-Critic 网络、正交初始化、截断处的价值 bootstrap、回合边界处的 GAE 切断、PPO 裁剪和 SwanLab 指标记录。实际得分受随机种子和运行环境影响，应以本次运行的评估输出为准。
 
-> **动手实验**：同时运行两个脚本，在 SwanLab 中对比 SB3 和自研 PPO 的训练曲线：
+> **动手实验**：可以分别运行两个脚本，在 SwanLab 中查看各自曲线。若要比较算法，应统一随机种子、训练步数与评估协议，并运行多个种子；不要直接把两次单独运行画在一起下结论。
 >
 > ```bash
 > python 1-ppo_cartpole.py      # SB3 版

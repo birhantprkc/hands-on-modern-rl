@@ -16,10 +16,10 @@ With the preface behind us, we can start hands-on. Recall the core RL setup: an 
 
 So what counts as a "good decision"? We begin with a classic task: CartPole. Just like `print("Hello World")` is the first step in programming, balancing a pole with a few dozen lines of code is the standard first step into reinforcement learning.
 
-![CartPole agent in three typical poses](../../chapter01_cartpole/images/cartpole-real-env-frames.png)
+![Measured Gymnasium frames from the trained policy](../../chapter01_cartpole/images/cartpole_frames_seed42.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>Figure 1-1: three typical CartPole poses (slight left tilt, near upright, slight right tilt). The dashed line indicates the vertical reference. A high-scoring policy does not freeze the pole perfectly; it keeps correcting with small oscillations.</em>
+  <em>Figure 1-1: deterministic evaluation in Gymnasium <code>CartPole-v1</code> after training the repository's pure PyTorch PPO with seed 42. Frames come directly from <code>rgb_array</code> rendering. The episode reached the 500-step limit; angles in the titles come from the recorded observations.</em>
 </div>
 
 You might ask: what hardware do you need to train such an agent?
@@ -27,8 +27,7 @@ You might ask: what hardware do you need to train such an agent?
 In practice, this task is very light-weight. A normal laptop or desktop (Intel Mac, Apple Silicon, Windows/Linux) can run it:
 
 - **No GPU required**: the compute is small; CPU training is enough.
-- **Tiny memory footprint**: typically around 100MB–200MB during runtime.
-- **Very small model**: the default `MlpPolicy` has two 64-unit layers, only a few thousand parameters.
+- **Very small model**: the pure PyTorch Actor and Critic each use two 64-unit hidden layers, and the script runs on CPU by default.
 
 We will use Gymnasium (the current standard RL environment API) as the training arena, and Stable Baselines3 (SB3) as the algorithm library. If PyTorch is the parts to build a car, SB3 is a well-assembled engine: it packages PPO into a few lines of code.
 
@@ -37,7 +36,7 @@ This chapter does not require calculus or linear algebra. We will go straight in
 ![The full PPO training loop on CartPole](../../chapter01_cartpole/images/rl-training-loop.svg)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>Figure 1-2: the full PPO training loop on CartPole. On a personal computer this typically finishes in under 30 seconds.</em>
+  <em>Figure 1-2: a schematic of the PPO data flow, not an experimental result. Runtime depends on the CPU, Python, and dependency versions.</em>
 </div>
 
 ### Step 1: Install Dependencies
@@ -75,6 +74,19 @@ python 2-pytorch_ppo.py
 python 2-pytorch_ppo.py --gui
 ```
 
+To reproduce the measured curves in Sections 1.2 and 1.3, use the fixed configuration below:
+
+```bash
+python 2-pytorch_ppo.py \
+  --seed 42 \
+  --iterations 40 \
+  --steps-per-rollout 2048 \
+  --swanlab-mode disabled \
+  --log-csv output/training_metrics_seed42.csv
+```
+
+The raw record is committed as [training_metrics_seed42.csv](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/output/training_metrics_seed42.csv), and [plot_curves.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/plot_curves.py) generates the page figures directly from that CSV.
+
 After you run it, you will see training logs scrolling in the terminal. When training finishes, the model is saved under `output/`.
 
 About `--gui`: training always runs headless (no rendering), so training speed is unaffected. `--gui` only controls whether a CartPole window is shown during the post-training demo. With GUI, each frame waits for screen refresh (roughly 16ms), so demos run slower; without GUI, the demo is pure computation and finishes in a few seconds.
@@ -92,12 +104,12 @@ Then open either address in your browser:
 - `http://127.0.0.1:5092`
 - `http://localhost:5092`
 
-You will usually first see a SwanLab project page like this:
+The following two screenshots are **interface examples**. They explain navigation and are not sources for the measured results in this chapter:
 
 ![SwanLab local dashboard project page](../../chapter01_cartpole/images/cartpole-swanlab-dashboard.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>After visiting <code>http://127.0.0.1:5092</code>, you typically land on a project page. The left sidebar lists experiments. Click one, then switch to the <code>Chart</code> tab to view curves.</em>
+  <em>SwanLab project-page example. Layout may change between versions; use the experiment list to select a run.</em>
 </div>
 
 Inside an experiment, you will see a chart page like this:
@@ -105,7 +117,7 @@ Inside an experiment, you will see a chart page like this:
 ![SwanLab experiment chart page](../../chapter01_cartpole/images/cartpole-swanlab-experiment-chart.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>This is the page after entering an experiment and clicking <code>Chart</code>. Metrics are grouped under tabs like <code>rollout</code>, <code>time</code>, and <code>train</code>.</em>
+  <em>SwanLab chart-page example. The formal analysis in this chapter uses raw CSV values rather than reading numbers from screenshots.</em>
 </div>
 
 The first curve to look at is usually `rollout/ep_rew_mean`, the mean episode return. If it keeps rising, the agent is improving.
@@ -194,15 +206,15 @@ Termination thresholds: position ±2.4, angle ±0.2094 rad (≈ ±12°)
 
 Organized into a table, this is the 4-dimensional observation vector the agent receives each frame:
 
-| Index | Meaning               | Space bounds                   | Typical range            |
-| ----- | --------------------- | ------------------------------ | ------------------------ |
-| 0     | cart position         | -4.8 to 4.8                    | -4.8 to 4.8              |
-| 1     | cart velocity         | unbounded (`inf`)              | about -3 to +3           |
-| 2     | pole angle            | -0.4189 to 0.4189 rad (≈ ±24°) | about -0.21 to +0.21 rad |
-| 3     | pole angular velocity | unbounded (`inf`)              | about -3 to +3           |
+| Index | Meaning               | `observation_space` bounds     |
+| ----- | --------------------- | ------------------------------ |
+| 0     | cart position         | -4.8 to 4.8                    |
+| 1     | cart velocity         | `-inf` to `inf`                |
+| 2     | pole angle            | -0.4189 to 0.4189 rad (≈ ±24°) |
+| 3     | pole angular velocity | `-inf` to `inf`                |
 
 ::: warning Why are velocities `inf`?
-Cart velocity and pole angular velocity have no hard caps — they are computed by the physics engine each frame and can theoretically take any value. Gymnasium therefore uses `inf` as the bound. In practice, episodes terminate quickly (the pole falls and triggers a reset), so these values typically stay in the **-3 to +3** range, far from "infinity."
+Gymnasium does not declare finite observation bounds for cart velocity or pole angular velocity, so those dimensions display `inf`. To describe the empirical range of a particular run, compute the minimum and maximum from its recorded trajectories rather than assuming a typical interval.
 :::
 
 These 4 numbers form a complete description of the current situation. The agent cannot access the environment's internal state-transition rules or physics parameters; all information it uses for decisions is encoded in this 4D observation.
@@ -247,7 +259,7 @@ Stringing together the three elements above gives us the core concept of RL — 
 
 A policy is "the rule for choosing action $a$ in state $s$." In CartPole, the policy answers the question: **"Given the current cart position, velocity, pole angle, and angular velocity, should I push left or right?"**
 
-Mathematically, a policy is a mapping from states to action probability distributions: $\pi(a|s)$. In a discrete action space, it outputs the probability of each action being selected. At the start of training, $\pi(\text{left}) \approx 0.5, \pi(\text{right}) \approx 0.5$ (random initialization); after training, $\pi$ learns to output $\pi(\text{right}) \approx 0.95$ when the pole tilts right.
+Mathematically, a policy maps a state to an action probability distribution: $\pi(a|s)$. The small Actor output initialization makes both action probabilities close to `0.5` at the start. After training, the probabilities depend on the complete state; pole angle alone does not determine a fixed percentage.
 
 ```mermaid
 flowchart LR
@@ -264,8 +276,8 @@ flowchart LR
     end
 
     subgraph ActionProbs["Action Probabilities"]
-        a1["π(left) = 0.3"]
-        a2["π(right) = 0.7"]
+        a1["π(left | s)"]
+        a2["π(right | s)"]
     end
 
     s1 & s2 & s3 & s4 --> h1 --> h2 --> a1 & a2
@@ -369,8 +381,7 @@ An important detail: **orthogonal initialization**. The Actor's output layer use
 With the network, the next step is to let it interact with the environment and collect training data. This process is called a **Rollout**:
 
 ```python
-def collect_rollout(model, env, num_steps=2048):
-    obs, _ = env.reset()
+def collect_rollout(model, env, obs, num_steps=2048):
     transitions = []
 
     for _ in range(num_steps):
@@ -399,10 +410,12 @@ def collect_rollout(model, env, num_steps=2048):
         if terminated or truncated:
             obs, _ = env.reset()
 
-    return transitions
+    return transitions, obs
 ```
 
-This code has a **critical engineering detail**: it distinguishes between `terminated` (the pole fell, the episode ends naturally) and `truncated` (the 500-step limit is reached, but the pole is still balanced). This distinction significantly affects training performance — if truncated episodes are treated the same as `terminated`, the value function would be incorrectly set to zero at truncation points, and the agent would learn that "reaching 500 steps is bad," making it impossible to converge to the optimal policy. This is one of the common pitfalls in RL engineering practice; the accompanying code handles it correctly.
+This code distinguishes `terminated` (the pole fell or the cart left the region) from `truncated` (the 500-step time limit). Treating time truncation as true termination incorrectly sets the value target to zero. The script uses `next_value=0` after true termination and bootstraps from `V(s')` after time truncation or when a rollout ends mid-episode.
+
+The observation is also carried into the next rollout. A rollout is a training-batch boundary, not a reason to reset the environment.
 
 Another noteworthy aspect: the sampling method in the accompanying code does not directly choose the most probable action, but **samples according to probabilities**:
 
@@ -491,7 +504,7 @@ flowchart LR
         A --> B --> C
     end
 
-    END["Trained Policy\nPole tilts right → π(right)≈0.95"]
+    END["Trained Policy\nAction probabilities use the full state"]
 
     START --> LOOP
     C -->|"repeat"| A
@@ -508,10 +521,11 @@ flowchart LR
 model = ActorCritic()
 optimizer = Adam(model.parameters(), lr=3e-4)
 env = gym.make("CartPole-v1")
+obs, _ = env.reset(seed=42)
 
 for iteration in range(40):
     # Step 1: Collect experience data (2048 steps)
-    transitions = collect_rollout(model, env, 2048)
+    transitions, obs = collect_rollout(model, env, obs, 2048)
 
     # Step 2: Compute GAE advantages
     advantages, returns = compute_gae(transitions)
@@ -520,11 +534,11 @@ for iteration in range(40):
     metrics = ppo_update(model, optimizer, transitions, advantages, returns)
 ```
 
-These three steps looping together constitute the essence of `model.learn(total_timesteps=80000)`. SB3 wraps this loop into a single line of code and provides a comprehensive set of well-validated default hyperparameters (learning rate, batch size, clip range, GAE parameters, etc.), enabling users to complete training without worrying about underlying details.
+These three steps form the main data flow behind `model.learn(total_timesteps=80000)`. SB3 also handles batching, logging, devices, environment wrappers, and additional edge cases; the pure PyTorch version keeps the parts we need to inspect in this chapter.
 
 Our [2-pytorch_ppo.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py) implements this data flow in pure PyTorch: separate Actor-Critic networks, orthogonal initialization, value bootstrapping at truncation, GAE resets at episode boundaries, PPO clipping, and SwanLab metric logging. Scores depend on the random seed and runtime environment, so use the evaluation printed by the current run.
 
-> **Hands-on experiment**: Run both scripts simultaneously and compare SB3 and the from-scratch PPO training curves in SwanLab:
+> **Hands-on experiment**: You can run both scripts and inspect each curve in SwanLab. To compare algorithms, keep seeds, budgets, and evaluation protocols identical and run multiple seeds; do not draw a conclusion from two unrelated single runs.
 >
 > ```bash
 > python 1-ppo_cartpole.py      # SB3 version

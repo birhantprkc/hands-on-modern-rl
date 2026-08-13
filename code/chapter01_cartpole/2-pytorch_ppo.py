@@ -20,7 +20,9 @@
 """
 
 import argparse
+import csv
 import os
+import random
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -89,15 +91,23 @@ class ActorCritic(nn.Module):
 # ==========================================
 # 第二部分：收集轨迹（Rollout）
 # ==========================================
-def collect_rollout(model, env, num_steps=2048):
+def collect_rollout(
+    model,
+    env,
+    obs,
+    episode_reward=0.0,
+    episode_length=0,
+    num_steps=2048,
+):
     """
     收集轨迹，正确处理 terminated vs truncated：
     - terminated（杆子倒了）：V(s')=0
     - truncated（达到步数上限）：V(s')需要 bootstrap
     - rollout 末尾未结束：也用 V(s') bootstrap
     """
-    obs, _ = env.reset()
     transitions = []
+    completed_rewards = []
+    completed_lengths = []
 
     for _ in range(num_steps):
         obs_tensor = torch.FloatTensor(obs)
@@ -124,11 +134,25 @@ def collect_rollout(model, env, num_steps=2048):
             "next_value": next_value,
         })
 
+        episode_reward += float(reward)
+        episode_length += 1
+
         obs = next_obs
         if terminated or truncated:
+            completed_rewards.append(episode_reward)
+            completed_lengths.append(episode_length)
+            episode_reward = 0.0
+            episode_length = 0
             obs, _ = env.reset()
 
-    return transitions
+    return (
+        transitions,
+        obs,
+        completed_rewards,
+        completed_lengths,
+        episode_reward,
+        episode_length,
+    )
 
 
 # ==========================================
@@ -248,14 +272,36 @@ def parse_args():
         "--gui", action="store_true",
         help="训练结束后弹出 GUI 窗口演示智能体（默认关闭，仅输出得分）",
     )
+    parser.add_argument("--seed", type=int, default=42, help="训练随机种子")
+    parser.add_argument("--iterations", type=int, default=40, help="PPO 迭代轮数")
+    parser.add_argument("--steps-per-rollout", type=int, default=2048, help="每轮采样步数")
+    parser.add_argument(
+        "--log-csv", default="output/training_metrics.csv",
+        help="原始训练指标 CSV 的保存位置",
+    )
+    parser.add_argument(
+        "--swanlab-mode",
+        choices=["local", "cloud", "disabled"],
+        default="local",
+        help="SwanLab 记录模式；复现实验但不需要看板时可设为 disabled",
+    )
     return parser.parse_args()
 
 
 def train():
     args = parse_args()
-    os.makedirs("output", exist_ok=True)
+    model_path = os.path.join(
+        os.path.dirname(os.path.abspath(args.log_csv)),
+        "pytorch_ppo_cartpole.pth",
+    )
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
 
     env = gym.make("CartPole-v1")
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
+    env.action_space.seed(args.seed)
+    obs, _ = env.reset(seed=args.seed)
 
     # 打印环境信息（状态空间、动作空间、边界阈值）
     print("=" * 50)
@@ -273,14 +319,14 @@ def train():
     model = ActorCritic()
     optimizer = optim.Adam(model.parameters(), lr=3e-4)
 
-    total_iterations = 40
-    steps_per_rollout = 2048
+    total_iterations = args.iterations
+    steps_per_rollout = args.steps_per_rollout
 
     # 初始化 SwanLab
     swanlab.init(
         project="cartpole-pytorch",
         experiment_name="PPO-PyTorch-CartPole-v1",
-        mode="local",
+        mode=args.swanlab_mode,
         config={
             "algorithm": "PPO",
             "lr": 3e-4,
@@ -291,6 +337,7 @@ def train():
             "clip_eps": 0.2,
             "epochs": 10,
             "batch_size": 64,
+            "seed": args.seed,
         },
     )
 
@@ -299,25 +346,32 @@ def train():
 
     total_timesteps = 0
 
+    csv_dir = os.path.dirname(args.log_csv)
+    if csv_dir:
+        os.makedirs(csv_dir, exist_ok=True)
+    metric_rows = []
+    ongoing_episode_reward = 0.0
+    ongoing_episode_length = 0
+
     for iteration in range(total_iterations):
         # 收集数据
-        transitions = collect_rollout(model, env, steps_per_rollout)
+        (
+            transitions,
+            obs,
+            ep_rewards,
+            ep_lengths,
+            ongoing_episode_reward,
+            ongoing_episode_length,
+        ) = collect_rollout(
+            model,
+            env,
+            obs,
+            ongoing_episode_reward,
+            ongoing_episode_length,
+            steps_per_rollout,
+        )
 
         total_timesteps += len(transitions)
-
-        # 计算回合奖励和长度
-        ep_rewards = []
-        ep_lengths = []
-        ep_reward = 0
-        ep_length = 0
-        for t in transitions:
-            ep_reward += t["reward"]
-            ep_length += 1
-            if t["terminated"] or t["truncated"]:
-                ep_rewards.append(ep_reward)
-                ep_lengths.append(ep_length)
-                ep_reward = 0
-                ep_length = 0
 
         # 计算优势和 Critic 的未归一化回报目标
         advantages, returns = compute_gae(transitions)
@@ -363,6 +417,22 @@ def train():
             "time/iterations": iteration + 1,
         }, step=iteration)
 
+        metric_rows.append({
+            "seed": args.seed,
+            "iteration": iteration + 1,
+            "total_timesteps": total_timesteps,
+            "completed_episodes": len(ep_rewards),
+            "mean_episode_reward": mean_reward,
+            "mean_episode_length": mean_ep_len,
+            "policy_loss": metrics["policy_loss"],
+            "value_loss": metrics["value_loss"],
+            "entropy": metrics["entropy"],
+            "approx_kl": metrics["approx_kl"],
+            "clip_fraction": metrics["clip_fraction"],
+            "explained_variance": explained_variance,
+            "learning_rate": lr,
+        })
+
         print(
             f"  迭代 {iteration + 1:2d}/{total_iterations} | "
             f"回合数: {len(ep_rewards):3d} | "
@@ -373,10 +443,19 @@ def train():
 
     print("-" * 60)
 
+    fieldnames = list(metric_rows[0].keys())
+    temporary_csv = f"{args.log_csv}.tmp"
+    with open(temporary_csv, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(metric_rows)
+    os.replace(temporary_csv, args.log_csv)
+    print(f"原始训练指标已保存到 {args.log_csv}")
+
     # 最终评估
     eval_rewards = []
     for _ in range(20):
-        obs, _ = env.reset()
+        obs, _ = env.reset(seed=args.seed + 10_000 + len(eval_rewards))
         done, truncated, score = False, False, 0
         while not (done or truncated):
             obs_tensor = torch.FloatTensor(obs)
@@ -396,8 +475,8 @@ def train():
     })
 
     # 保存模型
-    torch.save(model.state_dict(), "output/pytorch_ppo_cartpole.pth")
-    print(f"模型已保存到 output/pytorch_ppo_cartpole.pth")
+    torch.save(model.state_dict(), model_path)
+    print(f"模型已保存到 {model_path}")
 
     # GUI 演示
     if args.gui:
@@ -405,7 +484,7 @@ def train():
             vis_env = gym.make("CartPole-v1", render_mode="human")
             print("\n正在演示学习成果（5 个回合）...")
             for ep in range(5):
-                obs, _ = vis_env.reset()
+                obs, _ = vis_env.reset(seed=args.seed + 20_000 + ep)
                 done, truncated, score = False, False, 0
                 while not (done or truncated):
                     obs_tensor = torch.FloatTensor(obs)
