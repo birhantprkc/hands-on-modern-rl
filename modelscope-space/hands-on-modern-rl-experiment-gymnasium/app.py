@@ -768,11 +768,12 @@ TEXT = {
         "experiments": "Experiments",
         "catalog_title": "Choose an experiment",
         "catalog_copy": "Choose a learning path on the left, then optionally narrow it by goal on the right. Search works across the complete catalog.",
-        "catalog_version": "Navigation v2.4 · cached images",
+        "catalog_version": "Navigation v2.5 · paged goals",
         "path": "Learning path",
         "search": "Know a task name? Search the full catalog",
         "search_placeholder": "Optional: try CartPole, Pong, robot...",
         "goal": "Choose a goal (optional)",
+        "goal_page": "Page {page}/{pages} · {total} goals",
         "previous": "← Previous",
         "next": "Next →",
         "settings": "Experiment setup",
@@ -815,11 +816,12 @@ TEXT = {
         "experiments": "实验数量",
         "catalog_title": "选择一个实验",
         "catalog_copy": "在左侧选择学习路线，再在右侧按训练目标细分。搜索会覆盖完整实验目录。",
-        "catalog_version": "导航版本 v2.4 · 图片已缓存",
+        "catalog_version": "导航版本 v2.5 · 目标分页",
         "path": "学习路线",
         "search": "知道任务名称？搜索完整目录",
         "search_placeholder": "可选：输入 CartPole、Pong、robot…",
         "goal": "选择训练目标（可选）",
+        "goal_page": "第 {page}/{pages} 页 · 共 {total} 个目标",
         "previous": "← 上一页",
         "next": "下一页 →",
         "settings": "实验设置",
@@ -922,6 +924,19 @@ def panel_html(title: str, text: str, cls: str = "panel-copy") -> str:
 def catalog_header_html(language: str) -> str:
     copy = copy_for(language)
     return f'<div class="catalog-heading"><div><h2 class="panel-title">{copy["catalog_title"]}</h2><p class="panel-copy">{copy["catalog_copy"]}</p></div><span class="ui-version">{copy["catalog_version"]}</span></div>'
+
+
+def goal_pager_html(language: str) -> str:
+    copy = copy_for(language)
+    return (
+        '<div class="goal-local-pager" hidden data-page-size="6" '
+        f'data-template="{html.escape(copy["goal_page"])}" '
+        f'data-previous="{html.escape(copy["previous"])}" data-next="{html.escape(copy["next"])}">'
+        '<button type="button" data-goal-page="previous"></button>'
+        '<span class="goal-local-pager__meta"></span>'
+        '<button type="button" data-goal-page="next"></button>'
+        '</div>'
+    )
 
 
 def card_preload_html() -> str:
@@ -1496,6 +1511,7 @@ def switch_language(language: str, experiment: str, seed: float, learning_path: 
         gr.Radio(choices=path_choices(language), value=learning_path, label=copy["path"]),
         gr.Textbox(value=query, label=copy["search"], placeholder=copy["search_placeholder"]),
         gr.Radio(choices=feature_options, value=selected_feature, label=copy["goal"]),
+        goal_pager_html(language),
         *gallery_values,
         panel_html(copy["settings"], copy["settings_copy"]), task_brief(experiment, language),
         slider_update(copy["budget"], cfg["budget"]), slider_update(copy["alpha"], cfg["alpha"]), slider_update(copy["gamma"], cfg["gamma"], cfg["gamma_visible"]), slider_update(copy["epsilon"], cfg["epsilon"], cfg["algorithm"] not in {"PPO", "SAC"}),
@@ -1529,6 +1545,8 @@ CSS = """
 .catalog-family input,.catalog-feature input{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;margin:0!important;opacity:0!important;cursor:pointer!important;pointer-events:auto!important}
 .catalog-filter-row{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;align-items:stretch!important;gap:14px!important;margin:4px 0 16px!important}.catalog-filter-pane{min-width:0!important;margin:0!important;padding:14px!important;border:1px solid #e4e8f2!important;border-radius:13px!important;background:#fafbfe!important}.catalog-filter-pane--path{background:linear-gradient(145deg,#fbfbff,#f7f8ff)!important}.catalog-filter-pane--goal{background:linear-gradient(145deg,#fbfdfd,#f6fbfa)!important}.catalog-filter-pane .catalog-family,.catalog-filter-pane .catalog-feature{margin:0!important;padding:0!important;border:0!important;background:transparent!important}.catalog-filter-pane .catalog-family>div,.catalog-filter-pane .catalog-feature>div{grid-template-columns:1fr!important}.catalog-filter-pane .catalog-family label span,.catalog-filter-pane .catalog-feature label span{min-height:40px!important}.catalog-filter-pane .catalog-feature label span{border-color:#e7eaf1!important;background:#fff!important}.catalog-filter-pane .catalog-feature label:has(input:checked) span,.catalog-filter-pane .catalog-feature input:checked+span{border-color:#5b5ce2!important;background:#5b5ce2!important}.catalog-search{margin-bottom:10px!important}
 .card-image-preload{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;opacity:.001!important;pointer-events:none!important}.card-image-preload img{position:absolute!important;width:1px!important;height:1px!important}
+.goal-local-pager{display:grid!important;grid-template-columns:88px 1fr 88px!important;align-items:center!important;gap:7px!important;margin-top:10px!important}.goal-local-pager[hidden]{display:none!important}.goal-local-pager button{min-width:0!important;min-height:34px!important;padding:6px 8px!important;border:1px solid #dfe3ef!important;border-radius:8px!important;color:#465166!important;background:#fff!important;font-size:11px!important;font-weight:750!important}.goal-local-pager button:disabled{opacity:.38!important}.goal-local-pager__meta{text-align:center;color:#68748a;font-size:11px;font-weight:700}
+.catalog-feature label[hidden]{display:none!important}
 .experiment-gallery .grid-wrap{display:block!important;width:100%!important;height:auto!important;min-height:0!important}.experiment-gallery .grid-container{display:grid!important;width:100%!important;grid-template-columns:repeat(auto-fill,minmax(230px,270px))!important;justify-content:start!important;gap:12px!important}.experiment-gallery .gallery-item{width:100%!important;min-width:0!important}
 .experiment-gallery button,.experiment-gallery .thumbnail-item{height:auto!important;aspect-ratio:2/1!important}.experiment-gallery .caption-label{position:absolute!important;inset:0 0 auto 0!important;z-index:2!important;display:block!important;width:100%!important;min-height:72px!important;padding:14px 16px 18px!important;overflow:visible!important;text-overflow:clip!important;white-space:pre-line!important;overflow-wrap:anywhere!important;background:linear-gradient(180deg,rgba(5,9,30,.94),rgba(5,9,30,.76) 70%,transparent)!important;color:#fff!important;font-size:clamp(12px,1.25vw,17px)!important;font-weight:800!important;line-height:1.28!important;text-align:left!important;text-shadow:0 1px 2px rgba(0,0,0,.4)!important;pointer-events:none!important}
 @media(max-width:760px){.experiment-gallery .grid-container{grid-template-columns:1fr!important}}
@@ -1537,23 +1555,61 @@ CSS = """
 
 
 AUTO_SCROLL_JS = """
-() => {
+function initializeGymPlaygroundUi() {
+  if (window.__gymPlaygroundUiReady) return;
+  window.__gymPlaygroundUiReady = true;
   const selector = "#live-training-console .console-text";
   let active = null, follow = true, saved = 0, internal = false, scheduled = false;
+  let goalPage = 0, goalSignature = "", goalPagerBound = null;
+  const updateGoalPager = () => {
+    const goal = document.querySelector(".catalog-feature");
+    const pager = document.querySelector(".goal-local-pager");
+    if (!goal || !pager) return;
+    const labels = [...goal.querySelectorAll("label")];
+    const selected = labels.findIndex(label => label.querySelector("input:checked"));
+    const signature = labels.map(label => label.querySelector("input")?.value || label.textContent.trim()).join("|");
+    const pageSize = Number(pager.dataset.pageSize || 6);
+    const pages = Math.max(1, Math.ceil(labels.length / pageSize));
+    if (signature !== goalSignature) {
+      goalSignature = signature;
+      goalPage = selected >= 0 ? Math.floor(selected / pageSize) : 0;
+    }
+    goalPage = Math.max(0, Math.min(goalPage, pages - 1));
+    labels.forEach((label, index) => { label.hidden = Math.floor(index / pageSize) !== goalPage; });
+    const previous = pager.querySelector('[data-goal-page="previous"]');
+    const next = pager.querySelector('[data-goal-page="next"]');
+    previous.textContent = pager.dataset.previous;
+    next.textContent = pager.dataset.next;
+    previous.disabled = goalPage === 0;
+    next.disabled = goalPage >= pages - 1;
+    const template = pager.dataset.template || "Page {page}/{pages} · {total} goals";
+    pager.querySelector(".goal-local-pager__meta").textContent = template
+      .replace("{page}", String(goalPage + 1)).replace("{pages}", String(pages)).replace("{total}", String(labels.length));
+    pager.hidden = pages <= 1;
+    if (goalPagerBound !== pager) {
+      goalPagerBound = pager;
+      pager.addEventListener("click", event => {
+        const button = event.target.closest("button[data-goal-page]");
+        if (!button || button.disabled) return;
+        goalPage += button.dataset.goalPage === "next" ? 1 : -1;
+        updateGoalPager();
+      });
+    }
+  };
   const update = () => {
     scheduled = false;
+    updateGoalPager();
     const element = document.querySelector(selector);
     document.querySelectorAll(".experiment-gallery .caption:not([data-feature-ready]),.experiment-gallery .label:not([data-feature-ready]),.experiment-gallery .caption-label:not([data-feature-ready])").forEach(caption => {
-      const lines = caption.textContent.split("\n").map(line => line.trim()).filter(Boolean);
+      const lines = caption.textContent.split(String.fromCharCode(10)).map(line => line.trim()).filter(Boolean);
       if (lines.length >= 3) {
         const card = caption.closest("button,.thumbnail-item");
         if (card) card.dataset.feature = lines.slice(2).join(" · ");
-        caption.textContent = lines.slice(0, 2).join("\n");
+        caption.textContent = lines.slice(0, 2).join(String.fromCharCode(10));
       }
       caption.dataset.featureReady = "true";
     });
-    if (!element) return;
-    if (element !== active) {
+    if (element && element !== active) {
       active = element;
       active.addEventListener("scroll", () => {
         if (internal) return;
@@ -1561,21 +1617,24 @@ AUTO_SCROLL_JS = """
         saved = active.scrollTop;
       }, {passive:true});
     }
-    internal = true;
-    if (follow) active.scrollTop = active.scrollHeight;
-    else active.scrollTop = Math.min(saved, Math.max(0, active.scrollHeight - active.clientHeight));
+    if (active) {
+      internal = true;
+      if (follow) active.scrollTop = active.scrollHeight;
+      else active.scrollTop = Math.min(saved, Math.max(0, active.scrollHeight - active.clientHeight));
+    }
     const timer = document.querySelector(".run-wait__elapsed");
     if (timer) {
       const elapsed = Math.max(0, Math.floor((Date.now() - Number(timer.dataset.startMs)) / 1000));
       timer.textContent = `${elapsed}s ${timer.dataset.label}`;
     }
-    requestAnimationFrame(() => { internal = false; });
+    if (active) requestAnimationFrame(() => { internal = false; });
   };
   const schedule = () => { if (!scheduled) { scheduled = true; requestAnimationFrame(update); } };
   new MutationObserver(schedule).observe(document.body, {childList:true, subtree:true, characterData:true});
   setInterval(schedule, 1000);
   schedule();
 }
+initializeGymPlaygroundUi();
 """
 
 
@@ -1603,6 +1662,7 @@ with gr.Blocks(title="Hands-On Modern RL · Gymnasium CPU Playground") as demo:
                 family = gr.Radio(choices=path_choices(DEFAULT_LANGUAGE), value="Start here", label=copy["path"], elem_classes="catalog-family")
             with gr.Column(elem_classes="catalog-filter-pane catalog-filter-pane--goal"):
                 feature = gr.Radio(choices=all_feature_choices, value=ALL_FEATURES, label=copy["goal"], visible=True, elem_classes="catalog-feature")
+                goal_pager = gr.HTML(goal_pager_html(DEFAULT_LANGUAGE), elem_classes="goal-pager-host")
         gallery = gr.Gallery(value=initial_cards, label=None, show_label=False, columns=4, rows=3, object_fit="cover", height="auto", allow_preview=False, buttons=[], elem_classes="experiment-gallery")
         visible_experiments = gr.State(initial_visible)
         catalog_page_state = gr.State(initial_page)
@@ -1650,7 +1710,7 @@ with gr.Blocks(title="Hands-On Modern RL · Gymnasium CPU Playground") as demo:
     next_page.click(lambda q, f, t, p, lang: move_catalog(q, f, t, p, lang, 1), inputs=[search, family, feature, catalog_page_state, language], outputs=page_outputs, queue=False, show_progress="hidden")
     gallery.select(choose_card, inputs=[visible_experiments], outputs=[experiment], queue=False)
     experiment.change(select_experiment, inputs=[experiment, language], outputs=[hero, task_info, budget, alpha, gamma, epsilon, status, metric, console, preview, artifact], queue=False)
-    language.change(switch_language, inputs=[language, experiment, seed, family, search, feature, catalog_page_state], outputs=[hero, catalog_header, family, search, feature, gallery, visible_experiments, catalog_page_state, catalog_meta, previous_page, next_page, settings_header, task_info, budget, alpha, gamma, epsilon, seed, start, status, metric, chart_header, console, preview_header, artifact], queue=False)
+    language.change(switch_language, inputs=[language, experiment, seed, family, search, feature, catalog_page_state], outputs=[hero, catalog_header, family, search, feature, goal_pager, gallery, visible_experiments, catalog_page_state, catalog_meta, previous_page, next_page, settings_header, task_info, budget, alpha, gamma, epsilon, seed, start, status, metric, chart_header, console, preview_header, artifact], queue=False)
     run_event = start.click(begin_run, inputs=[language], outputs=[wait_state, start], queue=False)
     run_event = run_event.then(train, inputs=[experiment, budget, alpha, gamma, epsilon, seed, language], outputs=[status, metric, curve, preview, artifact, console], concurrency_limit=1)
     run_event.then(finish_run, inputs=[language], outputs=[wait_state, start], queue=False)
