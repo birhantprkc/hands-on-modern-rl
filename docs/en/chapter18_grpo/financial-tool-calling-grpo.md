@@ -1,5 +1,11 @@
 # 15.6 Hands-on: GRPO for Financial Tool Calling
 
+> **Section goal**: Train a small model to produce financial API calls with GRPO, using JSON, schema, and execution checks to verify the selected tool and its arguments.
+
+> **Learning path**: [15.3 Building RLVR Rewards](./rlvr) → [15.5 RL Environments and Verifiers](./rl-environments) → **15.6 Financial Tool Calling**
+
+> **Code and resources**: This page provides synthetic data, tool schemas, layered reward functions, and a `GRPOTrainer` configuration for a minimal experiment.
+
 In the previous section, we used math problems to understand RLVR: as long as the answer can be verified by rules, we do not necessarily need to train a Reward Model. Now let us move the same idea into a more enterprise-like setting. A user asks a financial question in natural language, and a small model must choose the correct API, fill the correct arguments, and produce the right answer after the tool returns.
 
 Start with the intuition. In a math task, the action is "write the answer." In a financial assistant, the action is "call a tool." For example, if the user asks:
@@ -19,7 +25,7 @@ What this step means is: the model is no longer only a language generator. It is
 
 This section follows the idea of AWS's financial tool-calling GRPO + TRL example[^aws-financial-tool-grpo], but keeps the experiment smaller and easier to reproduce. We first define a small synthetic financial API dataset, then build a verifier that scores tool calls, and finally train a small model with TRL's `GRPOTrainer`. The goal is not to reproduce cloud-scale throughput, but to make the key idea clear: **enterprise API calls can also be trained with RLVR**.
 
-## Task: From Natural Language to API Calls
+## 15.6.1 Task: From Natural Language to API Calls
 
 We keep the environment minimal. Suppose the enterprise system exposes only three financial APIs:
 
@@ -53,7 +59,7 @@ flowchart LR
     style R fill:#fff3e0,stroke:#f57c00
 ```
 
-## Data: Small but Complete
+## 15.6.2 Data: Small but Complete
 
 In real enterprise settings, data usually comes from three sources: historical API logs, manually curated business cases, and query-call pairs synthesized by stronger models. For this small experiment, we use a simple data generator. Each sample contains:
 
@@ -184,7 +190,7 @@ def make_dataset() -> Dataset:
 
 This dataset is tiny. It is only meant to make the training loop visible. A real experiment should expand each tool into dozens or hundreds of query templates and include negative cases: missing arguments, wrong date formats, no available tool, and confusingly similar tools.
 
-## Reward: Four Verifiable Scores
+## 15.6.3 Reward: Four Verifiable Scores
 
 Math RLVR often asks only whether the final answer is correct. Tool calling needs a more detailed reward, otherwise the model will not know where it failed.
 
@@ -252,7 +258,7 @@ def tool_reward(completions, gold_call, expected_result, **kwargs):
 
 Look at it from another angle: this reward function is a miniature enterprise API test framework. It does not care whether the model gives a beautiful explanation. It cares whether the model produces an executable, correct, auditable action. For tool calling, executability is the first principle of reward design.
 
-## Training with TRL's GRPOTrainer
+## 15.6.4 Training with TRL's GRPOTrainer
 
 Once we have data and a verifier, we can train with GRPO. The code below shows the minimal skeleton. If GPU memory is limited, start with `Qwen/Qwen2.5-0.5B-Instruct`; to mirror the AWS example more closely, use `Qwen/Qwen3-1.7B`.
 
@@ -313,7 +319,7 @@ The training logic is the same as math RLVR:
 
 The only difference is the reward shape: math tasks verify the final answer, while tool-calling tasks verify JSON, schema, and execution result.
 
-## Evaluation: Do Not Only Watch Mean Reward
+## 15.6.5 Evaluation: Do Not Only Watch Mean Reward
 
 Tool-calling training can create a dangerous illusion: reward rises, but the model is still unsafe for production APIs. This happens when one subreward dominates. For example, the model may learn valid JSON while still choosing the wrong function.
 
@@ -367,7 +373,7 @@ The metrics answer different questions:
 
 The AWS financial tool-calling example reports similar improvements: after GRPO/RLVR, Qwen3-1.7B improves exact match from about `0.62` to `0.96`, response validity from about `0.78` to `0.99`, and schema match from about `0.90` to `0.95`[^aws-financial-tool-grpo]. The important point is that small models can learn enterprise API calling when correctness is made explicit and optimizable.
 
-## Difference from SFT
+## 15.6.6 Difference from SFT
 
 Why not just use SFT and show the model the gold JSON?
 
@@ -380,7 +386,7 @@ SFT is useful, especially for teaching the output format. But SFT learns "imitat
 
 In practice, SFT first teaches the tool-call format. GRPO or RLVR then uses execution feedback to reduce tool-selection and argument errors. The two stages solve different parts of the problem.
 
-## Common Pitfalls
+## 15.6.7 Common Pitfalls
 
 **First, do not reward only valid JSON.** If valid JSON receives too much reward, the model will learn fixed templates instead of correct tool selection.
 
@@ -390,7 +396,7 @@ In practice, SFT first teaches the tool-call format. GRPO or RLVR then uses exec
 
 **Fourth, isolate side effects.** Query APIs can be executed directly. Write APIs must use sandboxing, mocks, or dry-run mode. RL training explores heavily; the model must not mutate production databases.
 
-## Summary
+## Section Summary
 
 This section extends RLVR from math answers to enterprise tool calling. The algorithm is not the main change. The verifier is.
 

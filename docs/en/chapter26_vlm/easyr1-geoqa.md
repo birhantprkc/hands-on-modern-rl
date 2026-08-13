@@ -3,11 +3,18 @@ title: '23.4 Hands-On: Train GeoQA Geometry Reasoning with EasyR1'
 ---
 
 # 23.4 Hands-on: GeoQA Geometric Reasoning
+
+> **Section goal**: Train a vision-language model on GeoQA-8K with EasyR1, covering data preparation, reward configuration, GRPO training, checkpoint merging, and geometry evaluation.
+
+> **Learning path**: [23.3 Multimodal GRPO](./vlm-grpo-hands-on) → **23.4 GeoQA Geometry Reasoning**
+
+> **Code and resources**: [EasyR1](https://github.com/hiyouga/EasyR1) · [GeoQA-8K dataset](https://huggingface.co/datasets/leonardPKU/GEOQA_8K_R1V)
+
 In Section 23.3 we wrote a VLM GRPO training loop by hand -- a few dozen lines of code running on synthetic data. In this section we change posture: we use the industrial-grade framework [EasyR1](https://github.com/hiyouga/EasyR1) to train a VLM for geometry reasoning on the real dataset GeoQA-8K.
 
 The handwritten loop helps you understand the principles; EasyR1 helps you run real experiments. The relationship between the two is similar to hand-writing CartPole in Chapter 1 versus using Stable Baselines3 -- the algorithm is the same, but the framework handles distributed training, memory optimization, data pipeline management, and other engineering details.
 
-## EasyR1 Overview
+## 23.4.1 EasyR1 Overview
 
 [EasyR1](https://github.com/hiyouga/EasyR1) (4900+ stars) is developed by [hiyouga](https://github.com/hiyouga) and built on top of veRL. Compared to using veRL directly, EasyR1's core value-adds:
 
@@ -55,7 +62,7 @@ This structure looks complex, but as a user you only need to care about three di
   <em>Figure 1: The complete GRPO flow in EasyR1 -- from sampling multiple responses, computing group-relative advantage, to clipped policy updates. Source: <a href="https://github.com/hiyouga/EasyR1" target="_blank" rel="noopener noreferrer">EasyR1 GitHub</a></em>
 </div>
 
-## Why GeoQA
+## 23.4.2 Why GeoQA
 
 [GeoQA-8K](https://huggingface.co/datasets/leonardPKU/GEOQA_8K_R1V) is an elementary geometry QA dataset. Each sample contains a geometry diagram, a Chinese question, and a ground-truth answer.
 
@@ -71,7 +78,7 @@ It is suitable as a VLM RL experiment for three reasons:
 2. **Non-trivial visual reasoning** -- the model cannot just OCR the text; it must understand spatial relationships in the diagram (angles, areas, symmetry)
 3. **Community-verified** -- EasyR1 provides complete GeoQA-8K training scripts and baseline results
 
-## Environment Setup
+## 23.4.3 Environment Setup
 
 ### Install EasyR1
 
@@ -137,7 +144,7 @@ EasyR1 internally replaces the `<image>` placeholder with visual tokens, constru
 
 You do not need to construct messages manually -- just put the `<image>` marker in the `problem` field, and the framework handles the rest.
 
-## Prompt Template
+## 23.4.4 Prompt Template
 
 EasyR1 uses Jinja2 templates to wrap raw prompts, standardizing the model's input/output format. GeoQA-8K uses an R1-V style template:
 
@@ -168,7 +175,7 @@ The final answer MUST BE put in <answer> </answer> tags.
 The original EasyR1 r1v.jinja uses `<thinkutan>` / `</thinkutan>` as reasoning tags -- this is the original design from the R1-V paper, using an uncommon tag name to avoid conflicts with the model's pretrained knowledge. However, the original r1v.py's `format_reward` regex `</think\s*>` cannot match `</thinkutan>` (because the Chinese character is not whitespace), so the format reward is always effectively 0. This section uses a simplified template to keep the tags and regex consistent. If you run the official EasyR1 scripts directly, you will see the original `<thinkutan>` tags -- the code does not need modification and training still works (the format_reward signal just becomes inactive, and overall reward degrades to pure accuracy).
 :::
 
-## Reward Design
+## 23.4.5 Reward Design
 
 EasyR1's reward function is simply a plain Python file. The framework loads it dynamically via `importlib`, requiring no registration or decorators. The official reward function for GeoQA-8K is as follows:
 
@@ -246,7 +253,7 @@ The design rationale for this reward function:
 
 `mathruler` is a mathematical equivalence library that supports numerical comparison, algebraic simplification, and unit conversion. It is installed via `pip install mathruler` and is one of EasyR1's dependencies.
 
-## Training Configuration
+## 23.4.6 Training Configuration
 
 EasyR1's configuration is divided into four top-level blocks: `data` (data), `algorithm` (algorithm), `worker` (parameters for model/training/inference/reward workers), and `trainer` (training loop control).
 
@@ -424,7 +431,7 @@ Key changes:
 - `freeze_vision_tower=true`: freezes the vision encoder (recommended when using LoRA, to avoid vision encoder degradation)
 - `exclude_modules=".*visual.*"`: LoRA is only applied to the language model portion, leaving the vision encoder untouched
 
-## Start Training
+## 23.4.7 Start Training
 
 ### Single Machine, Multiple GPUs
 
@@ -505,7 +512,7 @@ Each step outputs three groups of metrics:
 
 If WandB is also enabled (`trainer.logger` includes `"wandb"`), these metrics are automatically uploaded and you can view curves on the WandB dashboard.
 
-## Training Metric Analysis
+## 23.4.8 Training Metric Analysis
 
 ![EasyR1 GeoQA training curves](../../chapter26_vlm/images/easyr1-geoqa-curves.png)
 
@@ -558,7 +565,7 @@ KL values continue to grow but at a decelerating rate, indicating the model is d
 
 EasyR1 defaults to the `low_var_kl` estimator, which has lower variance than standard KL estimation, producing smoother curves.
 
-## Custom Reward Functions
+## 23.4.9 Custom Reward Functions
 
 If you want to adjust the reward based on your own requirements, you only need to write a Python file. The framework conventions are very simple:
 
@@ -613,7 +620,7 @@ Two modes for `REWARD_TYPE`:
 
 `**kwargs` receives extra parameters configured in `worker.reward.reward_function_kwargs` in the YAML. For example, r1v.py's `format_weight` is passed in this way.
 
-## Checkpoints and Model Export
+## 23.4.10 Checkpoints and Model Export
 
 During training, EasyR1 periodically saves checkpoints to `checkpoints/<project_name>/<experiment_name>/global_step_N/`. The checkpoint contains actor model weights, optimizer state, and trainer state.
 
@@ -638,7 +645,7 @@ model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
 
 If LoRA was enabled, `model_merger.py` automatically merges the LoRA weights back into the base model. The merged model is used exactly the same way as a full-parameter trained model, with no dependency on any LoRA inference library.
 
-## Comparison with the Handwritten Experiment in Section 23.3
+## 23.4.11 Comparison with the Handwritten Experiment in Section 23.3
 
 | Aspect              | 11.1 Handwritten GRPO                       | EasyR1 in this section                       |
 | ------------------- | ------------------------------------------- | -------------------------------------------- |
@@ -652,7 +659,7 @@ If LoRA was enabled, `model_merger.py` automatically merges the LoRA weights bac
 
 The workload EasyR1 saves you: vLLM rollout integration, FSDP distributed training scheduling, LoRA implementation, gradient accumulation and memory optimization, checkpoint management and recovery. You only need to focus on two core decisions: (1) which dataset to use, and (2) how to design the reward function. These two decisions are precisely the factors that most affect results in VLM RL training.
 
-## Extension Experiments
+## 23.4.12 Extension Experiments
 
 1. **Change the base model**: compare training curves for Qwen2.5-VL-3B versus 7B. The 3B model has a smaller vision encoder, so its geometry reasoning accuracy ceiling may be lower
 2. **Change the algorithm**: switch `algorithm.adv_estimator` from `grpo` to `dapo` or `reinforce_plus_plus` and compare training curves. EasyR1 supports 7 algorithms, requiring only a one-line config change
@@ -660,7 +667,7 @@ The workload EasyR1 saves you: vLLM rollout integration, FSDP distributed traini
 4. **Adjust `format_weight`**: change from the default 0.5 to 0.1 or 0.9, observing the impact of format reward weight on reasoning quality
 5. **Increase rollout.n**: increase from 5 to 8 or 16, observing whether GRPO's within-group advantage estimation becomes more stable
 
-## Chapter Summary
+## Section Summary
 
 This chapter progressed from "hand-writing a few dozen lines of GRPO to train a VLM" to "using an industrial framework to train on a real dataset." Along the way we discussed the credit assignment challenge in visual rewards, strategies for dealing with visual hallucinations, and frontier frameworks from VisPlay to multimodal agents.
 

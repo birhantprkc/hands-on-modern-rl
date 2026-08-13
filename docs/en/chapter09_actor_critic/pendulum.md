@@ -3,9 +3,12 @@ title: '7.3 Hands-on: Pendulum Swing-Up and Balance'
 ---
 
 # 7.3 Hands-on: Pendulum Continuous Control
-> **Goal of this section**: Train `Pendulum-v1` with A2C, understand why continuous-action Actor-Critic outputs a Gaussian distribution, and see how the Critic helps the Actor learn stable control in continuous spaces.
 
-> **Code for this section**: [actor_critic_pendulum.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/actor_critic_pendulum.py) · [render_pendulum.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/render_pendulum.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/requirements.txt)
+> **Section goal**: Train `Pendulum-v1` with A2C, understand why a continuous-action Actor outputs a Gaussian distribution, and see how the Critic stabilizes learning.
+
+> **Learning path**: [7.1 The Advantage Function](./advantage-function) → [7.2 Actor-Critic](./actor-critic) → **7.3 Pendulum Continuous Control**
+
+> **Code and resources**: [actor_critic_pendulum.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/actor_critic_pendulum.py) · [render_pendulum.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/render_pendulum.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/requirements.txt)
 
 Earlier in the chapter, we used CartPole and LunarLander to understand RL where the agent picks one of a few discrete actions. Those action spaces fit DQN naturally and are easy to explain via a Softmax policy: left, right, fire, or do nothing, each action with a clear probability.
 
@@ -272,7 +275,7 @@ Common hyperparameter reference:
 | `num_envs`      | `8`                    | too few collects samples slowly; too many adds overhead             |
 | `VecNormalize`  | enabled                | without it the Critic has a harder time fitting raw returns         |
 
-## 7.3.10 Section Summary
+## Section Summary
 
 Pendulum takes us from discrete actions to continuous actions. The real change is not that the environment is more complex; it is that the policy representation changes: the Actor no longer outputs Softmax probabilities over a few actions. Instead, it outputs the mean and standard deviation of a Gaussian distribution, and a continuous torque is sampled from that distribution.
 

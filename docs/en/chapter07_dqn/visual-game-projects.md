@@ -5,7 +5,11 @@ outline:
 
 # 5.5 Hands-on: Visual Game Projects
 
-> **Code for this section:** [training script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/dqn_atari_sb3.py) · [curve export](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/export_dqn_curves.py) · [replay rendering](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/render_atari.py) · [dependencies](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/requirements.txt)
+> **Section goal**: Train DQN directly from Pong frames, then use evaluation curves and checkpoint replays to determine whether the policy learned to return the ball and score.
+
+> **Learning path**: [5.1 From Q-Learning to DQN](./from-q-to-dqn) → [5.4 LunarLander Experiment](./lunar-lander) → **5.5 Visual Game Projects**
+
+> **Code and resources**: [training script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/dqn_atari_sb3.py) · [curve export](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/export_dqn_curves.py) · [replay rendering](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/render_atari.py) · [dependencies](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/requirements.txt)
 
 The previous sections have discussed DQN's three core components separately: the Q-network estimates action values, experience replay breaks sample correlation, and the target network stabilizes TD targets. Section 5.4 placed these components into a LunarLander experiment: observing real training, evaluation returns, replay animations, training curves, Q-values, and ablation studies. By this point, low-dimensional state tasks have served their pedagogical purpose: they let us see clearly how DQN learns action values between 8 numbers and 4 discrete actions.
 
@@ -13,7 +17,7 @@ This section addresses the next question: when the state is no longer a clean se
 
 The answer is not to rewrite the TD target. From LunarLander to Atari, the core formula remains a one-step TD update. What actually changes are state representation and training conditions: MLP becomes CNN, single frames become frame stacks, and short experiments become long experiments with evaluation, checkpoints, and replay visualization. Finally, ViZDoom, Pokemon, and Minecraft serve as boundary cases to illustrate why discrete actions do not automatically make vanilla DQN a good fit.
 
-## Section Guide
+### Section Guide
 
 **Core ideas**
 
@@ -450,7 +454,7 @@ ViZDoom does not disprove DQN — it illustrates another boundary: when observat
 | Action composition   | Move forward, turn, shoot can be combined                  | Action count bloats, random exploration rarely samples good actions |
 | Scenario overfitting | Policy learned on one cfg may not transfer                 | Need evaluation on independent scenarios or fixed test sets         |
 
-## Appendix: Can DQN Beat Pokemon?
+## 5.5.5 Boundaries of Pokémon Tasks
 
 Pokemon Red can be wrapped as a DQN environment: the screen is the observation, D-pad plus A/B/Start are discrete actions, and story progression becomes rewards.[^pyboy] But unlike Pong, Pokemon's goals and button presses are separated by a long chain of actions — random exploration almost never produces sufficient positive samples.
 
@@ -527,7 +531,7 @@ If the task is limited to early navigation and rewards provide clear feedback fo
 
 Therefore, the precise answer to "can DQN beat Pokemon?" is: DQN can train early subtasks in an emulator; if the goal is full completion, it requires task decomposition, reward engineering, and longer-term memory. This is consistent with this section's main theme: DQN's key limitation is not "cannot see pixels," but that when rewards are too distant, states too hidden, and planning chains too long, simply increasing the Q-network size does not automatically solve the problem.
 
-## Appendix: Can DQN Beat Minecraft?
+## 5.5.6 Boundaries of Minecraft Tasks
 
 Minecraft is an open-world sandbox game where the objective is not a single action skill, but a chain of interdependent long-term tasks: chop trees → wooden pickaxe → stone → stone pickaxe → iron ore → iron ingot → iron pickaxe → diamonds.
 

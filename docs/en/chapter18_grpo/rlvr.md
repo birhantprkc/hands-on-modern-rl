@@ -4,13 +4,26 @@ title: '15.3 RLVR: Verifiable Rewards'
 
 # 15.3 Hands-on: Building RLVR Rewards
 
-> **Code for this section:** [rule-based reward](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/rule_based_reward.py) · [GRPO math reasoning](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/grpo_math_reasoning.py) · [dependencies](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/requirements.txt)
+> **Section goal**: Implement a verifiable reward for mathematical reasoning, connect it to a minimal GRPO loop, and test whether format, answer, and total rewards behave as intended.
 
-In Sections 9.2 and 9.3, we saw how GRPO removes the Critic from the policy side and how DAPO allows pure RL to avoid dependence on SFT. Both ideas have an implicit premise: **the reward signal is reliable**. In mathematics and code, this premise is natural: a correct answer is correct. RLVR, or Reinforcement Learning with Verifiable Rewards, formalizes this premise into a training paradigm: **in domains with objective answers, there is no need to train an RM; direct rule-based verification is enough**.
+> **Learning path**: [15.1 How GRPO Training Works](./grpo-practice-and-mechanism) → [15.2 R1-Zero and DAPO](./deepseek-dapo) → **15.3 Building RLVR Rewards**
 
-This section starts from the core idea of RLVR, examines how it replaces the RM, discusses verifier design principles, implements a minimal RLVR training loop in code, and finally looks honestly at its limitations.
+> **Code and resources**: [rule-based reward](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/rule_based_reward.py) · [GRPO math reasoning](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/grpo_math_reasoning.py) · [dependencies](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/requirements.txt)
 
-## The Core Idea of RLVR
+GRPO and DAPO both depend on a reliable reward signal. Mathematics provides a clear starting point: the model may write different reasoning paths, while the final answer can still be checked by a deterministic rule. Reinforcement Learning with Verifiable Rewards (RLVR) uses that check as the training signal.
+
+Run the verifier before starting model training:
+
+```bash
+cd code/chapter09_grpo_rlvr
+pip install -r requirements.txt
+python rule_based_reward.py
+python grpo_math_reasoning.py
+```
+
+The first script checks reward behavior without a model. The second script requires model dependencies and compute; its result must be evaluated on held-out problems.
+
+## 15.3.1 The Core Idea of RLVR
 
 Traditional RLHF depends on a Reward Model to provide the training signal. The RM needs human-labeled preference pairs, has noise, is vulnerable to reward hacking, and is expensive to label. RLVR starts from a simple question: **if the task itself has objective criteria for correctness, why train a noisy RM?**
 
@@ -24,12 +37,12 @@ flowchart TD
 
     subgraph rlvr ["RLVR flow"]
         V1["Prompt"] --> V2["Model generates answer"]
-        V2 --> V3["Verifier checks\n(automatic, precise, free)"]
+        V2 --> V3["Verifier checks\n(automatic and reproducible)"]
         V3 --> V4["Update model"]
     end
 
     R3 -.->|"Costs: expensive labels, noise, easy to hack"| COST1["Label cost\nRM noise\nReward hacking"]
-    V3 -.->|"Benefits: free, precise, hard rules"| COST2["Zero label cost\nPrecise signal\nObjectively verifiable"]
+    V3 -.->|"Benefits: repeatable checks"| COST2["No preference labels\nExplicit criteria\nAuditable output"]
 
     style R3 fill:#fce4ec,stroke:#c62828
     style V3 fill:#e8f5e9,stroke:#2e7d32
@@ -46,7 +59,7 @@ flowchart TD
 | **Training stability** | Affected by RM quality                                  | Very stable because the reward signal is clear |
 | **Risk of hacking**    | High; the model may exploit RM loopholes                | Low; rules are hard constraints                |
 
-## Verifiers: The Key Design in RLVR
+## 15.3.2 Verifiers: The Key Design in RLVR
 
 Different domains use different verification methods:
 
@@ -61,7 +74,7 @@ Verifier design is the key to RLVR. A good verifier needs three properties: **de
 
 Among these, "correctness" is the subtlest requirement. Consider math answer matching. If the ground truth is $\frac{22}{7}$ and the model answers $3.1428...$, is it correct? If the ground truth is $(x+1)(x-2)$ and the model answers $x^2 - x - 2$, is it correct? These boundary cases require careful verifier design. In practice, math verifiers usually perform numerical comparison with tolerance and symbolic simplification so that equivalent representations can be handled.
 
-## 1-Shot RLVR: RL with Minimal Data
+## 15.3.3 1-Shot RLVR: RL with Minimal Data
 
 More surprisingly, ICLR 2025 research showed that RLVR can work with **only 1 training sample**. Researchers found that even when the training set contains only one math problem, RL training can still improve the model on many unseen problems.
 
@@ -82,7 +95,7 @@ The real meaning of 1-Shot RLVR is theoretical: it shows that the value of RL is
 
 </details>
 
-## Hands-on: A Minimal RLVR Training Implementation
+## 15.3.4 Hands-on: A Minimal RLVR Training Implementation
 
 The discussion above clarifies the concept of RLVR. Now we turn it into a concrete implementation with runnable code.
 
@@ -306,7 +319,7 @@ def train_rlvr(model, tokenizer, train_data, device,
 Design points:
 
 - `compute_grpo_loss()` wraps the four GRPO phases in one function: rollout -> advantage -> log prob -> loss. This is the core design of [reasoning-from-scratch](https://github.com/rasbt/reasoning-from-scratch): each training step is a complete GRPO iteration.
-- **The reward comes from the verifier, not an RM.** `reward_rlvr()` only extracts and compares answers. It has no trainable parameters and does not introduce RM reward hacking.
+- **The reward comes from the verifier, not an RM.** `reward_rlvr()` only extracts and compares answers. It has no trainable parameters, but an incomplete parser or equivalence check can still be exploited.
 - **All-zero advantage is skipped.** If every rollout for a problem is correct or every rollout is wrong, all advantages are 0 and the gradient is also 0. Skipping the update saves compute, especially early in training when the model is weak and most problems receive all-zero rewards.
 - This implements the simplest GRPO, without a KL penalty, which matches the recommendations from DAPO and Dr. GRPO: in mathematical reasoning tasks, the KL term can be harmful.
 
@@ -315,7 +328,7 @@ Design points:
 ```python
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# Use a small model (0.6B parameters); one GPU is enough.
+# Start with a small model. Measure memory under the selected sequence length and batch size.
 model_name = "Qwen/Qwen3-0.6B"
 model = AutoModelForCausalLM.from_pretrained(
     model_name, torch_dtype=torch.bfloat16, device_map="auto"
@@ -357,7 +370,7 @@ The implementation above runs the minimal RLVR + GRPO loop. Compared with the pr
 
 Each gap is an independent optimization direction. Chapter 7 of [reasoning-from-scratch](https://github.com/rasbt/reasoning-from-scratch) discusses several GRPO improvements, including Olmo3 fixes, DeepSeek-V3.2 fixes, and GDPO, and provides systematic comparisons on MATH-500.
 
-## Limitations and Debates Around RLVR
+## 15.3.5 Limitations and Debates Around RLVR
 
 RLVR is not a universal solution. It has several important limitations:
 
@@ -370,3 +383,9 @@ RLVR is not a universal solution. It has several important limitations:
 ---
 
 GRPO removes the Critic from the policy side, and RLVR removes the RM from the reward side. Together, they compress the complexity of RL training to an extreme degree. But the RL story does not end here. The next exciting directions are RL Scaling and test-time scaling. In [Chapter 26](../chapter32_selfplay/rl-scaling-outlook), we will look at these frontier directions: RL Scaling and the future outlook.
+
+## Section Summary
+
+- RLVR replaces a learned reward model with an explicit verifier when correctness can be checked.
+- A verifier is only as reliable as its parser, equivalence rules, and test coverage.
+- Training reward must be paired with held-out evaluation and adversarial verifier tests.

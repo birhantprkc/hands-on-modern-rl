@@ -4,13 +4,19 @@ title: '19.8 Hands-On: rLLM DeepCoder'
 
 # 19.8 Hands-on: Training a DeepCoder Agent with rLLM
 
+> **Section goal**: Use rLLM to run data preparation, sandbox verification, GRPO training, and LiveCodeBench evaluation for a coding agent, then compare Pass@1 before and after training.
+
+> **Learning path**: [19.1 Agentic RL Foundations](./overview) → [19.3 Credit Assignment](./credit-assignment) → [19.6 Code Interpreter RL](./industrial-practice) → **19.8 DeepCoder Agent**
+
+> **Code and resources**: [rLLM repository](https://github.com/rllm-org/rllm) · [DeepCoder flow](https://github.com/rllm-org/rllm/blob/main/cookbooks/deepcoder/deepcoder_flow.py) · [evaluation script](https://github.com/rllm-org/rllm/blob/main/cookbooks/deepcoder/deepcoder_eval.py)
+
 The previous sections covered the conceptual framework of Agentic RL—rollouts, credit assignment, tool use, and evaluation. Now it is time for hands-on work: **use an industrial-grade framework (rLLM) to run the full RL training pipeline for a code-generation agent—from what the data looks like, to how training runs, to how to judge whether the results are good or bad.**
 
 Our experimental subject is **DeepCoder**—a code reasoning model from Berkeley Sky Lab. Its 14B version achieves 60.6% Pass@1 on LiveCodeBench, matching OpenAI o3-mini. What we will do is replicate its evaluation and training pipeline using the rLLM framework, and see how much the model improves after RL training and where the improvements come from.
 
 ### Experiment Goal: Before vs. After RL Training
 
-We will use Qwen2.5-Coder-3B-Instruct as the base model, run GRPO RL training with the rLLM framework, and evaluate on the LiveCodeBench test set. Expected results:
+The lab uses Qwen2.5-Coder-3B-Instruct as the base model, runs GRPO with rLLM, and evaluates on LiveCodeBench. The following values are target ranges for the course experiment, not measurements stored in this repository:
 
 | Phase      | Model                                  | LiveCodeBench Pass@1 | Notes                              |
 | ---------- | -------------------------------------- | -------------------- | ---------------------------------- |
@@ -25,7 +31,7 @@ With a larger model and longer training, the effect is more pronounced:
 | + DeepCoder RL (1 epoch)         | ~46%                     |
 | DeepCoder-14B-Preview (full run) | 60.6% (matching o3-mini) |
 
-This hands-on lab focuses on the 3B model—a single 24GB GPU is sufficient, letting you personally verify that "RL training does make a code agent stronger."
+The lab focuses on a 3B model. Actual memory use depends on the inference backend, sequence length, LoRA configuration, and batch size, so begin with a small-data smoke run and measure the target machine.
 
 ![DeepCoder score progression on LiveCodeBench; the 14B model with 64K inference reaches 60.6%, matching o3-mini](../../chapter22_agentic/images/deepcoder-verl-arch.png)
 
@@ -33,7 +39,7 @@ This hands-on lab focuses on the 3B model—a single 24GB GPU is sufficient, let
   <em>Figure 1: DeepCoder score progression on LiveCodeBench. DeepCoder-14B-Preview (64K inference) achieves 60.6% Pass@1, matching o3-mini. Source: <a href="https://pretty-radio-b75.notion.site/DeepCoder-A-Fully-Open-Source-14B-Coder-at-O3-mini-Level-1cf81902c14680b3bee5eb349a512a51" target="_blank" rel="noopener noreferrer">Agentica Blog</a></em>
 </div>
 
-## rLLM Framework Overview
+## 19.8.1 rLLM Framework Overview
 
 **rLLM** is a framework-agnostic Agentic RL training framework [^rllm]. Its core idea: **your agent code does not need to change. rLLM transparently intercepts LLM calls through a gateway, automatically collecting all information needed for training.**
 
@@ -60,7 +66,7 @@ rLLM has been validated on multiple tasks:
   <em>Figure 2: DeepCoder RL training pipeline. The complete loop from data sampling, model generation, sandbox verification to GRPO policy update. Source: <a href="https://pretty-radio-b75.notion.site/DeepCoder-A-Fully-Open-Source-14B-Coder-at-O3-mini-Level-1cf81902c14680b3bee5eb349a512a51" target="_blank" rel="noopener noreferrer">Agentica Blog</a></em>
 </div>
 
-## Step Zero: Environment Setup
+## 19.8.2 Step Zero: Environment Setup
 
 ### Hardware Requirements
 
@@ -92,7 +98,7 @@ rllm agent list  # Should show "deepcoder"
 Both training and evaluation require an OpenAI-compatible inference endpoint:
 
 ```bash
-# Use Qwen2.5-Coder-3B as base (24GB VRAM sufficient)
+# Use Qwen2.5-Coder-3B as the base model; measure memory for this configuration.
 python -m vllm.entrypoints.openai.api_server \
   --model Qwen/Qwen2.5-Coder-3B-Instruct \
   --port 8000 \
@@ -103,7 +109,7 @@ Once the endpoint is running, `http://localhost:8000/v1` becomes the `--base-url
 
 ---
 
-## Step 1: Designing Rewards with rLLM
+## 19.8.3 Step 1: Designing Rewards with rLLM
 
 With the environment ready, before diving in, let us understand the rLLM reward interface. This is the foundation for all subsequent experiments—DeepCoder's sandbox verification and the travel agent's hybrid scoring both build on the same interface.
 
@@ -268,7 +274,7 @@ Composition principle: **use rules for dimensions with stronger objectivity, use
 
 ### The Importance of Signals
 
-`signals` are not optional extras—**they are your core tool for diagnosing training problems.** If you only look at `reward`, you see the score going up but do not know why; with `signals`, you can see which dimension is improving and which is stuck.
+`signals` provide the detail needed to diagnose training. A rising total reward does not reveal whether compilation, test execution, or answer correctness improved; separate signals make those changes visible.
 
 ```text
 # Only reward -- low information
@@ -282,7 +288,7 @@ Epoch 1 | reward_mean: 0.45 | format: 0.92 | accuracy: 0.28 | budget_ok: 0.15
 
 Now you know the next step: increase the weight of budget_ok in the reward, or add more budget-control training data.
 
-## Step 2: What Does the Data Look Like?
+## 19.8.4 Step 2: What Does the Data Look Like?
 
 ### Data Sources
 
@@ -384,7 +390,7 @@ For `stdin_stdout` type, the evaluator executes: `echo "input" | python solution
 For `functional` type, the evaluator imports your function, calls it with `input` as arguments, and checks whether the return value matches `output`.
 :::
 
-## Step 3: What Does Model Output Look Like? How Does the Evaluator Score It?
+## 19.8.5 Step 3: What Does Model Output Look Like? How Does the Evaluator Score It?
 
 ### Model Output Format
 
@@ -486,7 +492,7 @@ Test failure -> reward = 0.0, is_correct = False
 
 The reward only takes values 0 and 1—no intermediate states. This is the **RLVR (Reinforcement Learning with Verifiable Rewards)** discussed in Chapter 15: code is either correct or incorrect; no Reward Model guesswork needed.
 
-## Step 4: Run Baseline Evaluation—How Strong Is the Model Before Training?
+## 19.8.6 Step 4: Run Baseline Evaluation—How Strong Is the Model Before Training?
 
 Before training, first check the base model's raw performance:
 
@@ -612,7 +618,7 @@ Pass@1: 30.0% (6/20)
 
 This means the base model solved 6 out of 20 problems. This is the pre-training baseline.
 
-## Step 5: Understanding the DeepCoder AgentFlow
+## 19.8.7 Step 5: Understanding the DeepCoder AgentFlow
 
 Before starting training, understand how rLLM turns model calls into trainable data structures.
 
@@ -667,7 +673,7 @@ Key design points:
 
 3. **`artifacts["answer"]`**: the evaluator extracts code from here, taking only the last ` ```python ``` ` block.
 
-## Step 6: GRPO RL Training
+## 19.8.8 Step 6: GRPO RL Training
 
 ### Start Training with One Command
 
@@ -764,7 +770,7 @@ rllm ui  # Launch local Web UI to view training curves and episode details
 | **Tinker** | Single-machine (1-2 GPU) | Default backend; recommended for getting started           |
 | **Verl**   | Distributed (multi-GPU)  | `uv pip install -e ".[verl]"`, launch with `train_verl.sh` |
 
-## Step 7: Post-Training Evaluation—Did It Really Improve?
+## 19.8.9 Step 7: Post-Training Evaluation—Did It Really Improve?
 
 ### Run Post-Training Evaluation
 
@@ -830,7 +836,7 @@ Look at episode comparisons in `rllm view`. After RL, the model's changes are ma
 
 These behaviors are not taught by SFT—the model autonomously discovered more effective problem-solving strategies during RL training.
 
-## Key Design: Why Is the Reward So Simple?
+## 19.8.10 Key Design: Why Is the Reward So Simple?
 
 DeepCoder's reward only has two values: 1.0 and 0.0. Is this really sufficient?
 
@@ -840,24 +846,24 @@ DeepCoder's reward only has two values: 1.0 and 0.0. Is this really sufficient?
 
 2. **GRPO solves sparse rewards**: a single trajectory with only 0/1 does have low information content. But GRPO generates 4 solutions for the same problem at once; as long as at least one in the group is correct, a valid advantage signal can be produced.
 
-3. **No Reward Model needed**: training an RM is itself a complex ML task—requiring preference data, needing to prevent reward hacking. Sandbox verification is free, instant, and always correct.
+3. **No learned Reward Model is required**: sandbox tests avoid preference labeling, but they still have execution cost and only verify the cases represented by the test suite.
 
 ::: details Comparison with FinQA's Judge LLM Reward
 
 Also an rLLM cookbook, FinQA (financial analysis agent) uses a completely different reward:
 
-| Dimension           | DeepCoder                     | FinQA                                                 |
-| ------------------- | ----------------------------- | ----------------------------------------------------- |
-| Reward source       | Sandbox code execution        | Judge LLM (gpt-5-nano)                                |
-| Reward value        | 0.0 / 1.0                     | Continuous score + table-access bonus                 |
-| External dependency | None                          | Requires OpenAI API                                   |
-| Cost                | Zero                          | ~$0.01-0.05 per evaluation                            |
-| Use case            | Code, math (verifiable tasks) | Finance, research (tasks needing subjective judgment) |
+| Dimension           | DeepCoder                             | FinQA                                                 |
+| ------------------- | ------------------------------------- | ----------------------------------------------------- |
+| Reward source       | Sandbox code execution                | Judge LLM (gpt-5-nano)                                |
+| Reward value        | 0.0 / 1.0                             | Continuous score + table-access bonus                 |
+| External dependency | None                                  | Requires OpenAI API                                   |
+| Cost                | Local execution and sandbox resources | ~$0.01-0.05 per evaluation                            |
+| Use case            | Code, math (verifiable tasks)         | Finance, research (tasks needing subjective judgment) |
 
 Code tasks need only the simplest RLVR; tasks requiring semantic understanding need more complex reward design (see [Section 19.3](./multi-turn-rl) for the ORM-versus-PRM discussion).
 :::
 
-## What to Explore from DeepCoder
+## 19.8.11 What to Explore from DeepCoder
 
 ### Swap the Base Model
 
@@ -1242,3 +1248,7 @@ This lets you quickly identify: which episodes are the worst, and why (format is
 [^deepswe]: Agentica Project. "DeepSWE: Training a Fully Open-sourced, State-of-the-Art Coding Agent by Scaling RL." [Blog](https://pretty-radio-b75.notion.site/DeepSWE-Training-a-Fully-Open-sourced-State-of-the-Art-by-Scaling-RL-22281902c1468193aabbe9a8c59bbe33), 2025. 32B model, SWEBench-Verified 59%, open-source SOTA.
 
 [^finqa]: rLLM Team. "rLLM-FinQA: How a 4B Model Outperforms 235B and Rivals Gemini 2.5 Pro on Financial Analysis." [Blog](https://rllm-project.com/post.html?post=finqa.md), 2026. Multi-turn ReAct agent; 4B model surpasses Qwen3-235B on financial analysis.
+
+## Section Summary
+
+This lab connects the runnable experiment to the main idea of the section. Use the reported metrics together with replay or task-level evaluation, and keep conclusions within the conditions that were actually tested.

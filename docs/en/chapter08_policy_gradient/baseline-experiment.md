@@ -3,9 +3,12 @@ title: '6.6 Hands-on: Value Baseline on CartPole'
 ---
 
 # 6.6 Hands-on: Value Baseline on CartPole
-> **Goal of this section**: On `CartPole-v1`, compare vanilla REINFORCE with REINFORCE plus a Value Baseline (VB), and observe how learning an estimate of $V(s)$ can make policy-gradient training faster and more stable.
 
-> **Code for this section**: [reinforce_with_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_with_baseline.py) · [render_cartpole_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/render_cartpole_baseline.py) · [reinforce_cartpole.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_cartpole.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/requirements.txt)
+> **Section goal**: Compare vanilla REINFORCE with REINFORCE plus a value baseline on `CartPole-v1`, and observe how estimating $V(s)$ changes training speed and stability.
+
+> **Learning path**: [6.4 Dice-Game Bandit](./dice-game) → [6.5 REINFORCE on CartPole](./cartpole) → **6.6 Value Baseline on CartPole**
+
+> **Code and resources**: [reinforce_with_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_with_baseline.py) · [render_cartpole_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/render_cartpole_baseline.py) · [reinforce_cartpole.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_cartpole.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/requirements.txt)
 
 In the previous two sections, we already established the core idea behind REINFORCE:
 if a trajectory achieves high return, then increase the probability of the actions taken along that trajectory.
@@ -272,7 +275,7 @@ This section still uses REINFORCE with a Value Baseline.
 We must wait until the end of the episode and update using Monte Carlo returns $G_t$.
 In the next chapter, Actor-Critic will go one step further: it will replace full returns with TD targets so that updates can be performed at every step.
 
-## Summary
+## Section Summary
 
 - CartPole is better than bandits for demonstrating value baselines: it has state, clear failure modes, and episode length makes performance easy to read.
 - Vanilla REINFORCE updates with $G_t$, so it is easily misled by episodic luck.

@@ -3,9 +3,12 @@ title: '7.5 Hands-On: BipedalWalker'
 ---
 
 # 7.5 Hands-on: BipedalWalker
-> **Goal**: Train `BipedalWalker-v3` with A2C, observe how Actor-Critic handles high-dimensional continuous control — and understand why the next chapter needs PPO.
 
-> **Code**: [actor_critic_bipedalwalker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/actor_critic_bipedalwalker.py) · [render_bipedalwalker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/render_bipedalwalker.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/requirements.txt)
+> **Section goal**: Train `BipedalWalker-v3` with A2C, observe the capabilities and limits of Actor-Critic in high-dimensional continuous control, and see why the next chapter introduces PPO.
+
+> **Learning path**: [7.2 Actor-Critic](./actor-critic) → [7.3 Pendulum Continuous Control](./pendulum) → **7.5 BipedalWalker**
+
+> **Code and resources**: [actor_critic_bipedalwalker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/actor_critic_bipedalwalker.py) · [render_bipedalwalker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/render_bipedalwalker.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/requirements.txt)
 
 The previous section's Pendulum had just 1 continuous action and a 3-dimensional state. BipedalWalker raises the complexity by an order of magnitude: a 24-dimensional state (joint angles, angular velocities, ground-contact sensors, etc.) and 4 continuous actions (two hip joints and two knee joints). The goal is to teach a bipedal robot to walk.
 

@@ -1,6 +1,10 @@
 # 19.10 Hands-on: Building an Agentic RL Training System from Scratch
 
-> **Code for this section:** [complete implementation](https://github.com/walkinglabs/hands-on-modern-rl/tree/main/docs/chapter22_agentic/code) · [trainer.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/docs/chapter22_agentic/code/trainer.py)
+> **Section goal**: Build an Agentic RL training system in fewer than 500 lines, allowing a language model to write code, execute it, read errors, and revise its next action.
+
+> **Learning path**: [19.1 Agentic RL Foundations](./overview) → [19.8 DeepCoder Agent](./rllm-deepcoder-lab) → [19.9 Financial Analysis Agent](./rllm-finqa-lab) → **19.10 Building a Training System from Scratch**
+
+> **Code and resources**: [complete implementation](https://github.com/walkinglabs/hands-on-modern-rl/tree/main/docs/chapter22_agentic/code) · [trainer.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/docs/chapter22_agentic/code/trainer.py)
 
 In Sections 19.1 and 19.2, we discussed the decision framework and environment interaction design for Agentic RL. In Sections 19.3 through 19.5, we analyzed the architectures of frameworks such as OpenRLHF, veRL, and Relax. This section starts from those discussions and turns the concepts into a runnable implementation.
 
@@ -10,7 +14,7 @@ This implementation follows the approach of [hyunwoongko/nanoRLHF](https://githu
 
 The complete implementation for this section is available in the book's GitHub repository through the link above.
 
-## Infrastructure Fundamentals of an Agentic RL Training System
+## 19.10.1 Infrastructure Fundamentals of an Agentic RL Training System
 
 To understand why an Agentic RL training system looks the way it does in Relax or veRL, we need to return to the training loop itself — not the framework's class diagrams, but **what actually happens inside a single episode**.
 
@@ -143,7 +147,7 @@ The **DCS weight synchronization**, **heartbeat mechanisms**, **PlacementGroup s
 
 In this section, we will not address these advanced concerns. Instead, we write a **synchronous version** — rollout completes, then training runs immediately, then the next rollout begins. The purpose is to make each of the four core components' responsibilities and interaction patterns clearly visible in a simple setting. Once you understand the synchronous version, introducing async decoupling, distribution, and fault tolerance will follow naturally.
 
-## From Training Loop to Component Design
+## 19.10.2 From Training Loop to Component Design
 
 Above we described the four phases of the training loop: rollout → reward → train → repeat. In the synchronous version, these four phases execute sequentially, forming the main training loop. Now we ask: what components does the system need to implement this loop?
 
@@ -176,7 +180,7 @@ This is the responsibility of the **Trainer**: orchestrating the entire "rollout
 
 Below we first look at a complete interaction example, then implement each of these four components.
 
-## What a Complete Interaction Looks Like
+## 19.10.3 What a Complete Interaction Looks Like
 
 Before writing code, let us look at a concrete example. Suppose the problem is "compute the 10th Fibonacci number."
 
@@ -204,7 +208,7 @@ This example shows the complete process of agent-environment interaction. Ideall
 
 Below we start from the most fundamental need of the Rollout phase — **isolated execution**.
 
-## Environment — Sandbox and Tool Execution
+## 19.10.4 Environment — Sandbox and Tool Execution
 
 Where should the agent's generated code be executed? A natural idea is to run it directly in the training process. But if the agent writes an infinite loop like `while True: pass`, the entire training process hangs. Worse, the agent might generate malicious code that deletes files. Therefore, we need a mechanism to execute the agent's actions in an isolated environment while safely returning execution results to the agent.
 
@@ -310,7 +314,7 @@ Design notes:
 - `_exec_code()` uses subprocess isolation with a timeout to prevent infinite loops — the lightest sandbox approach discussed in Section 19.2.
 - The return value includes `observation` (environment feedback) and `done` (termination status), corresponding to the POMDP observation function $O(s_t)$.
 
-## Policy — Model Inference and Training
+## 19.10.5 Policy — Model Inference and Training
 
 The environment can execute code, but who decides what code to write? We need a Policy to generate actions. Here we use a 0.5B-parameter Qwen2.5 as the policy model.
 
@@ -446,7 +450,7 @@ Design notes:
 - `ref_model` is the KL penalty anchor, preventing the model from drifting too far from the initial policy.
 - This implements the simplest policy gradient (REINFORCE + advantage) without PPO clipping — get it running first, then optimize.
 
-## RolloutWorker — Driving the Agent Loop
+## 19.10.6 RolloutWorker — Driving the Agent Loop
 
 The Policy can generate single-step actions, and the Environment can execute a single action and return results. But recall the earlier example: an agent solving a programming problem often requires multiple rounds of interaction — write code, see errors, revise, re-execute. A single `generate()` call outputs only one frame. How do we chain them into a "generate → execute → observe → regenerate" loop?
 
@@ -586,7 +590,7 @@ Design notes:
 - The trajectory structure is `{"prompt", "interactions": [...], "final_response", "reward"}` — far more complex than single-turn RL's `(prompt, completion, reward)`, but it preserves complete multi-turn interaction information.
 - `_parse_action()` is a simplified parser. Production frameworks use tokenizers + special tokens for structured parsing; string matching suffices here for understanding the concept.
 
-## Trainer — Orchestrating the Training Loop
+## 19.10.7 Trainer — Orchestrating the Training Loop
 
 At this point, we can already collect complete interaction trajectories. But trajectories alone are not enough — we need to turn them into gradients that update the model parameters. Recall from Chapter 15 that GRPO's core idea is to sample multiple trajectories per prompt and compare within the group to compute advantage.
 
@@ -724,7 +728,7 @@ Design notes:
 - GRPO's within-group comparison is implemented in the Reward normalization section: for multiple trajectories sharing a prompt, advantage = (reward - mean) / std.
 - `_serialize_trajectory()` flattens multi-turn trajectories into text. This is simplified — production frameworks use loss masks to distinguish model-generated tokens from environment-returned tokens (see the loss mask discussion in Section 19.2).
 
-## Putting It All Together
+## 19.10.8 Putting It All Together
 
 At this point, all four components have been individually implemented. The Environment provides isolated execution, the Policy provides inference and training interfaces, the RolloutWorker drives the multi-turn interaction loop, and the Trainer orchestrates the GRPO training pipeline. But they are still independent modules. How do we assemble them into a runnable system?
 
@@ -814,7 +818,7 @@ trainer = GRPOAgentTrainer(
 history = trainer.fit(prompts, n_steps=30)
 ```
 
-## Gaps Compared to Production Frameworks
+## 19.10.9 Gaps Compared to Production Frameworks
 
 After running the code above, you have mastered the basic skeleton of an Agentic RL training system. But what gaps remain between this implementation and production frameworks like Relax and veRL?
 
@@ -832,7 +836,7 @@ After running the code above, you have mastered the basic skeleton of an Agentic
 
 Each gap represents an independent engineering optimization direction. After understanding the skeleton, you can dive deeper into any direction as needed.
 
-## Extension Exercises
+## 19.10.10 Extension Exercises
 
 1. **Add PPO clipping**: Add PPO's clipped surrogate objective to `train_step_with_advantage()` (refer to Chapter 8), and compare training stability between REINFORCE and PPO.
 2. **Add loss mask**: In `_serialize_trajectory()`, mark which tokens were generated by the model and which were returned by the environment. Only compute loss on model-generated tokens.
@@ -842,3 +846,7 @@ Each gap represents an independent engineering optimization direction. After und
 ---
 
 This section implemented a minimal yet complete Agentic RL training system. Looking back at the entire process, its core structure can be summarized as: **nesting the Agent Loop (Section 19.1) and environment interaction (Section 19.2) inside a rollout → reward → train RL cycle**. All the complexity of production frameworks like Relax and veRL arises from scaling this skeleton to multi-node multi-GPU, high-throughput, long-running production environments.
+
+## Section Summary
+
+This lab connects the runnable experiment to the main idea of the section. Use the reported metrics together with replay or task-level evaluation, and keep conclusions within the conditions that were actually tested.

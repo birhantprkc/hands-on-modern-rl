@@ -4,11 +4,19 @@ title: '6.4 Hands-on: A Two-Armed Bandit (Dice-Game Slot Machine)'
 
 # 6.4 Hands-on: Two-Armed Dice-Game Bandit
 
-Imagine you walk into a casino. In front of you is a single old slot machine with two levers: one red, one blue. The red lever wins with probability 30%, while the blue lever wins with probability 70%. Each round, you may pull exactly one lever. If you win, you get $1; if you lose, you get nothing.
+> **Section goal**: Implement the smallest policy-gradient experiment with a two-armed bandit and observe how rewards change action probabilities.
 
-A rational human would play this how? Of course: pull the blue lever forever. A 70% win rate crushes 30%.
+> **Learning path**: [2.1 Exploration and Exploitation](../chapter03_mdp/bandit) → [6.1 The Policy Gradient Theorem](./policy-gradient) → **6.4 Dice-Game Bandit**
 
-But what about an AI agent? It does not know which lever is better. It must discover the fact through trial and error.
+> **Code and resources**: This page contains the complete environment, policy network, and training loop. Run the code blocks in order.
+
+Save the complete code in Section 6.4.2 as `policy_gradient_bandit.py`, then run:
+
+```bash
+python policy_gradient_bandit.py
+```
+
+A two-armed slot machine has one red arm and one blue arm. The red arm pays $1 with probability 0.3, while the blue arm pays $1 with probability 0.7. The agent chooses one arm per round and starts without knowing either probability.
 
 ::: tip How This Relates To Chapter 3
 In Chapter 2's [multi-armed bandit experiment](../chapter03_mdp/bandit), we discussed regret: "how many points did we lose because we did not pick the optimal arm?" There the emphasis was **analysis**: given a strategy, how fast does regret grow? Here the emphasis is **learning**: let the AI discover the best arm by interacting with the environment.
@@ -22,7 +30,7 @@ This is the experimental playground for this section: an extremely minimal bandi
 
 This differs from the coin-guessing game in Chapter 2. There we wrote a [deterministic policy](../chapter03_mdp/mdp), “always guess heads,” by hand. Here the model learns a [parameterized policy](../chapter03_mdp/policy-value) $\pi_\theta(a|s)$.
 
-## Two-Armed Bandit Environment
+## 6.4.1 Two-Armed Bandit Environment
 
 ```
 ┌──────────────────────────────────┐
@@ -40,7 +48,7 @@ This differs from the coin-guessing game in Chapter 2. There we wrote a [determi
 └──────────────────────────────────┘
 ```
 
-## Implementing A Policy Network In PyTorch
+## 6.4.2 Implementing A Policy Network In PyTorch
 
 Our policy network is extremely simple: it is essentially a single Softmax layer. The input is a constant (because there is no state), and the output is a probability over the two actions:
 
@@ -115,7 +123,7 @@ This formula is the single-step case of the policy-gradient estimator introduced
 $\nabla_\theta J(\theta) \propto \mathbb{E}[\nabla_\theta \log \pi_\theta(a|s) \cdot G_t]$.
 In the next section we will derive it carefully.
 
-## What You Observe During Training
+## 6.4.3 What You Observe During Training
 
 After you run the code, the evolution of the policy typically looks like this:
 
@@ -144,7 +152,7 @@ But you probably also noticed the curve does not rise smoothly. It is jagged, wi
 
 **high variance.**
 
-## Gradient Noise And Training Oscillations
+## 6.4.4 Gradient Noise And Training Oscillations
 
 Policy-gradient updates are driven by samples. At each update, the network only sees the single outcome it happened to sample in that round:
 
@@ -155,7 +163,7 @@ These "bad-luck" samples make the gradient estimator noisy, and the policy can w
 
 If you change the learning rate from `0.01` to `0.1`, you may see the policy swing dramatically between A and B: one lucky win on A pushes the policy heavily toward A; the next lucky win on B pushes it back. The policy fails to settle. This is like steering a car with an overly sensitive wheel: every correction overshoots, and you keep swaying around the target.
 
-## The Exploration-Exploitation Tradeoff
+## 6.4.5 The Exploration-Exploitation Tradeoff
 
 The oscillations also reveal the central tension in reinforcement learning: exploration vs exploitation.
 
@@ -174,6 +182,10 @@ Yes, but it learns more slowly and oscillates more. The gap between A and B is s
 
 </details>
 
-At this point you have seen that policy gradients can teach a network to prefer the optimal action. But why does the formula `-log_prob * reward` do the right thing? What is the mathematical principle behind it?
+This experiment shows that policy gradients can increase the probability of the better action. The next section, [the REINFORCE algorithm](./reinforce), explains why the update `-log_prob * reward` has this effect.
 
-Let's break it down step by step in the next section: [the REINFORCE algorithm](./reinforce).
+## Section Summary
+
+- A policy network can represent a probability distribution even when the environment has no state.
+- REINFORCE increases the probability of sampled actions that receive positive reward.
+- Individual rewards are noisy, so action probability can fluctuate even while its average trend improves.

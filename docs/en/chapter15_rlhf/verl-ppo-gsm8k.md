@@ -1,12 +1,16 @@
 # 13.7 Hands-on: veRL PPO on GSM8K
 
-> **Code for this section:** [single-GPU script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter08_rlhf/verl_gsm8k/run_qwen2_5_0_5b_ppo_single_gpu.sh) · [eight-GPU script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter08_rlhf/verl_gsm8k/run_qwen2_5_0_5b_ppo_8gpu.sh) · [reward function](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter08_rlhf/verl_gsm8k/gsm8k_reward.py)
+> **Section goal**: Run PPO on GSM8K with veRL, trace the data flow across rollout, rule rewards, advantage estimation, and model updates, then compare math accuracy before and after training.
+
+> **Learning path**: [13.4 Reinforcement Learning Fine-Tuning](./standard-rlhf-pipeline) → [13.5 Large-Scale Training Engineering](./extended-practice) → [13.6 Alignment Evaluation](./evaluation) → **13.7 veRL PPO on GSM8K**
+
+> **Code and resources**: [single-GPU launcher](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter08_rlhf/verl_gsm8k/run_qwen2_5_0_5b_ppo_single_gpu.sh) · [8-GPU launcher](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter08_rlhf/verl_gsm8k/run_qwen2_5_0_5b_ppo_8gpu.sh) · [reward function](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter08_rlhf/verl_gsm8k/gsm8k_reward.py)
 
 In Section 13.4, we explained the four-model collaboration behind PPO-RLHF: the roles of the Actor, Reference, Reward Model, and Critic, and the mathematical relationship between the KL penalty, token-level rewards, and advantage estimation. In this section, we take a more practical route: we will use the industrial-grade framework [veRL](https://github.com/volcengine/verl) to run PPO training end-to-end on the GSM8K mathematical reasoning dataset.
 
 Handwritten pseudo-code helps you internalize the principles; veRL helps you run a real experiment. The relationship is similar to Chapter 8, where we run PPO with Stable Baselines3: the algorithm is the same, but the framework takes care of engineering details such as distributed scheduling, VRAM optimizations, and inference acceleration.
 
-## An Introduction to veRL
+## 13.7.1 An Introduction to veRL
 
 [veRL](https://github.com/volcengine/verl) (Volcano Engine Reinforcement Learning), initiated by ByteDance's Seed team, is one of the most active LLM RL training frameworks in the community (10k+ GitHub stars). Its paper, _HybridFlow_, was published at EuroSys 2025.
 
@@ -48,7 +52,7 @@ flowchart LR
     style Update fill:#fce4ec,stroke:#c62828
 ```
 
-## Why GSM8K
+## 13.7.2 Why GSM8K
 
 [GSM8K](https://huggingface.co/datasets/openai/gsm8k) (Grade School Math 8K) is a grade-school math word-problem dataset released by OpenAI, with about 7,500 training examples and 1,319 test examples. It has become a standard benchmark for RL for LLMs for three reasons:
 
@@ -58,7 +62,7 @@ flowchart LR
 
 The goal of this experiment is not to chase SOTA scores. Instead, it is to let you see the full lifecycle of PPO training on a real dataset: data preparation → reward-function design → configuration and tuning → training loop → interpreting metrics.
 
-## Environment Setup
+## 13.7.3 Environment Setup
 
 ### Hardware Requirements
 
@@ -157,7 +161,7 @@ for split in ["train", "test"]:
 In practice, prefer veRL's built-in script: it tracks veRL version changes and helps you avoid incompatible formats.
 :::
 
-## Designing the Reward Function
+## 13.7.4 Designing the Reward Function
 
 For GSM8K, you do not need to train a Reward Model. You can directly validate the final answer with rules. This is different from RLHF in Section 13.4: RLHF uses an RM to produce preference signals, while math reasoning uses **verifiable rewards**. Section 15.3 will discuss the RLVR paradigm in detail; here we start with a simple implementation.
 
@@ -234,7 +238,7 @@ Key design points of this reward function:
 
 Why no Reward Model? Because GSM8K answers are **objectively verifiable**: correct is 1.0; incorrect is 0.0. The signal is sparse (an entire response yields a single 0/1), but it is precise, noise-free, and hard to game. This is exactly the core idea behind RLVR, which we will revisit in Section 15.3.
 
-## Single-GPU Training Script
+## 13.7.5 Single-GPU Training Script
 
 Based on veRL's official PPO scripts, this repository provides a single-GPU + 0.5B launch script here: [`code/chapter15_rlhf/verl_gsm8k/run_qwen2_5_0_5b_ppo_single_gpu.sh`](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter15_rlhf/verl_gsm8k/run_qwen2_5_0_5b_ppo_single_gpu.sh). The full content is:
 
@@ -402,7 +406,7 @@ Recall the four-model collaboration in Section 13.4. In veRL, each role maps cle
 
 One important difference to keep in mind: here we replace the **Reward Model** from Section 13.4 with a **rule-based reward** (automatic answer verification). That means we do not need to train an RM, nor do we need preference data. The trade-off is that the reward signal is binary (0/1) instead of a smooth scalar indicating "how much better" one response is than another. For math reasoning, however, a 0/1 signal is often sufficient.
 
-## Launching Training
+## 13.7.6 Launching Training
 
 ### Option 1: Run the Script Directly
 
@@ -450,7 +454,7 @@ Once training starts, your terminal will print key metrics:
 
 If you enable WandB, these metrics will be uploaded automatically and you can inspect curves in the WandB dashboard.
 
-## Interpreting Training Metrics
+## 13.7.7 Interpreting Training Metrics
 
 For PPO-RLHF, it is not enough to see "reward goes up". As we emphasized in Section 13.4, you should monitor multiple metrics together.
 
@@ -484,9 +488,7 @@ The Volcano Engine team ran 20 epochs (580 steps) of PPO training with veRL on a
 
 From 42.08% to 54.89%, PPO improved the math reasoning accuracy of this 0.5B model by **12.8 percentage points**. The gain does not come from "learning new math"; it comes from using the reward signal to better exploit what the model already knows: more disciplined reasoning formats, fewer arithmetic mistakes, and fewer "give up" behaviors. In principle, with more training steps and more data, there is still room for improvement.
 
-> **Note**: the numbers above come from the official experiment on a VKE cluster (2 nodes × 2 × NVIDIA L20, `train_batch_size=256`). In this section's single-GPU script, we reduce batch size to 128, so the training dynamics (convergence speed, final accuracy) may differ slightly. The algorithmic flow and parameter ratios, however, match the official configuration.
-
-## Model Evaluation
+## 13.7.8 Model Evaluation
 
 After training, you should evaluate the checkpoint independently to confirm that PPO genuinely improved capability. A practical choice is [EvalScope](https://github.com/modelscope/evalscope) for zero-shot GSM8K evaluation:
 
@@ -526,7 +528,7 @@ from transformers import AutoModelForCausalLM
 model = AutoModelForCausalLM.from_pretrained("./merged_model")
 ```
 
-## veRL's Configuration Architecture
+## 13.7.9 veRL's Configuration Architecture
 
 Once you understand the single-GPU script, it is worth stepping back and looking at how veRL organizes configuration. All configuration is passed via Hydra override syntax and can be grouped into six modules:
 
@@ -592,7 +594,7 @@ bash run_qwen2.5_0.5b_ppo_single_gpu.sh
 Other parameters (learning rates, `clip_ratio`, GAE settings, etc.) **do not need to change**: they are algorithmic knobs, not hardware-scaling knobs.
 :::
 
-## Advanced Reward Functions
+## 13.7.10 Advanced Reward Functions
 
 The earlier `gsm8k_reward.py` uses only a 0/1 accuracy reward. In real training, you often add a format reward to guide the model toward cleaner outputs. This repository provides the advanced version here: [`code/chapter08_rlhf/verl_gsm8k/gsm8k_reward_advanced.py`](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter08_rlhf/verl_gsm8k/gsm8k_reward_advanced.py).
 
@@ -679,7 +681,7 @@ To use the advanced reward function, you need to adjust your training overrides 
 
 **A practical rule of thumb**: keep the accuracy weight at least 0.7. Format rewards are auxiliary signals that help PPO with credit assignment (they tell the model that reasoning steps are valuable), but they should not dominate correctness.
 
-## Tuning PPO's Key Hyperparameters
+## 13.7.11 Tuning PPO's Key Hyperparameters
 
 Based on veRL experience on GSM8K, the most impactful parameters are roughly ordered as follows.
 
@@ -724,7 +726,7 @@ actor_rollout_ref.actor.clip_ratio=0.2     # standard clipping range
 | responses get longer but accuracy does not improve | length hacking                    | check whether reward correlates with length |
 | training is extremely slow                         | insufficient VRAM for vLLM        | lower `ROLLOUT_GPU_MEM_UTIL`                |
 
-## Summary: How This Relates to Section 13.4
+### How This Relates to Section 13.4
 
 The PPO training we ran with veRL is algorithmically identical to the PPO-RLHF principles in Section 13.4, but there are three engineering differences worth highlighting:
 
@@ -736,7 +738,7 @@ The PPO training we ran with veRL is algorithmically identical to the PPO-RLHF p
 
 From an algorithmic viewpoint, this experiment follows the same six-step loop from Section 13.4: sample prompts → Actor generates → Reward scores → Reference computes KL → Critic estimates advantages → PPO updates. veRL simply accelerates each step with engineering optimizations.
 
-## Extended Experiments
+## 13.7.12 Extended Experiments
 
 1. **Use a larger model**: change `MODEL_PATH` to `Qwen/Qwen2.5-1.5B-Instruct` and compare training curves and final accuracy. Larger models usually have higher ceilings.
 2. **Enable LoRA**: if you only have 24GB VRAM but want to run a 1.5B or 3B model, append `actor_rollout_ref.actor.lora.rank=16` to enable LoRA, and combine it with `param_offload=True` to save more memory.
@@ -744,7 +746,7 @@ From an algorithmic viewpoint, this experiment follows the same six-step loop fr
 4. **Scale to multi-GPU**: increase `NDEVICES_PER_NODE` and `TRAIN_BATCH_SIZE` and observe whether curves get smoother and final accuracy improves.
 5. **Add the MATH dataset**: include both GSM8K and MATH in `data.train_files` and study how mixed training affects results.
 
-## Repository Code Index
+## 13.7.13 Repository Code Index
 
 This section depends on external veRL and does not copy veRL source code. This repository only keeps the course adaptation layer:
 
@@ -763,3 +765,7 @@ This section depends on external veRL and does not copy veRL source code. This r
 3. Add an auxiliary metric to `compute_score` that counts the number of reasoning lines in the response. How does this correlate with accuracy?
 4. Design an experiment comparing "pure accuracy reward" vs "accuracy + format reward". Which configuration achieves higher final accuracy, and why?
 5. Read veRL's `verl/trainer/main_ppo.py` source code. Draw the execution flow of the main function and label which code corresponds to each step of the six-step loop from Section 13.4.
+
+## Section Summary
+
+This lab connects the runnable experiment to the main idea of the section. Use the reported metrics together with replay or task-level evaluation, and keep conclusions within the conditions that were actually tested.

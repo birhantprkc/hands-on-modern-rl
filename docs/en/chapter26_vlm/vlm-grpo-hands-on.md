@@ -4,9 +4,25 @@ title: '23.3 Hands-On: Train a VLM with GRPO'
 
 # 23.3 Hands-on: Multimodal GRPO
 
-> **Code for this section:** [vlm_grpo_train.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter11_vlm_rl/vlm_grpo_train.py)
+> **Section goal**: Implement a minimal multimodal GRPO loop for shape-counting questions and use rule-based rewards to study answer accuracy.
 
-In Chapter 15 we ran GRPO training on a text-only model for math reasoning -- give the model a math problem, let it generate multiple reasoning paths, use rule rewards (whether the answer is correct) to compute group-relative advantages, then update the policy. Now we are going to do something even more interesting: give the model an image and a question about the image, and have it "look", "think", then "answer."
+> **Learning path**: [15.1 GRPO](../chapter18_grpo/grpo-practice-and-mechanism) → [23.1 Visual Reward Design](./vlm-challenges) → [23.2 Reflection RL for Vision](./qwen3-vl-reflection) → **23.3 Multimodal GRPO** → [23.4 GeoQA](./easyr1-geoqa)
+
+> **Code and resources**: [vlm_grpo_train.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter11_vlm_rl/vlm_grpo_train.py)
+
+The repository script is a teaching simulation of the multimodal GRPO data flow. It uses templates to produce responses of different quality; it does not download or update a real vision-language model.
+
+Run it from the repository root:
+
+```bash
+cd code/chapter11_vlm_rl
+pip install -r requirements.txt
+python vlm_grpo_train.py
+```
+
+The output checks grouped rewards, relative advantages, and a simulated learning curve. It cannot establish that a real vision-language model learned to count.
+
+Chapter 15 applied GRPO to text-only mathematical reasoning. Here the input includes an image and a question, while the reward still compares multiple responses within each prompt group.
 
 The core difference in this experiment is the input: pure-text GRPO input is a sequence of tokens, while VLM GRPO input is **visual tokens (image encoding) + text tokens (question)**. The reward function and optimization algorithm itself have not changed -- GRPO's core code is exactly the same, except the model input now has an additional image dimension.
 
@@ -158,7 +174,7 @@ def compute_reward(response, ground_truth, target_shape):
 
 ## 23.3.3 Before-and-After Training Comparison
 
-Before training, the model's typical response is "guessing" -- because it has not learned the "look first, then reason" strategy. After training, the model learns to describe image content first, then derive the answer from the description. Let us see how the GRPO training process achieves this transition.
+Before training, a model may output only a count, with no visual description that can be inspected. The intended behavior after training is to describe the relevant shapes before giving the final count. The loop below shows how format, description, and answer rewards can encourage that structure.
 
 ```python
 # ==========================================
@@ -223,21 +239,21 @@ def vlm_grpo_train(model, tokenizer, dataset, num_epochs=3, group_size=4, lr=1e-
             optimizer.step()
 ```
 
-The before-and-after comparison is very intuitive. Before training, the model's answer to "How many circles are in the image?" might be:
+The following pair illustrates the evaluation target. It is an expected behavior change, not stored output from a real training run. Before training, the model might answer:
 
-> **Before training**: "3." (pure guess, no image-reading process)
+> **Before training**: “3.”
 
-After training, the model's answer becomes:
+The intended response after training is:
 
-> **After training**: "I see 2 red triangles, **3 blue circles**, and 1 green square in the image. The question is about the number of circles. So the number of circles is 3."
+> **After training**: “The image contains two red triangles, three blue circles, and one green square. The question asks for circles, so the answer is 3.”
 
-The model has learned to describe visual content first, then derive the answer from the description. This is exactly the behavior we guided through the reasoning quality reward (+0.5) and format compliance reward (+0.2).
+If this structure appears consistently after training, the format and description rewards are having the intended effect. Accuracy must still be measured on a separate validation set.
 
 ## 23.3.4 Training Metric Analysis
 
 When training a VLM, in addition to the standard metrics mentioned in Chapter 13 (reward, KL divergence, response length), there are several multimodal-specific metrics worth monitoring:
 
-**Attention heatmap changes.** The VLM's attention mechanism determines which regions of the image the model "looks at." Before training, attention may be scattered across the entire image; after training, attention should concentrate on the shapes relevant to the question. You can verify this by visualizing attention heatmaps -- if asked "how many circles," attention should focus on the blue circle regions.
+**Attention heatmaps.** An attention map can reveal whether text positions assign weight to image regions. It can help detect a model that ignores the image, but it cannot by itself prove correct counting. Held-out answer accuracy remains the main task metric.
 
 **Relationship between reasoning length and accuracy.** Track the relationship between the length of the reasoning portion in responses and final answer accuracy. The ideal pattern is an inverted U-curve -- moderate reasoning length works best. Too short means the model did not carefully examine the image (guessing answers); too long may mean the model is "overthinking" or even producing visual hallucinations.
 
@@ -257,3 +273,9 @@ This experiment is simple, but it demonstrates the core VLM RL workflow: the alg
 ## References
 
 - [VLM-R1 GitHub](https://github.com/om-ai-lab/VLM-R1) -- Provides VLM-R1 training curves, grounding reward examples, and open-source implementation; can serve as a real-world reference for the experiment in this section.
+
+## Section Summary
+
+- The repository script demonstrates grouped rewards and relative advantages with simulated responses.
+- A real VLM experiment must load a multimodal model, update its parameters, and evaluate held-out images.
+- Format and description rewards are auxiliary signals; final correctness must be measured separately.

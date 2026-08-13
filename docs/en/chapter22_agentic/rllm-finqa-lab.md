@@ -4,7 +4,11 @@ title: '19.9 Hands-On: Financial QA Agent'
 
 # 19.9 Hands-on: Training a Financial Analysis Agent with rLLM
 
-> **Resources for this section:** [rLLM repository](https://github.com/rllm-org/rllm) · [rLLM-FinQA model and data card](https://huggingface.co/rLLM/rLLM-FinQA-4B)
+> **Section goal**: Use rLLM to train a financial-analysis agent that inspects tables, writes SQL, calls a calculator, and answers questions, then evaluate both its tool trajectory and final answer.
+
+> **Learning path**: [19.8 DeepCoder Agent](./rllm-deepcoder-lab) → **19.9 Financial Analysis Agent** → [19.10 Building a Training System](./build-agentic-training-system)
+
+> **Code and resources**: [rLLM repository](https://github.com/rllm-org/rllm) · [rLLM-FinQA model and data card](https://huggingface.co/rLLM/rLLM-FinQA-4B)
 
 In the previous section, DeepCoder showed a typical code post-training case: the model writes code, a sandbox runs tests, and test results provide verifiable reward. That example is rigorous but has a prerequisite: code-task reward is clean, while real business tasks are rarely so simple.
 
@@ -34,7 +38,7 @@ This experiment is well-suited as a first business case for Agentic RL, because 
   <em>Figure 1: Snorkel and rLLM collaborate on a financial analysis Agent post-training solution. A 4B model surpasses a 235B general-purpose model on the Snorkel Finance Benchmark. Source: <a href="https://snorkel.ai/" target="_blank" rel="noopener noreferrer">Snorkel AI</a></em>
 </div>
 
-## Why Financial QA Fits Agentic RL
+## 19.9.1 Why Financial QA Fits Agentic RL
 
 Start with the intuition. Financial questions are usually not "memorize one fact" but "extract numbers from structured materials, compute, and explain." For example: "How much did gross margin change year-over-year?", "Does operating cash flow cover capital expenditures?", "What fraction of revenue does this expense represent?" These questions share two properties.
 
@@ -49,7 +53,7 @@ This compresses the core challenges of Agentic RL into a controllable environmen
 
 Compared with Web Agents, the financial Agent environment is more stable. Compared with SWE Agents, the engineering cost is lower. Compared with pure math RLVR, it retains real tool calling and multi-turn decision-making. That is why it works well as a hands-on section.
 
-## rLLM-FinQA Task Setup
+## 19.9.2 rLLM-FinQA Task Setup
 
 The rLLM-FinQA goal is clear: train a small model to answer financial-report questions through tools.
 
@@ -74,7 +78,7 @@ A sample can be understood as:
 
 The actual data structure is more complex, but the learning focus is right here: the question points to a company, the environment has multiple tables, and the Agent must decide which table to inspect first, which fields to query, and how to compute.
 
-## Agent Architecture: ReAct + Four Financial Tools
+## 19.9.3 Agent Architecture: ReAct + Four Financial Tools
 
 rLLM-FinQA uses a ReAct-style tool agent. ReAct can be understood as having the model alternate between "thinking" and "acting": first judge what information is needed next, then call a tool, then continue reasoning based on the tool's output.
 
@@ -109,7 +113,7 @@ flowchart TD
 
 The real problem is that the model does not initially know this path. It might write SQL directly, query the wrong table, confuse revenue with net income, or miscalculate a ratio after getting two numbers. Post-training optimizes precisely these behavioral probabilities: correct tool selections should appear more often, and wrong table-inspection and computation paths should be suppressed.
 
-## What a Rollout Looks Like
+## 19.9.4 What a Rollout Looks Like
 
 A successful financial Agent trajectory is usually not very long, but each step carries clear information gain. Here is a simplified illustration:
 
@@ -148,7 +152,7 @@ Final:
 
 The key point: Agentic RL trains not "how to write the final sentence" but the distribution over every decision along the path. The model learns to check table schemas first, then write SQL; learns to delegate computation to the calculator instead of doing mental arithmetic in natural language; and learns to explain the provenance of numbers in the final answer.
 
-## Reward: Why LLM-as-Judge
+## 19.9.5 Reward: Why LLM-as-Judge
 
 Code tasks can run unit tests; math problems can compare against reference answers. Financial QA is trickier: the same correct answer can be expressed in many ways. For example, "an increase of 0.46 percentage points" and "from 4.62% to 5.08%" are essentially equivalent, but string matching would easily misjudge them.
 
@@ -185,7 +189,7 @@ LLM judge:
 
 Rule checks reduce noise; the LLM judge covers semantic quality. Financial scenarios are well-suited for this hybrid reward.
 
-## GRPO Training: Learning Preferences from Multiple Trajectories
+## 19.9.6 GRPO Training: Learning Preferences from Multiple Trajectories
 
 rLLM-FinQA uses GRPO for post-training. Chapter 15 already introduced GRPO's intuition: sample a group of answers for the same question, estimate advantages from within-group relative scores, then update the policy.
 
@@ -206,7 +210,7 @@ GRPO update:
 
 This is a key difference from plain SFT. SFT can only imitate existing good trajectories; GRPO allows the model to explore multiple paths itself, then reinforce better paths based on reward. The action space for financial QA is not too large, making it more suitable than Web navigation or SWE bug-fixing for beginners to observe whether RL actually brings improvement.
 
-## Reproduction Path 1: Run Inference and Evaluation First
+## 19.9.7 Reproduction Path 1: Run Inference and Evaluation First
 
 If the goal is to fully understand the project, do not jump straight to training. A safer order is: prepare data, run official model inference, and confirm that the environment and toolchain all work.
 
@@ -248,7 +252,7 @@ python -m projects.finqa.run_finqa
 
 The goal of this step is not to beat the benchmark but to check three things: whether the model can stably call tools, whether SQLite tables load correctly, and whether the output contains interpretable table-inspection and computation steps. Only when this step works does training become meaningful.
 
-## Reproduction Path 2: Small-Scale GRPO Post-Training
+## 19.9.8 Reproduction Path 2: Small-Scale GRPO Post-Training
 
 For actual training, the official project provides two paths: the default verl backend and the tinker LoRA backend. A locally hosted inference server normally exposes an OpenAI-compatible endpoint at `http://localhost:30000/v1`.
 
@@ -286,7 +290,7 @@ Data preparation → Agent rollout → Judge reward → GRPO update → Eval →
 
 As long as this closed loop runs stably, you already have a complete Agentic RL training system.
 
-## Evaluation: Do Not Only Look at Overall Accuracy
+## 19.9.9 Evaluation: Do Not Only Look at Overall Accuracy
 
 The core result reported by the official project:
 
@@ -317,7 +321,7 @@ However, when reproducing, do not only look at the final accuracy. More instruct
 
 These metrics answer a more critical question: where exactly did the model improve? Fewer SQL syntax errors? Better table selection? Better at explaining computation in the final answer? Agentic RL evaluation must be able to localize capability gains; otherwise, changes in overall score are hard to guide the next training round.
 
-## Common Failure Modes
+## 19.9.10 Common Failure Modes
 
 Financial Agent failures are usually not "completely unable to answer" but getting stuck at a specific step.
 
@@ -331,7 +335,7 @@ Financial Agent failures are usually not "completely unable to answer" but getti
 
 **Fifth type: judge noise.** If the judge gives unstable scores for the same answer, GRPO's advantage estimates become noisy. In practice, fix judge temperature, cache judge results, and periodically sample for manual review.
 
-## How to Adapt This Into Your Own Project
+## 19.9.11 How to Adapt This Into Your Own Project
 
 The real value of rLLM-FinQA is not just financial QA itself, but the transferable template it provides. As long as a task satisfies three conditions, you can follow its pattern to build a new industry Agent:
 

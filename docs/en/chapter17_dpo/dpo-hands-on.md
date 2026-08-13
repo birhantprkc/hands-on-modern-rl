@@ -1,12 +1,28 @@
 # 14.4 Hands-on: A DPO Alignment Experiment
 
-> **Code for this section:** [generate data](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/1-generate_data.py) · [test before training](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/2-test_before.py) · [train with DPO](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/3-train_dpo.py) · [test after training](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/4-test_after.py)
+> **Section goal**: Train a small language model on paired preferences to reduce sarcastic responses, then use training metrics and before-and-after generations to check the learned preference.
 
-In [Chapter 14](../chapter17_dpo/intro), you already used DPO to teach a model to politely push back when a user is mistaken. That earlier run was mainly about "getting the pipeline to work". We did not look closely at what happens during training itself.
+> **Learning path**: [14.1 The DPO Objective](./intro) → [14.2 Training and Evaluation Metrics](./metrics) → [14.3 The DPO Family](./dpo-theory-and-family) → **14.4 DPO Alignment Experiment**
 
-In this section we will use a slightly more demanding setup: aligning a model that tends to respond with sarcasm, and then watching every movement in the training metrics.
+> **Code and resources**: [generate data](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/1-generate_data.py) · [test before training](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/2-test_before.py) · [train with DPO](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/3-train_dpo.py) · [test after training](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/4-test_after.py)
 
-## Preparing Preference Data
+The previous sections explained how DPO raises the probability of a chosen response relative to a rejected response. This experiment uses polite answers as chosen samples and sarcastic answers as rejected samples.
+
+Run the complete experiment from the repository root:
+
+```bash
+cd code/chapter17_dpo
+pip install -r requirements.txt
+python 0-download_model.py
+python 1-generate_data.py
+python 2-test_before.py
+python 3-train_dpo.py
+python 4-test_after.py
+```
+
+The final comparison should check whether the model reduces hostile wording while preserving the useful content of each answer.
+
+## 14.4.1 Preparing Preference Data
 
 We will build a preference dataset that contains pairs of "sarcastic answers" and "polite answers". In each pair, $y_w$ (chosen) is the polite, well-mannered answer, and $y_l$ (rejected) is the sarcastic one.
 
@@ -54,7 +70,7 @@ Notes on the code block above:
 1. The strings inside `prompt/chosen/rejected` are part of the dataset content. In practice you can keep them in Chinese or English; what matters is that the "chosen" completion is consistently preferable under the criterion you want to align to.
 2. We translate the surrounding explanation, and only translate clearly-explanatory print strings. We do not change the training semantics.
 
-## Running DPO Training
+## 14.4.2 Running DPO Training
 
 Next we load an instruction-tuned base model and run DPO training.
 
@@ -102,7 +118,7 @@ trainer.save_model("./dpo_toxic_alignment/final_model")
 print("Training finished!")
 ```
 
-## Analyzing the Training Process
+## 14.4.3 Analyzing the Training Process
 
 After training, the DPO logs record several key metrics. Instead of treating them as opaque numbers, we should understand what each one is telling us.
 
@@ -192,7 +208,7 @@ A healthy training trend is:
 
 **Reward Accuracy.** On the training set, this is the fraction of pairs where the implicit reward ranks "chosen > rejected". It should rise from about 50% (random) toward 100%. But one warning is essential: accuracy near 100% does not imply the answers are actually good. It only says the model learned the preference ordering on this training set.
 
-## Sensitivity to $\beta$
+## 14.4.4 Sensitivity to $\beta$
 
 In DPO, $\beta$ is the key hyperparameter. It controls how far the policy is allowed to drift away from the reference model.
 
@@ -242,3 +258,9 @@ Another possibility is a subtle form of **reward hacking**. The model might latc
 </details>
 
 Training metrics are only the surface. The real magic sits inside DPO's math: why can "changing the loss" remove the entire PPO loop? Why can we train without a separate reward model? For that, we need the derivation: [DPO Theory and Variants](./dpo-theory-and-family).
+
+## Section Summary
+
+- DPO learns from ordered response pairs rather than scalar rewards.
+- The reward margin shows whether the policy increasingly prefers chosen responses over rejected responses.
+- A lower loss is insufficient on its own; before-and-after generations must also preserve content and improve tone.

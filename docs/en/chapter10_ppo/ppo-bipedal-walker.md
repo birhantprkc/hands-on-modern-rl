@@ -3,9 +3,12 @@ title: '8.5 Hands-On: BipedalWalker Continuous Control'
 ---
 
 # 8.5 Hands-on: PPO on BipedalWalker
-> **Goal of this section**: Train PPO to control a bipedal robot to walk over randomized terrain, and understand what really changes when we move from discrete actions to continuous actions.
 
-> **Code for this section**: [ppo_bipedal_walker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/ppo_bipedal_walker.py) · [render_bipedal_walker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/render_bipedal_walker.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/requirements.txt)
+> **Section goal**: Train PPO to control a bipedal robot on randomized terrain and understand how learning in a continuous action space differs from discrete control.
+
+> **Learning path**: [8.1 TRPO and Trust Regions](./trust-region-clipping) → [8.2 PPO-Clip](./intro) → [8.3 GAE](./gae-reward-model) → **8.5 PPO on BipedalWalker**
+
+> **Code and resources**: [ppo_bipedal_walker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/ppo_bipedal_walker.py) · [render_bipedal_walker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/render_bipedal_walker.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/requirements.txt)
 
 In earlier chapters, we used CartPole and LunarLander to get comfortable with **discrete-action** tasks: the policy only needs to choose one action from a small set. But many real control problems, such as robot joint torques, a car's throttle and brake, or a drone's rotor speeds, live in a **continuous action space**.
 
@@ -322,7 +325,7 @@ From CartPole (Chapter 5) to BipedalWalker, the experimental difficulty and real
 
 In the next section, we will unpack the mathematical derivation behind PPO: [PPO Math Derivation](./ppo-math).
 
-## Summary of This Section
+## Section Summary
 
 - `BipedalWalker-v3` is a direct demonstration of PPO in continuous action spaces: 4D continuous torques, 24D states, and randomized terrain.
 - PPO supports continuous actions natively via a Gaussian policy (output mean and standard deviation, then sample actions), without discretization.

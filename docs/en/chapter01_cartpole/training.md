@@ -2,17 +2,17 @@
 title: 1.3 Hands-On PPO Training Visualization
 ---
 
-# 1.3 Hands-On: PPO Training Visualization
+# 1.3 Hands-on: PPO Training Visualization
 
-> **Goal**: run the pure PyTorch PPO, save raw metrics, generate training curves, and complete a visible CartPole evaluation with the trained model.
+> **Section goal**: Run the pure PyTorch PPO implementation, save the raw metrics, generate curves from the CSV file, and evaluate the trained policy in CartPole.
 
-> **Path**: [1.1 CartPole Control Principles](./principles) → [1.2 Rewards and Training Metrics](./metrics) → **1.3 PPO Training Visualization**
+> **Learning path**: [1.1 CartPole Control Principles](./principles) → [1.2 Rewards and Training Metrics](./metrics) → **1.3 PPO Training Visualization**
 
-> **Code**: [training script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py) · [plotting script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/plot_curves.py) · [frame capture](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/capture_frames.py) · [raw CSV](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/output/training_metrics_seed42.csv)
+> **Code and resources**: [training script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py) · [plotting script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/plot_curves.py) · [frame capture script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/capture_frames.py) · [raw CSV](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/output/training_metrics_seed42.csv)
 
 The previous sections established the evidence we need: returns must be computed from complete episodes, and the final policy needs an independent evaluation. We now run that full chain.
 
-## Install and run
+## 1.3.1 Install and run
 
 ```bash
 cd code/chapter01_cartpole
@@ -33,7 +33,7 @@ The run creates two local files:
 
 To use the local SwanLab dashboard, change `--swanlab-mode disabled` to `--swanlab-mode local`, then run `swanlab watch swanlog`.
 
-## PPO data flow
+## 1.3.2 PPO data flow
 
 Every training iteration has three stages:
 
@@ -108,7 +108,7 @@ surr2 = torch.clamp(ratio, 0.8, 1.2) * batch_advantages
 policy_loss = -torch.min(surr1, surr2).mean()
 ```
 
-## Plot from the raw CSV
+## 1.3.3 Plot from the raw CSV
 
 The training script exports CSV directly. The plotting script reads only that file, so every point maps to one raw record.
 
@@ -126,7 +126,7 @@ The first rollout averaged `21.35`; the four complete episodes in iteration 10 a
 
 This single-seed curve verifies that the implementation can solve the task. It is not a multi-seed algorithm comparison.
 
-## Capture frames from the real environment
+## 1.3.4 Capture frames from the real environment
 
 `capture_frames.py` loads the saved model, runs deterministic evaluation in Gymnasium `CartPole-v1`, and records frames returned by `env.render()`. The image is not a hand-drawn illustration.
 
@@ -145,7 +145,7 @@ python capture_frames.py \
 
 A still frame proves only one moment. The complete episode score, frames at multiple times, and independent evaluation statistics jointly support the result.
 
-## Reporting parameter changes
+## 1.3.5 Reporting parameter changes
 
 Learning rate, clipping, and GAE settings change the curve, but one seed cannot establish a general result. A comparison should hold environment version, training budget, network, and evaluation protocol constant, then run multiple seeds.
 
@@ -157,6 +157,6 @@ Useful questions are testable:
 
 Report raw curves for every seed, the environment steps needed to reach the chosen target, and final evaluation scores. Do not present one attractive curve as an algorithmic guarantee.
 
-## Summary
+## Section Summary
 
 A complete experiment fixes the seed, saves raw metrics, plots from those metrics, evaluates independently, and captures rendered frames from the real environment. If one part cannot be traced, its numbers or images should not be described as measured results.
