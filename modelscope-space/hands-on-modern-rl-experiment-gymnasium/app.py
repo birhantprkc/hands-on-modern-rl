@@ -29,6 +29,12 @@ import gymnasium as gym
 import imageio.v2 as imageio
 import numpy as np
 
+# Prefer the CPU container's off-screen renderers before MuJoCo is imported.
+# EGL is fastest when available; OSMesa remains installed as a fallback.
+os.environ.setdefault("MUJOCO_GL", "egl")
+os.environ.setdefault("PYOPENGL_PLATFORM", "egl")
+os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
 
 ROOT = Path(__file__).parent
 ARTIFACT_DIR = ROOT / "artifacts"
@@ -262,7 +268,37 @@ def registered_runtimes() -> dict[str, str]:
 
 
 RUNTIME_STATUS = registered_runtimes()
-RUNTIME_READY = sum(value.startswith("Ready") for value in RUNTIME_STATUS.values())
+
+
+def warm_environment_runtimes() -> dict[str, str]:
+    """Pay optional-suite import and first-reset costs once at process start.
+
+    Training still creates a fresh environment so runs never share state. The
+    warm-up only fills native-library, model-asset, ROM, and JAX compilation
+    caches that would otherwise make the first learner wait.
+    """
+    results: dict[str, str] = {}
+    for family, env_id in RUNTIME_PROBES.items():
+        if env_id not in gym.registry:
+            results[family] = "not registered"
+            continue
+        env = None
+        started = time.perf_counter()
+        try:
+            env = gym.make(env_id)
+            env.reset(seed=0)
+            env.step(env.action_space.sample())
+            results[family] = f"warm · {time.perf_counter() - started:.2f}s"
+        except Exception as exc:
+            results[family] = f"unavailable · {type(exc).__name__}: {str(exc)[:90]}"
+        finally:
+            if env is not None:
+                env.close()
+    return results
+
+
+RUNTIME_WARMUP = warm_environment_runtimes()
+RUNTIME_READY = sum(value.startswith("warm") for value in RUNTIME_WARMUP.values())
 
 
 @lru_cache(maxsize=1)
