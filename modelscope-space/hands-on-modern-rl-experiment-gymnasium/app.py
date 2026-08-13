@@ -668,21 +668,21 @@ def catalog_page(query: str, learning_path: str, feature: str, page: int, langua
 
 
 def reset_catalog(query: str, learning_path: str, feature: str, language: str):
-    return catalog_page(query, learning_path, feature, 0, language)
+    return *catalog_page(query, learning_path, feature, 0, language), str(time.time_ns())
 
 
 def reset_family(query: str, learning_path: str, language: str):
     choices = feature_choices(query, learning_path, language)
-    return gr.Radio(choices=choices, value=ALL_FEATURES, visible=True), *catalog_page(query, learning_path, ALL_FEATURES, 0, language)
+    return gr.Radio(choices=choices, value=ALL_FEATURES, visible=True), *catalog_page(query, learning_path, ALL_FEATURES, 0, language), str(time.time_ns())
 
 
 def reset_search(query: str, learning_path: str, language: str):
     choices = feature_choices(query, learning_path, language)
-    return gr.Radio(choices=choices, value=ALL_FEATURES, visible=True), *catalog_page(query, learning_path, ALL_FEATURES, 0, language)
+    return gr.Radio(choices=choices, value=ALL_FEATURES, visible=True), *catalog_page(query, learning_path, ALL_FEATURES, 0, language), str(time.time_ns())
 
 
 def move_catalog(query: str, learning_path: str, feature: str, page: int, language: str, direction: int):
-    return catalog_page(query, learning_path, feature, int(page) + direction, language)
+    return *catalog_page(query, learning_path, feature, int(page) + direction, language), str(time.time_ns())
 
 
 def choose_card(visible: list[str], language: str, event: gr.SelectData):
@@ -770,12 +770,14 @@ TEXT = {
         "experiments": "Experiments",
         "catalog_title": "Choose an experiment",
         "catalog_copy": "Choose a learning path on the left, then optionally narrow it by goal on the right. Search works across the complete catalog.",
-        "catalog_version": "Navigation v2.6 · fewer requests",
+        "catalog_version": "Navigation v2.7 · guarded updates",
         "path": "Learning path",
         "search": "Know a task name? Search the full catalog",
         "search_placeholder": "Optional: try CartPole, Pong, robot...",
         "goal": "Choose a goal (optional)",
         "goal_page": "Page {page}/{pages} · {total} goals",
+        "catalog_wait": "Updating experiments…",
+        "catalog_wait_detail": "Please wait for the new goals and cards",
         "previous": "← Previous",
         "next": "Next →",
         "settings": "Experiment setup",
@@ -818,12 +820,14 @@ TEXT = {
         "experiments": "实验数量",
         "catalog_title": "选择一个实验",
         "catalog_copy": "在左侧选择学习路线，再在右侧按训练目标细分。搜索会覆盖完整实验目录。",
-        "catalog_version": "导航版本 v2.6 · 减少请求",
+        "catalog_version": "导航版本 v2.7 · 防重复操作",
         "path": "学习路线",
         "search": "知道任务名称？搜索完整目录",
         "search_placeholder": "可选：输入 CartPole、Pong、robot…",
         "goal": "选择训练目标（可选）",
         "goal_page": "第 {page}/{pages} 页 · 共 {total} 个目标",
+        "catalog_wait": "正在更新实验…",
+        "catalog_wait_detail": "请等待新的目标与实验卡片返回",
         "previous": "← 上一页",
         "next": "下一页 →",
         "settings": "实验设置",
@@ -927,6 +931,16 @@ def goal_pager_html(language: str) -> str:
         '<button type="button" data-goal-page="previous"></button>'
         '<span class="goal-local-pager__meta"></span>'
         '<button type="button" data-goal-page="next"></button>'
+        '</div>'
+    )
+
+
+def catalog_wait_html(language: str) -> str:
+    copy = copy_for(language)
+    return (
+        '<div class="catalog-wait" role="status" aria-live="polite">'
+        '<span class="catalog-wait__spinner" aria-hidden="true"></span>'
+        f'<span><strong>{copy["catalog_wait"]}</strong><small>{copy["catalog_wait_detail"]}</small></span>'
         '</div>'
     )
 
@@ -1514,6 +1528,7 @@ def switch_language(language: str, experiment: str, seed: float, learning_path: 
         gr.Textbox(value=query, label=copy["search"], placeholder=copy["search_placeholder"]),
         gr.Radio(choices=feature_options, value=selected_feature, label=copy["goal"]),
         goal_pager_html(language),
+        catalog_wait_html(language),
         *gallery_values,
         panel_html(copy["settings"], copy["settings_copy"]), task_brief(experiment, language),
         slider_update(copy["budget"], cfg["budget"]), slider_update(copy["alpha"], cfg["alpha"]), slider_update(copy["gamma"], cfg["gamma"], cfg["gamma_visible"]), slider_update(copy["epsilon"], cfg["epsilon"], cfg["algorithm"] not in {"PPO", "SAC"}),
@@ -1549,6 +1564,8 @@ CSS = """
 .card-image-preload{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;opacity:.001!important;pointer-events:none!important}.card-image-preload img{position:absolute!important;width:1px!important;height:1px!important}
 .goal-local-pager{display:grid!important;grid-template-columns:88px 1fr 88px!important;align-items:center!important;gap:7px!important;margin-top:10px!important}.goal-local-pager[hidden]{display:none!important}.goal-local-pager button{min-width:0!important;min-height:34px!important;padding:6px 8px!important;border:1px solid #dfe3ef!important;border-radius:8px!important;color:#465166!important;background:#fff!important;font-size:11px!important;font-weight:750!important}.goal-local-pager button:disabled{opacity:.38!important}.goal-local-pager__meta{text-align:center;color:#68748a;font-size:11px;font-weight:700}
 .catalog-feature label[hidden]{display:none!important}
+.catalog-interaction{position:relative!important}.catalog-wait-host{display:none!important;position:fixed!important;z-index:9999!important;inset:0!important;margin:0!important;padding:0!important;border:0!important;background:rgba(241,244,250,.74)!important;backdrop-filter:blur(3px)!important;pointer-events:auto!important}.catalog-interaction[data-catalog-busy="true"] .catalog-wait-host{display:flex!important;align-items:center!important;justify-content:center!important}.catalog-interaction[data-catalog-busy="true"] .catalog-controls,.catalog-interaction[data-catalog-busy="true"] .experiment-gallery{opacity:.48!important;filter:saturate(.65)!important}.catalog-wait-host>div{width:auto!important}.catalog-wait{display:flex!important;align-items:center!important;justify-content:center!important;gap:11px!important;width:max-content!important;max-width:calc(100vw - 36px)!important;padding:14px 18px!important;border:1px solid #c7d2fe!important;border-radius:13px!important;color:#293064!important;background:rgba(255,255,255,.98)!important;box-shadow:0 18px 44px rgba(35,43,92,.2)!important}.catalog-wait strong,.catalog-wait small{display:block!important}.catalog-wait strong{font-size:13px!important}.catalog-wait small{margin-top:3px;color:#68748a;font-size:11px!important}.catalog-wait__spinner{flex:none;width:21px;height:21px;border:2px solid #d9ddff;border-top-color:#5b5ce2;border-radius:50%;animation:run-spin .75s linear infinite}
+.catalog-done{display:none!important}
 .experiment-gallery .grid-wrap{display:block!important;width:100%!important;height:auto!important;min-height:0!important}.experiment-gallery .grid-container{display:grid!important;width:100%!important;grid-template-columns:repeat(auto-fill,minmax(230px,270px))!important;justify-content:start!important;gap:12px!important}.experiment-gallery .gallery-item{width:100%!important;min-width:0!important}
 .experiment-gallery button,.experiment-gallery .thumbnail-item{height:auto!important;aspect-ratio:2/1!important}.experiment-gallery .caption-label{position:absolute!important;inset:0 0 auto 0!important;z-index:2!important;display:block!important;width:100%!important;min-height:72px!important;padding:14px 16px 18px!important;overflow:visible!important;text-overflow:clip!important;white-space:pre-line!important;overflow-wrap:anywhere!important;background:linear-gradient(180deg,rgba(5,9,30,.94),rgba(5,9,30,.76) 70%,transparent)!important;color:#fff!important;font-size:clamp(12px,1.25vw,17px)!important;font-weight:800!important;line-height:1.28!important;text-align:left!important;text-shadow:0 1px 2px rgba(0,0,0,.4)!important;pointer-events:none!important}
 @media(max-width:760px){.experiment-gallery .grid-container{grid-template-columns:1fr!important}}
@@ -1563,6 +1580,39 @@ function initializeGymPlaygroundUi() {
   const selector = "#live-training-console .console-text";
   let active = null, follow = true, saved = 0, internal = false, scheduled = false;
   let goalPage = 0, goalSignature = "", goalPagerBound = null;
+  let catalogBefore = "", catalogBusyTimer = null, catalogBusyStarted = 0;
+  const catalogResult = () => {
+    const goals = [...document.querySelectorAll(".catalog-feature label")].map(label => label.textContent.trim()).join("|");
+    const cards = [...document.querySelectorAll(".experiment-gallery img")].map(img => img.src).join("|");
+    const meta = document.querySelector(".catalog-meta")?.textContent.trim() || "";
+    const done = document.querySelector(".catalog-done")?.textContent.trim() || "";
+    return `${goals}::${cards}::${meta}::${done}`;
+  };
+  const setCatalogBusy = busy => {
+    const catalog = document.querySelector(".catalog-interaction");
+    if (!catalog) return;
+    catalog.dataset.catalogBusy = String(busy);
+    catalog.setAttribute("aria-busy", String(busy));
+    catalogBusyStarted = busy ? performance.now() : 0;
+    clearTimeout(catalogBusyTimer);
+    if (busy) catalogBusyTimer = setTimeout(() => setCatalogBusy(false), 30000);
+  };
+  document.addEventListener("pointerdown", event => {
+    const label = event.target.closest(".catalog-family label,.catalog-feature label");
+    if (label) label.dataset.wasChecked = String(Boolean(label.querySelector("input:checked")));
+  }, true);
+  document.addEventListener("click", event => {
+    const label = event.target.closest(".catalog-family label,.catalog-feature label");
+    const pageButton = event.target.closest(".catalog-pager button");
+    if (label?.dataset.wasChecked === "true" || pageButton?.disabled) return;
+    if (label || pageButton) {
+      catalogBefore = catalogResult();
+      setTimeout(() => setCatalogBusy(true), 0);
+    }
+  }, true);
+  document.addEventListener("change", event => {
+    if (event.target.closest(".catalog-search")) setCatalogBusy(true);
+  }, true);
   const updateGoalPager = () => {
     const goal = document.querySelector(".catalog-feature");
     const pager = document.querySelector(".goal-local-pager");
@@ -1600,6 +1650,11 @@ function initializeGymPlaygroundUi() {
   };
   const update = () => {
     scheduled = false;
+    const catalog = document.querySelector(".catalog-interaction");
+    if (catalog?.dataset.catalogBusy === "true" && performance.now() - catalogBusyStarted > 120 && catalogResult() !== catalogBefore) {
+      const remaining = Math.max(0, 420 - (performance.now() - catalogBusyStarted));
+      setTimeout(() => setCatalogBusy(false), remaining);
+    }
     updateGoalPager();
     const element = document.querySelector(selector);
     document.querySelectorAll(".experiment-gallery .caption:not([data-feature-ready]),.experiment-gallery .label:not([data-feature-ready]),.experiment-gallery .caption-label:not([data-feature-ready])").forEach(caption => {
@@ -1656,20 +1711,24 @@ with gr.Blocks(title="Hands-On Modern RL · Gymnasium CPU Playground") as demo:
     with gr.Column(elem_classes="catalog-card"):
         catalog_header = gr.HTML(catalog_header_html(DEFAULT_LANGUAGE))
         gr.HTML(card_preload_html())
-        search = gr.Textbox(label=copy["search"], placeholder=copy["search_placeholder"], elem_classes="catalog-search")
-        with gr.Row(elem_classes="catalog-filter-row"):
-            with gr.Column(elem_classes="catalog-filter-pane catalog-filter-pane--path"):
-                family = gr.Radio(choices=path_choices(DEFAULT_LANGUAGE), value="Start here", label=copy["path"], elem_classes="catalog-family")
-            with gr.Column(elem_classes="catalog-filter-pane catalog-filter-pane--goal"):
-                feature = gr.Radio(choices=initial_feature_choices, value=ALL_FEATURES, label=copy["goal"], visible=True, elem_classes="catalog-feature")
-                goal_pager = gr.HTML(goal_pager_html(DEFAULT_LANGUAGE), elem_classes="goal-pager-host")
-        gallery = gr.Gallery(value=initial_cards, label=None, show_label=False, columns=4, rows=3, object_fit="cover", height="auto", allow_preview=False, buttons=[], elem_classes="experiment-gallery")
-        visible_experiments = gr.State(initial_visible)
-        catalog_page_state = gr.State(initial_page)
-        with gr.Row(elem_classes="catalog-pager"):
-            catalog_meta = gr.Markdown(initial_meta, elem_classes="catalog-meta")
-            previous_page = gr.Button(copy["previous"], size="sm", visible=False)
-            next_page = gr.Button(copy["next"], size="sm", visible=False)
+        with gr.Column(elem_classes="catalog-interaction"):
+            catalog_wait = gr.HTML(value=catalog_wait_html(DEFAULT_LANGUAGE), elem_classes="catalog-wait-host")
+            with gr.Column(elem_classes="catalog-controls"):
+                search = gr.Textbox(label=copy["search"], placeholder=copy["search_placeholder"], elem_classes="catalog-search")
+                with gr.Row(elem_classes="catalog-filter-row"):
+                    with gr.Column(elem_classes="catalog-filter-pane catalog-filter-pane--path"):
+                        family = gr.Radio(choices=path_choices(DEFAULT_LANGUAGE), value="Start here", label=copy["path"], elem_classes="catalog-family")
+                    with gr.Column(elem_classes="catalog-filter-pane catalog-filter-pane--goal"):
+                        feature = gr.Radio(choices=initial_feature_choices, value=ALL_FEATURES, label=copy["goal"], visible=True, elem_classes="catalog-feature")
+                        goal_pager = gr.HTML(goal_pager_html(DEFAULT_LANGUAGE), elem_classes="goal-pager-host")
+            gallery = gr.Gallery(value=initial_cards, label=None, show_label=False, columns=4, rows=3, object_fit="cover", height="auto", allow_preview=False, buttons=[], elem_classes="experiment-gallery")
+            visible_experiments = gr.State(initial_visible)
+            catalog_page_state = gr.State(initial_page)
+            with gr.Row(elem_classes="catalog-pager"):
+                catalog_meta = gr.Markdown(initial_meta, elem_classes="catalog-meta")
+                previous_page = gr.Button(copy["previous"], size="sm", visible=False)
+                next_page = gr.Button(copy["next"], size="sm", visible=False)
+            catalog_done = gr.HTML(value="0", elem_classes="catalog-done")
 
     task_info = gr.HTML(task_brief(DEFAULT_EXPERIMENT, DEFAULT_LANGUAGE))
 
@@ -1700,15 +1759,15 @@ with gr.Blocks(title="Hands-On Modern RL · Gymnasium CPU Playground") as demo:
 
     gr.HTML(footer_html())
 
-    catalog_outputs = [feature, gallery, visible_experiments, catalog_page_state, catalog_meta, previous_page, next_page]
-    page_outputs = [gallery, visible_experiments, catalog_page_state, catalog_meta, previous_page, next_page]
+    catalog_outputs = [feature, gallery, visible_experiments, catalog_page_state, catalog_meta, previous_page, next_page, catalog_done]
+    page_outputs = [gallery, visible_experiments, catalog_page_state, catalog_meta, previous_page, next_page, catalog_done]
     search.change(reset_search, inputs=[search, family, language], outputs=catalog_outputs, queue=False, show_progress="hidden", trigger_mode="always_last")
     family.change(reset_family, inputs=[search, family, language], outputs=catalog_outputs, queue=False, show_progress="hidden", trigger_mode="always_last")
     feature.input(reset_catalog, inputs=[search, family, feature, language], outputs=page_outputs, queue=False, show_progress="hidden", trigger_mode="always_last")
     previous_page.click(lambda q, f, t, p, lang: move_catalog(q, f, t, p, lang, -1), inputs=[search, family, feature, catalog_page_state, language], outputs=page_outputs, queue=False, show_progress="hidden")
     next_page.click(lambda q, f, t, p, lang: move_catalog(q, f, t, p, lang, 1), inputs=[search, family, feature, catalog_page_state, language], outputs=page_outputs, queue=False, show_progress="hidden")
     gallery.select(choose_card, inputs=[visible_experiments, language], outputs=[experiment, hero, task_info, budget, alpha, gamma, epsilon, status, metric, console, preview, artifact], queue=False, show_progress="hidden")
-    language.change(switch_language, inputs=[language, experiment, seed, family, search, feature, catalog_page_state], outputs=[hero, catalog_header, family, search, feature, goal_pager, gallery, visible_experiments, catalog_page_state, catalog_meta, previous_page, next_page, settings_header, task_info, budget, alpha, gamma, epsilon, seed, start, status, metric, chart_header, console, preview_header, artifact], queue=False)
+    language.change(switch_language, inputs=[language, experiment, seed, family, search, feature, catalog_page_state], outputs=[hero, catalog_header, family, search, feature, goal_pager, catalog_wait, gallery, visible_experiments, catalog_page_state, catalog_meta, previous_page, next_page, settings_header, task_info, budget, alpha, gamma, epsilon, seed, start, status, metric, chart_header, console, preview_header, artifact], queue=False)
     start.click(train_with_ui, inputs=[experiment, budget, alpha, gamma, epsilon, seed, language], outputs=[status, metric, curve, preview, artifact, console, wait_state, start], concurrency_limit=1)
 
 
