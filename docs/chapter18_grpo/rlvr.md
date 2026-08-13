@@ -4,13 +4,29 @@
 
 > **学习路径**：[15.1 GRPO 训练机制](./grpo-practice-and-mechanism) → [15.2 R1-Zero 与 DAPO](./deepseek-dapo) → **15.3 构建 RLVR 奖励**
 
-> **本节代码**：[规则奖励](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/rule_based_reward.py) · [GRPO 数学推理](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/grpo_math_reasoning.py) · [依赖](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/requirements.txt)
+> **本节代码与资源**：[规则奖励](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/rule_based_reward.py) · [GRPO 数学推理](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/grpo_math_reasoning.py) · [依赖](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/requirements.txt)
 
 GRPO 和 DAPO 都依赖可靠的奖励信号。数学题给出了一个清楚的起点：模型可以自由生成推理过程，最终答案则能由规则检查。本节先写验证器，再把奖励接入训练循环，最后用错误样例检查验证器是否会误判。
 
-## RLVR 的核心思想
+先运行不需要模型的奖励函数检查：
 
-传统 RLHF 依赖 Reward Model 给出训练信号。RM 需要人工标注偏好对来训练，本身有噪声、容易 reward hacking、且标注成本极高。RLVR 的出发点很简单：**如果任务本身有客观对错标准，为什么还要训练一个有噪声的 RM？**
+```bash
+cd code/chapter09_grpo_rlvr
+pip install -r requirements.txt
+python rule_based_reward.py
+```
+
+确认答案提取、格式奖励和边界样例通过后，再运行需要下载模型的 GRPO 实验：
+
+```bash
+python grpo_math_reasoning.py
+```
+
+第二条命令需要可用的 PyTorch 设备和模型下载空间。首次学习时可以先完成奖励函数检查，再决定是否运行完整训练。
+
+## 15.3.1 RLVR 的核心思想
+
+传统 RLHF 使用奖励模型给出训练信号，这需要先收集偏好数据并训练奖励模型。数学和代码任务已经有客观检查方法，因此可以直接把答案匹配或单元测试写成奖励。这种做法称为**可验证奖励强化学习**（RLVR）。
 
 ```mermaid
 flowchart TD
@@ -27,7 +43,7 @@ flowchart TD
     end
 
     R3 -.->|"代价：标注贵、有噪声、易被 hack"| COST1["💸 标注成本\n📊 RM 噪声\n🤖 Reward Hacking"]
-    V3 -.->|"优势：免费、精确、不可 hack"| COST2["✅ 零标注成本\n✅ 精确信号\n✅ 客观可验证"]
+    V3 -.->|"特点：自动、确定、可复查"| COST2["无需偏好标注\n结果可复查\n规则边界需测试"]
 
     style R3 fill:#fce4ec,stroke:#c62828
     style V3 fill:#e8f5e9,stroke:#2e7d32
@@ -37,14 +53,14 @@ flowchart TD
 
 | 方面             | RLHF                       | RLVR                         |
 | ---------------- | -------------------------- | ---------------------------- |
-| **数据成本**     | 极高（需要人工标注偏好对） | 极低（自动验证）             |
-| **奖励质量**     | 有噪声（人类主观性）       | 精确（客观对错）             |
-| **可扩展性**     | 受标注速度限制             | 几乎无限                     |
+| **数据成本**     | 需要人工标注偏好对         | 需要标准答案或测试用例       |
+| **奖励质量**     | 受标注一致性与 RM 误差影响 | 受验证器覆盖范围影响         |
+| **可扩展性**     | 受标注速度限制             | 受验证速度和任务覆盖限制     |
 | **适用范围**     | 主观偏好（礼貌、安全）     | 客观任务（数学、代码、逻辑） |
-| **训练稳定性**   | 受 RM 质量影响             | 非常稳定（奖励信号清晰）     |
-| **被 Hack 风险** | 高（模型学会钻 RM 的空子） | 低（规则是硬性的）           |
+| **训练稳定性**   | 受 RM 质量影响             | 受奖励稀疏度影响             |
+| **被 Hack 风险** | 可能利用 RM 漏洞           | 可能利用验证器遗漏条件       |
 
-## RLVR 的关键设计
+## 15.3.2 RLVR 的关键设计
 
 不同领域有不同的验证方式：
 
@@ -57,15 +73,13 @@ flowchart TD
 
 验证器的设计是 RLVR 的关键。好的验证器需要满足三个条件：**确定性**（同样的输入永远得到同样的结果）、**正确性**（验证器的判断确实反映了回答的质量）、**高效性**（验证速度要快，不能成为训练瓶颈）。
 
-其中"正确性"是最微妙的要求。以数学题的答案匹配为例：如果标准答案是 $\frac{22}{7}$，模型回答了 $3.1428...$，算不算正确？如果标准答案是 $(x+1)(x-2)$，模型回答了 $x^2 - x - 2$，算不算正确？这些边界情况需要验证器仔细处理。实践中，数学验证器通常会做数值比较（容差范围内算正确）和表达式化简（展开/因式分解后比较），以处理这些等价表示的情况。
+正确性需要通过边界样例检查。标准答案 $\frac{22}{7}$ 和回答 $3.1428\ldots$ 在允许近似时可以判为相等；$(x+1)(x-2)$ 和 $x^2-x-2$ 则需要先化简再比较。数学验证器通常同时使用数值容差和符号化简来处理这些等价表示。
 
-## 1-Shot RLVR：少量数据能做什么
+## 15.3.3 1-Shot RLVR：少量数据能做什么
 
-更令人惊讶的是，ICLR 2025 的研究表明 RLVR **只用 1 个训练样本**就能工作。研究者发现，即使训练集中只有一个数学题，RL 训练仍然能让模型在大量未见过的题目上表现更好。
+一些研究观察到，极少量可验证样本也可能让策略在未见题目上发生可测量变化。这类结果说明预训练模型已经包含部分解题模式，RL 更新可以改变这些模式被调用的概率。
 
-这说明 RLVR 的有效性不依赖于数据量——模型在预训练阶段已经学到了推理能力，RLVR 的作用是"解锁"这些潜在能力，而不是从零教起。这就像一个学生已经理解了数学概念，但从来没被要求做过题——RL 训练就是"考试"的压力，迫使他把自己已有的知识组织成可用的解题策略。
-
-这个发现说明，RLVR 可以用很少的数据启动可测量的策略变化。训练效果仍然取决于奖励函数、组大小和训练步数；若希望覆盖多种题型并稳定泛化，还需要足够多样的训练数据。
+这不表示训练数据量可以忽略。效果仍取决于基座模型、奖励函数、组大小和训练步数；要覆盖多种题型并稳定泛化，仍需要足够多样的训练与独立测试数据。
 
 <details>
 <summary>思考题：如果 RLVR 只需要 1 个样本就能工作，那为什么实际训练中仍然需要大量数据？</summary>
@@ -80,13 +94,13 @@ flowchart TD
 
 </details>
 
-## 最小 RLVR 训练实现
+## 15.3.4 最小 RLVR 训练实现
 
 前面的讨论把 RLVR 的概念理清了。现在用可运行的代码把它变成具体实现。
 
 具体来说，我们将在 MATH 数据集上训练一个 0.6B 的 Qwen3 模型：给它一道数学题，模型生成推理过程和最终答案，验证器检查答案是否正确，然后用 GRPO 更新模型。整个实现控制在 200 行以内，使用单 GPU 即可运行。
 
-本节实现参照了 Sebastian Raschka 的 [reasoning-from-scratch](https://github.com/rasbt/reasoning-from-scratch) 项目中 Chapter 6 的 RLVR GRPO 脚本——用最少的代码还原 RLVR 训练的核心结构。我们的目标不只是一个可运行的脚本，而是**理解 RLVR 训练系统的结构是如何从"可验证奖励 + GRPO"自然推导出来的**。
+本节实现参照 Sebastian Raschka 的 [reasoning-from-scratch](https://github.com/rasbt/reasoning-from-scratch) 项目第 6 章脚本，用较少代码保留“采样回答、验证答案、计算组内优势、更新策略”四个步骤。
 
 ### RLVR 训练循环长什么样
 
@@ -172,7 +186,7 @@ def reward_rlvr(response: str, ground_truth: str) -> float:
 
 - `extract_boxed_answer()` 只认 `\boxed{}` 格式。如果模型没按格式输出，reward 直接为 0——这本身也是一种训练信号，迫使模型学会正确的输出格式。
 - `grade_answer()` 先做字符串匹配，再做数值比较。生产级验证器（如 [reasoning-from-scratch](https://github.com/rasbt/reasoning-from-scratch) 使用的 `sympy` 等价判断）会更复杂，但核心逻辑一样。
-- 整个验证过程是确定性的、可重复的、零成本的——这就是 RLVR 相比 RM 的本质优势。
+- 这个简化验证过程是确定且可重复的，但覆盖范围有限。正式实验还需要为嵌套括号、单位、近似值和代数等价式增加测试。
 
 ### GRPO 训练循环
 
@@ -351,7 +365,7 @@ model = train_rlvr(
 
 每个差距都是一个独立的优化方向。[reasoning-from-scratch](https://github.com/rasbt/reasoning-from-scratch) 的 Chapter 7 详细讨论了多种 GRPO 改进（Olmo3 修正、DeepSeek-V3.2 修正、GDPO 等），并在 MATH-500 上给出了系统的对比实验。
 
-## RLVR 的局限与争议
+## 15.3.5 RLVR 的局限与争议
 
 RLVR 不是万能的，它有几个重要的局限：
 
@@ -367,4 +381,4 @@ RLVR 不是万能的，它有几个重要的局限：
 - 最小训练循环需要同时检查答案抽取、等价判断、组内优势和策略更新，训练奖励不能替代独立测试集评估。
 - 验证器覆盖不完整时仍可能被利用；主观偏好任务也仍然需要偏好数据或奖励模型。
 
-GRPO 在策略端省掉了 Critic，RLVR 在奖励端省掉了 RM。这两者结合，把 RL 训练的复杂度压缩到了极致。但 RL 的故事并没有结束——更激动人心的方向是 RL Scaling 和 Test-time Scaling。让我们在[第 26 章](../chapter32_selfplay/rl-scaling-outlook)看看这些前沿方向——RL Scaling 与未来展望。
+GRPO 不使用单独的 Critic，RLVR 不使用训练得到的奖励模型。两者结合后，系统仍需处理采样效率、验证器覆盖和长回答训练等问题。[RL Scaling](../chapter32_selfplay/rl-scaling-outlook) 将继续讨论训练规模和推理时计算。

@@ -4,13 +4,13 @@
 
 > **学习路径**：[19.1 Agentic RL 基础](./overview) → [19.3 轨迹信用分配](./credit-assignment) → [19.6 Code Interpreter RL](./industrial-practice) → **19.8 DeepCoder Agent**
 
-> **本节资源**：[rLLM 仓库](https://github.com/rllm-org/rllm) · [DeepCoder flow](https://github.com/rllm-org/rllm/blob/main/cookbooks/deepcoder/deepcoder_flow.py) · [评测脚本](https://github.com/rllm-org/rllm/blob/main/cookbooks/deepcoder/deepcoder_eval.py)
+> **本节代码与资源**：[rLLM 仓库](https://github.com/rllm-org/rllm) · [DeepCoder flow](https://github.com/rllm-org/rllm/blob/main/cookbooks/deepcoder/deepcoder_flow.py) · [评测脚本](https://github.com/rllm-org/rllm/blob/main/cookbooks/deepcoder/deepcoder_eval.py)
 
 前面已经介绍了 rollout、信用分配、工具调用和评测。现在用 rLLM 把这些环节连成一条代码训练管线：模型生成候选程序，沙箱运行测试，测试结果形成奖励，GRPO 更新策略，LiveCodeBench 再检验泛化能力。本节以 3B 模型作为可操作起点，核心结果是训练前后的 Pass@1，而非单个样例是否偶然通过。
 
 ### RL 训练前后对比
 
-我们将以 Qwen2.5-Coder-3B-Instruct 作为基座模型，用 rLLM 框架做 GRPO RL 训练，在 LiveCodeBench 测试集上评测。预期结果：
+本节以 Qwen2.5-Coder-3B-Instruct 作为基座模型，用 rLLM 进行 GRPO 训练，并在 LiveCodeBench 测试集上评测。下面是课程实验的目标区间，不是本仓库已经保存的实测结果：
 
 | 阶段       | 模型                                    | LiveCodeBench Pass@1 | 说明                        |
 | ---------- | --------------------------------------- | -------------------- | --------------------------- |
@@ -25,7 +25,7 @@
 | + DeepCoder RL（1 epoch）         | ~46%                  |
 | DeepCoder-14B-Preview（完整训练） | 60.6%（匹配 o3-mini） |
 
-本节动手实验聚焦在 3B 模型上——单卡 24GB 显存即可完成，让你亲自验证"RL 训练确实能让代码 Agent 变强"。
+本节以 3B 模型说明流程。实际显存取决于推理后端、序列长度、LoRA 配置和批量大小；运行前需要先用小数据配置测量本机显存。
 
 ![DeepCoder 在 LiveCodeBench 上的得分进展，14B 模型 64K 推理达到 60.6%，匹配 o3-mini 水平](./images/deepcoder-verl-arch.png)
 
@@ -33,9 +33,9 @@
   <em>图 1：DeepCoder 在 LiveCodeBench 上的得分进展。DeepCoder-14B-Preview（64K 推理）达到 60.6% Pass@1，匹配 o3-mini 水平。来源：<a href="https://pretty-radio-b75.notion.site/DeepCoder-A-Fully-Open-Source-14B-Coder-at-O3-mini-Level-1cf81902c14680b3bee5eb349a512a51" target="_blank" rel="noopener noreferrer">Agentica Blog</a></em>
 </div>
 
-## rLLM 框架速览
+## 19.8.1 rLLM 框架速览
 
-**rLLM** 是一个框架无关的 Agentic RL 训练框架 [^rllm]。核心思想：**你的 Agent 代码不需要改，rLLM 通过 gateway 透明拦截 LLM 调用，自动收集训练所需的全部信息。**
+**rLLM** 是一个 Agentic RL 训练框架 [^rllm]。它通过 gateway 接收模型调用并记录轨迹，使同一套 Agent 流程可以连接评测器和训练器。
 
 ```mermaid
 flowchart LR
@@ -60,7 +60,7 @@ rLLM 已在多个任务上验证有效性：
   <em>图 2：DeepCoder 的 RL 训练管线。从数据采样、模型生成、sandbox 验证到 GRPO 策略更新的完整循环。来源：<a href="https://pretty-radio-b75.notion.site/DeepCoder-A-Fully-Open-Source-14B-Coder-at-O3-mini-Level-1cf81902c14680b3bee5eb349a512a51" target="_blank" rel="noopener noreferrer">Agentica Blog</a></em>
 </div>
 
-## 环境准备
+## 19.8.2 环境准备
 
 ### 硬件要求
 
@@ -103,7 +103,7 @@ python -m vllm.entrypoints.openai.api_server \
 
 ---
 
-## 用 rLLM 设计 Reward
+## 19.8.3 用 rLLM 设计 Reward
 
 环境准备好后，动手之前先理解 rLLM 的 reward 接口。这是后面所有实验的基础——DeepCoder 的 sandbox 验证和旅游 Agent 的混合评分都建立在同一个接口上。
 
@@ -268,7 +268,7 @@ total_reward = hard_reward + llm_reward  # 最高 1.0
 
 ### signals 的重要性
 
-`signals` 不是可选的附加信息——**它是你诊断训练问题的核心工具。** 如果只看 `reward`，你会发现分数在涨但不知道为什么；有了 `signals`，你能看到是哪个维度在涨、哪个维度卡住了。
+`signals` 把总奖励拆成格式、准确率和预算等可检查项。只看 `reward` 无法区分哪一项发生了变化，分项信号可以定位训练停滞的位置。
 
 ```text
 # 只有 reward —— 信息量低
@@ -280,9 +280,9 @@ Epoch 1 | reward_mean: 0.45 | format: 0.92 | accuracy: 0.28 | budget_ok: 0.15
                               格式已经学会了    准确性还不够      预算控制最弱
 ```
 
-这样你就知道下一步应该：在 reward 里加大 budget_ok 的权重，或者增加预算控制相关的训练数据。
+在这个示例中，`budget_ok` 最低，因此下一轮可以优先检查奖励权重和预算控制数据。
 
-## 数据长什么样？
+## 19.8.4 数据长什么样？
 
 ### 数据来源
 
@@ -381,10 +381,10 @@ Output: "Alice" or "Bob"
 
 对于 `stdin_stdout` 类型，evaluator 会执行：`echo "input" | python solution.py`，然后对比 stdout 是否匹配 `output`。
 
-对于 `functional` 类型，evaluator 会导入你的函数，用 `input` 作为参数调用它，对比返回值是否匹配 `output`。
+对于 `functional` 类型，evaluator 会导入待测函数，用 `input` 作为参数调用它，再比较返回值是否匹配 `output`。
 :::
 
-## 模型输出长什么样？Evaluator 怎么打分？
+## 19.8.5 模型输出长什么样？Evaluator 怎么打分？
 
 ### 模型的输出格式
 
@@ -489,7 +489,7 @@ def deepcoder_evaluator(task, episode):
 
 reward 只有 0 和 1 两个值——没有中间状态。这就是第 15 章讲的 **RLVR（可验证奖励）**：代码要么对要么不对，不需要 Reward Model 来猜。
 
-## 跑基线评测——训练前模型有多强？
+## 19.8.6 跑基线评测——训练前模型有多强？
 
 在训练之前，先看基座模型的原始水平：
 
@@ -615,7 +615,7 @@ Pass@1: 30.0% (6/20)
 
 说明基座模型在 20 题里做对了 6 题。这就是训练前的基线。
 
-## 理解 DeepCoder AgentFlow
+## 19.8.7 理解 DeepCoder AgentFlow
 
 在开始训练之前，理解 rLLM 是怎么把模型调用变成可训练的数据结构的。
 
@@ -666,11 +666,11 @@ async def deepcoder_flow(task: Task, config: AgentConfig) -> Episode:
 
 1. **`@rllm.rollout` 装饰器**：把 async 函数变成 rLLM 的 AgentFlow。gateway 自动拦截 `AsyncOpenAI` 调用，记录 token IDs 和 logprobs。
 
-2. **`config.base_url`**：eval 时指向你的推理端点，训练时 rLLM 自动切换到自己的 gateway。**同一份代码，eval 和 training 完全通用。**
+2. **`config.base_url`**：评测时指向本地推理端点，训练时由 rLLM 切换到 gateway。同一份 Agent 代码可以用于评测和训练。
 
 3. **`artifacts["answer"]`**：evaluator 从这里提取代码，只取最后一个 ` ```python ``` ` 块。
 
-## GRPO RL 训练
+## 19.8.8 GRPO RL 训练
 
 ### 一行命令开始训练
 
@@ -767,7 +767,7 @@ rllm ui  # 启动本地 Web UI，查看训练曲线和 episode 详情
 | **Tinker** | 单机训练（1-2 GPU）  | 默认后端，入门推荐                                     |
 | **Verl**   | 分布式训练（多 GPU） | `uv pip install -e ".[verl]"`，用 `train_verl.sh` 启动 |
 
-## 训练后评测——真的变好了吗？
+## 19.8.9 训练后评测——真的变好了吗？
 
 ### 跑训练后评测
 
@@ -799,7 +799,7 @@ After RL Training (1 epoch, LoRA rank 32)
 
 **1. 验证集是否独立？**
 
-训练数据和测试数据不能重叠。DeepCoder 的数据集设计已经保证了这一点——训练用 TACO/PrimeIntellect/LiveCodeBench 训练集，测试用 Codeforces/LiveCodeBench 测试集。如果你自己拆数据，确保 `--split test` 从未参与训练。
+训练数据和测试数据不能重叠。DeepCoder 使用 TACO、PrimeIntellect 和 LiveCodeBench 训练集进行训练，使用 Codeforces 和 LiveCodeBench 测试集评测。自行切分数据时，需要确认 `--split test` 从未参与训练。
 
 **2. 是否 Reward Hacking？**
 
@@ -833,7 +833,7 @@ rllm eval deepcoder --split test --max-examples 50  # 第 3 次
 
 这些行为不是 SFT 教的——模型在 RL 训练中自主发现了更有效的解题策略。
 
-## 为什么 reward 如此简洁？
+## 19.8.10 为什么 reward 如此简洁？
 
 DeepCoder 的 reward 只有 1.0 和 0.0 两个值。这么简单真的够用吗？
 
@@ -860,7 +860,7 @@ DeepCoder 的 reward 只有 1.0 和 0.0 两个值。这么简单真的够用吗�
 代码任务用最简单的 RLVR 就够了；需要理解语义的任务则需要更复杂的 reward 设计（参见 [19.3 节](./credit-assignment)对 ORM 与 PRM 的讨论）。
 :::
 
-## 从 DeepCoder 出发可以做什么
+## 19.8.11 从 DeepCoder 出发可以做什么
 
 ### 换基座模型
 
@@ -886,7 +886,7 @@ rllm eval finqa    # 金融分析（多工具 Agent）
 
 ### FinQA 与 多工具搜索 Agent
 
-如果代码实验让你对 rLLM 产生了兴趣，推荐试试 FinQA cookbook。它是一个多轮 ReAct Agent，配备了 4 个工具（SQL 查询、计算器、表查找等），在金融分析任务上用 4B 模型超越了 235B 的 Qwen3 [^finqa]：
+完成代码实验后，可以继续运行 FinQA cookbook。它是一个多轮 ReAct Agent，配备 SQL 查询、计算器和表查找等 4 个工具；项目报告中，4B 模型的金融分析得分超过了 Qwen3-235B [^finqa]。
 
 ```bash
 uv pip install --no-deps -e cookbooks/finqa
@@ -896,7 +896,7 @@ rllm eval finqa --model rLLM/rLLM-FinQA-4B --base-url http://localhost:8000/v1
 
 ### 自定义一个旅游行程 Agent
 
-DeepCoder 是单轮代码生成。如果你想训练一个更复杂的 Agent——比如一个能搜索信息、比较价格、规划路线的旅游助手——rLLM 同样支持。这个例子展示了**非代码任务**的 reward 设计：既有硬性规则验证，也有 LLM as Judge。
+DeepCoder 主要处理单轮代码生成。下面的旅游助手示例增加搜索、价格比较和路线规划，用于说明非代码任务怎样组合硬性规则与语言模型评审奖励。
 
 #### AgentFlow 与 多轮搜索 + 行程规划
 
@@ -1103,7 +1103,7 @@ def travel_evaluator(task, episode):
 
 #### 怎么看结果？
 
-评测完成后，`signals` 字段告诉你每个维度的得分：
+评测完成后，`signals` 字段给出每个维度的得分：
 
 ```json
 {
@@ -1133,7 +1133,7 @@ def travel_evaluator(task, episode):
 
 #### 轨迹的好坏怎么判断？
 
-一条轨迹好还是不好，不能只看 `reward` 这个单一数字。rLLM 记录了完整的层级化轨迹数据，你需要逐层看：
+判断一条轨迹时，不能只看 `reward`。rLLM 保存了分层轨迹数据，可以按以下顺序检查：
 
 **rLLM 的轨迹层级（由粗到细）：**
 

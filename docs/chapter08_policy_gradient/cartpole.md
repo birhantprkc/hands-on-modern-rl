@@ -4,13 +4,13 @@
 
 > **学习路径**：[6.1 策略梯度定理](./policy-gradient) → [6.4 摇骰子赌博机](./dice-game) → **6.5 REINFORCE 控制 CartPole**
 
-> **本节代码**：[reinforce_cartpole.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_cartpole.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/requirements.txt)
+> **本节代码与资源**：[reinforce_cartpole.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_cartpole.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/requirements.txt)
 
 上一节推导了策略梯度定理和 REINFORCE 算法。赌博机例子展示了最简情况——无状态、单步、只有两个动作。现在换一个更有代表性的任务：`CartPole-v1`。小车可以向左或向右推，目标是让杆子尽量久地保持竖直。每坚持一个时间步，环境给 `+1` 奖励；杆子倒得太厉害或者小车离开边界，episode 结束。
 
 与赌博机不同，CartPole 有状态（4 维向量：小车位置、速度、杆子角度、角速度），有多步决策，有明确的失败方式。它仍然只是离散动作（左/右），但已经足够暴露 REINFORCE 的高方差问题。
 
-## 运行训练
+## 6.5.1 运行训练
 
 先安装依赖：
 
@@ -44,7 +44,7 @@ optimizer.step()
 
 运行结束后，脚本会在 `output/` 下生成训练曲线。
 
-## 看训练曲线
+## 6.5.2 看训练曲线
 
 ![REINFORCE 在 CartPole-v1 上的训练曲线：回合奖励随训练进度变化](./images/reinforce-cartpole-reward.png)
 
@@ -56,7 +56,7 @@ optimizer.step()
 
 **后期（episode 200–500）**：策略逐渐收敛到一个比较稳定的平衡策略，回合奖励可能达到 100–200。但曲线仍然有明显的回落——这是高方差的直接后果。
 
-## 高方差的表现
+## 6.5.3 高方差的表现
 
 CartPole 比赌博机更能暴露方差问题，因为每个 episode 有几十到几百步。策略在某一步做了一个好的动作，但后续步骤的表现完全取决于采样运气。$G_t$ 把整条轨迹的随机性都压进了一个数里——这个数既反映了当前动作的好坏，也反映了后续所有步骤的运气。
 
@@ -68,7 +68,7 @@ CartPole 比赌博机更能暴露方差问题，因为每个 episode 有几十�
 
 这些现象的本质是同一个问题：REINFORCE 用 $G_t$ 来判断"这个动作好不好"，但 $G_t$ 太不稳定了。一个真正好的动作，可能因为后续运气差而被惩罚；一个偶然出现在好轨迹中的平庸动作，可能因为后续运气好而被过度强化。
 
-## 代码里的关键细节
+## 6.5.4 代码里的关键细节
 
 **折扣累计回报的计算**——从后向前递推：
 
@@ -103,7 +103,7 @@ states, actions, rewards, episode_reward = collect_episode(policy, env)
 
 DQN 的经验回放池可以反复使用旧数据。REINFORCE 的梯度估计中 $\mathbb{E}_{\pi_\theta}$ 要求必须用当前策略 $\pi_\theta$ 产生的数据。策略一更新，旧数据就失效了。这也是策略梯度数据效率低于 DQN 的原因。
 
-## 回到方差问题
+## 6.5.5 回到方差问题
 
 CartPole 实验说明 REINFORCE 能学，但学得不够稳。根源在于 $G_t$ 的方差太大。策略梯度定理有一个奇妙的性质：可以在梯度估计中减去一个不依赖于动作的基线 $b(s_t)$，把更新信号从 $G_t$ 改成 $G_t - b(s_t)$，既不改变梯度的期望方向，又能大幅降低方差。
 

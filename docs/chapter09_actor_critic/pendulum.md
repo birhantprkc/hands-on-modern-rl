@@ -4,11 +4,11 @@
 
 > **学习路径**：[7.1 优势函数](./advantage-function) → [7.2 Actor-Critic](./actor-critic) → **7.3 Pendulum 连续控制**
 
-> **本节代码**：[actor_critic_pendulum.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/actor_critic_pendulum.py) · [render_pendulum.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/render_pendulum.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/requirements.txt)
+> **本节代码与资源**：[actor_critic_pendulum.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/actor_critic_pendulum.py) · [render_pendulum.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/render_pendulum.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/requirements.txt)
 
 前面我们用 CartPole、LunarLander 这类任务理解了“从几个动作里选一个”的强化学习。这样的动作空间很适合 DQN，也很适合用 Softmax 策略来解释：向左、向右、点火、不点火，每个动作都有一个明确的概率。
 
-现在问题变了。`Pendulum-v1` 不是让智能体在几个按钮中做选择，而是让它给摆杆施加一个连续力矩。这个力矩可以是 -2，也可以是 0.17，还可以是 1.843。动作不再是几个离散格子，而是一整段实数区间 $[-2, 2]$。这正是 Actor-Critic 在本章必须解决的新问题：**当动作有无穷多个候选值时，策略应该怎样表达“我想做什么动作”？**
+现在问题变了。`Pendulum-v1` 让智能体给摆杆施加连续力矩。这个力矩可以是 -2，也可以是 0.17，还可以是 1.843，动作空间是一整段实数区间 $[-2, 2]$。Actor-Critic 在这里需要解决的是：怎样用一个概率分布表示连续动作。
 
 ## 7.3.1 任务直觉：控制连续力矩
 
@@ -40,7 +40,7 @@ $$
 
 ## 7.3.2 为什么 DQN 不适合这个任务
 
-让我们先从已经熟悉的 DQN 想起。DQN 学的是 $Q(s,a)$，执行时用：
+先看已经熟悉的 DQN。DQN 学习 $Q(s,a)$，执行时使用：
 
 $$
 a^* = \arg\max_a Q(s,a)
@@ -225,7 +225,7 @@ Pendulum 的学习不像 CartPole 那样很快出现满分，因为这里的动�
 
 从学习过程看，策略一开始需要较大的随机性。因为它还不知道应该先向哪个方向借力，也不知道接近顶端时要怎样减速。随着 Critic 给出的 advantage 信号越来越可靠，Actor 会逐渐提高有效动作附近的概率，真实策略熵也会慢慢下降。
 
-但熵不能降得太快。如果一开始就把动作分布压得很窄，策略可能会过早固定在一种无效动作上，例如只会轻微抖动，永远摆不上去。A2C、PPO 这类算法通常都会监控策略熵，原因就在这里。
+熵下降过快时，策略可能过早固定在一种无效动作上，例如始终只施加很小的力矩，无法把摆杆抬高。因此，A2C 和 PPO 训练通常会同时记录策略熵。
 
 本节配置里 `ent_coef=0.0`，不是说熵不重要，而是 Pendulum 的高斯策略本身已经有采样噪声。若换成更难的连续控制任务，适当加入熵正则通常会更稳。
 

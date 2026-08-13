@@ -4,11 +4,11 @@
 
 > **学习路径**：[6.5 REINFORCE 控制 CartPole](./cartpole) → [6.6 价值基线实验](./baseline-experiment) → **6.7 带价值基线的策略梯度**
 
-> **本节代码**：[reinforce_with_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_with_baseline.py) · [render_cartpole_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/render_cartpole_baseline.py) · [reinforce_cartpole.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_cartpole.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/requirements.txt)
+> **本节代码与资源**：[reinforce_with_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_with_baseline.py) · [render_cartpole_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/render_cartpole_baseline.py) · [reinforce_cartpole.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_cartpole.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/requirements.txt)
 
 前两节分别跑了 vanilla REINFORCE 和推导了基线降方差的数学原理。本节把两者放在一起对比，看看 $G_t - V(s_t)$ 相比 $G_t$ 的实际效果。
 
-## 运行对比实验
+## 6.7.1 运行对比实验
 
 ```bash
 pip install -r code/chapter05_policy_gradient/requirements.txt
@@ -42,7 +42,7 @@ python code/chapter05_policy_gradient/render_cartpole_baseline.py \
   --seed 0
 ```
 
-## 看奖励曲线
+## 6.7.2 看奖励曲线
 
 ![CartPole 上原始 REINFORCE 与 REINFORCE + Value Baseline 的奖励曲线对比。Value Baseline 版本更早接近 500 步上限，原始版本学习更慢且波动更明显。](./images/reinforce-baseline-cartpole-reward.png)
 
@@ -52,7 +52,7 @@ python code/chapter05_policy_gradient/render_cartpole_baseline.py \
 
 这个差异说明：价值基线不是一个装饰性的数学项。在同一个任务中，它能让策略更快进入"基本能立住杆子"的区域，并减少训练后期突然退步的概率。
 
-## 看回放
+## 6.7.3 看回放
 
 曲线说明平均趋势，回放则说明策略到底在做什么。
 
@@ -66,9 +66,9 @@ python code/chapter05_policy_gradient/render_cartpole_baseline.py \
 
 ![REINFORCE + Value Baseline 训练后的 CartPole 回放：策略能更稳定地修正杆子角度。](./images/cartpole-reinforce-baseline.gif)
 
-## 看方差曲线
+## 6.7.4 看方差曲线
 
-奖励曲线回答"策略表现是否变好"。方差曲线回答另一个问题：为什么价值基线会让训练更稳？
+奖励曲线用于判断策略表现是否改善，方差曲线用于检查价值基线是否减小梯度波动。
 
 ![CartPole 上原始 REINFORCE 与 REINFORCE + Value Baseline 的梯度估计方差对比。Value Baseline 把回报变成优势后，梯度信号更集中。](./images/reinforce-baseline-cartpole-variance.png)
 
@@ -76,7 +76,7 @@ python code/chapter05_policy_gradient/render_cartpole_baseline.py \
 
 这次运行中，原始 REINFORCE 的梯度估计方差约为 `100.41`，Value Baseline 版本约为 `38.27`。Value Baseline 把方差降到了原来的约 `38.1%`。这和奖励曲线中的现象对应起来：更新信号更稳，策略就更容易持续朝着"让杆子站住"的方向移动。
 
-## 代码里到底改了什么
+## 6.7.5 代码里到底改了什么
 
 原始 REINFORCE 的核心更新：
 
@@ -109,7 +109,7 @@ policy_loss = -(log_probs * advantages).mean()
 
 价值基线不依赖当前动作本身，因此不会改变策略梯度的期望方向。它改变的是估计的噪声大小——这就是"降方差"的含义。
 
-## 回到画面中理解
+## 6.7.6 回到画面中理解
 
 小车已经把杆子扶到接近竖直的位置。如果它本来就能从这个状态继续坚持很久，那么多坚持几步并不说明刚才那个动作特别神奇——这只是一个好状态本来就应该有的结果。此时 $V(s_t)$ 会比较高，减掉它以后，优势不会被夸大。
 
@@ -117,7 +117,7 @@ policy_loss = -(log_probs * advantages).mean()
 
 价值基线比"只看总分"更细的地方在于：同样是拿到 100 分，在危险状态下拿到 100 分，和在容易状态下拿到 100 分，含义并不一样。
 
-## 常见误读
+## 6.7.7 常见误读
 
 **误读一：价值基线会让奖励变大。**
 价值基线不改环境奖励。CartPole 每一步仍然只给 `+1`。它改变的是训练时如何解释这些奖励。

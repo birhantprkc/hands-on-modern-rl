@@ -9,7 +9,7 @@ outline:
 
 > **学习路径**：[5.1 从 Q-Learning 到 DQN](./from-q-to-dqn) → [5.4 LunarLander 实验](./lunar-lander) → **5.5 视觉游戏项目**
 
-> **本节代码**：[训练脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/dqn_atari_sb3.py) · [曲线导出](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/export_dqn_curves.py) · [回放渲染](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/render_atari.py) · [依赖](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/requirements.txt)
+> **本节代码与资源**：[训练脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/dqn_atari_sb3.py) · [曲线导出](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/export_dqn_curves.py) · [回放渲染](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/render_atari.py) · [依赖](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/requirements.txt)
 
 上一节的 LunarLander 会直接给出位置、速度和角度等 8 个数字，Q 网络只需根据这些物理量选择动作。Pong 只提供游戏画面：球在哪里、正向哪边飞、球拍是否来得及移动，都要由网络从像素中判断。
 
@@ -143,7 +143,7 @@ ALE 把几十款 Atari 2600 游戏包装成统一接口：
 同一个 DQN 程序从 Pong 换到 Breakout 或 Space Invaders，只需要改一个环境 ID。
 
 在本章里，Atari 的角色类似"像素版 CartPole"，但难度高了一档：
-CartPole 把状态整理成 4 个数字交给你，
+CartPole 把状态整理成 4 个数字交给策略，
 Atari 只给画面——球在哪里、往哪飞、球拍离球多远，都得从 84×84 灰度帧里自己学。
 
 ALE 里有几十款游戏，难度差异很大。
@@ -532,7 +532,7 @@ ViZDoom 不是否定 DQN，而是说明另一条边界：当观测本身不满�
 | 动作组合     | 前进、转向、射击可组合         | 动作数膨胀后，随机探索很难采到好样本 |
 | 场景过拟合   | 一个 cfg 上学到的策略未必迁移  | 需在独立场景或固定测试集上检查评估   |
 
-## DQN 可以通关宝可梦吗？
+## 5.5.5 宝可梦任务的边界
 
 《宝可梦红》可以被包装成 DQN 环境：屏幕是观测，方向键和 A/B/Start 是离散动作，剧情推进可以变成奖励。[^pyboy] 但和 Pong 不同，宝可梦的目标和按键之间隔着很长的行动链，随机探索几乎不会产生足够的正样本。
 
@@ -607,9 +607,9 @@ tensorboard --logdir output/dqn_pokemon_red/tb
 | 无效操作         | 反复开菜单、对话卡住                 | action mask、anti-loop 惩罚     |
 | episode 太长     | 单次失败消耗大量采样                 | 存档起点、阶段目标、checkpoint  |
 
-因此，"DQN 可以通关宝可梦吗？"的精确回答是：DQN 可以在模拟器上训练早期子任务；若目标是完整通关，则需要任务拆分、奖励工程和更长时记忆。这与本节主线一致：DQN 的关键限制不是"不能看像素"，而是当奖励太远、状态太隐蔽、规划链条太长时，单纯增大 Q 网络并不能自动解决问题。
+在模拟器中，DQN 可以训练部分早期子任务。完整通关还需要任务拆分、奖励工程和更长时记忆；当奖励过于延迟、观测缺少关键信息、规划链条过长时，单纯增大 Q 网络不能解决这些问题。
 
-## DQN 可以通关我的世界吗？
+## 5.5.6 我的世界任务的边界
 
 Minecraft 是开放世界沙盒游戏，目标不是单一动作技能，而是一串相互依赖的长期任务链：砍树 → 木镐 → 石头 → 石镐 → 铁矿 → 铁锭 → 铁镐 → 钻石。
 

@@ -4,7 +4,7 @@
 
 > **学习路径**：[6.4 摇骰子赌博机](./dice-game) → [6.5 REINFORCE 控制 CartPole](./cartpole) → **6.6 价值基线控制 CartPole**
 
-> **本节代码**：[reinforce_with_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_with_baseline.py) · [render_cartpole_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/render_cartpole_baseline.py) · [reinforce_cartpole.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_cartpole.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/requirements.txt)
+> **本节代码与资源**：[reinforce_with_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_with_baseline.py) · [render_cartpole_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/render_cartpole_baseline.py) · [reinforce_cartpole.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_cartpole.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/requirements.txt)
 
 前两节已经用 REINFORCE 训练过赌博机和 CartPole。完整回报可以指导策略更新，同一策略在不同回合中却可能得到差异很大的回报，使梯度受到偶然轨迹影响。
 
@@ -230,7 +230,7 @@ Value Baseline 版本通过 $G_t - V(s_t)$ 过滤掉一部分“这个状态本�
 
 奖励曲线回答“策略表现是否变好”。
 方差曲线回答另一个问题：
-为什么价值基线会让训练更稳？
+下面用梯度方差解释价值基线带来的变化。
 
 ![CartPole 上原始 REINFORCE 与 REINFORCE + Value Baseline 的梯度估计方差对比。Value Baseline 把回报变成优势后，梯度信号更集中。](./images/reinforce-baseline-cartpole-variance.png)
 

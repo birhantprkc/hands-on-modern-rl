@@ -4,11 +4,11 @@
 
 > **学习路径**：[23.3 多模态 GRPO](./vlm-grpo-hands-on) → **23.4 GeoQA 几何推理**
 
-> **本节资源**：[EasyR1](https://github.com/hiyouga/EasyR1) · [GeoQA-8K 数据集](https://huggingface.co/datasets/leonardPKU/GEOQA_8K_R1V)
+> **本节代码与资源**：[EasyR1](https://github.com/hiyouga/EasyR1) · [GeoQA-8K 数据集](https://huggingface.co/datasets/leonardPKU/GEOQA_8K_R1V)
 
 23.3 节已经用合成图形手写了 VLM GRPO 训练循环。现在保留相同的奖励和组内优势思路，换用 EasyR1 管理真实数据、分布式训练、显存优化和 checkpoint。实验结果要同时检查训练奖励与独立测试集准确率，避免只凭训练曲线判断几何推理能力。
 
-## EasyR1 简介
+## 23.4.1 EasyR1 简介
 
 [EasyR1](https://github.com/hiyouga/EasyR1)（4900+ stars）由 [hiyouga](https://github.com/hiyouga) 开发，基于 veRL 构建。和直接用 veRL 相比，EasyR1 的核心增值点：
 
@@ -48,7 +48,7 @@ EasyR1/
     └── model_merger.py          # checkpoint 合并为 HF 格式
 ```
 
-这个结构看起来复杂，但作为用户你只需要关心三个目录：`examples/`（配置和脚本）、`examples/reward_function/`（奖励函数）、`examples/format_prompt/`（prompt 模板）。框架的其他部分都是幕后工作。
+运行本节实验时主要使用三个目录：`examples/` 保存配置和脚本，`examples/reward_function/` 保存奖励函数，`examples/format_prompt/` 保存提示模板。其余目录由框架内部调用。
 
 ![EasyR1 GRPO 训练流程](./images/easyr1-grpo-diagram.png)
 
@@ -56,7 +56,7 @@ EasyR1/
   <em>图 1：EasyR1 中 GRPO 算法的完整流程——从采样多个回答、计算组内 advantage 到裁剪更新策略。来源：<a href="https://github.com/hiyouga/EasyR1" target="_blank" rel="noopener noreferrer">EasyR1 GitHub</a></em>
 </div>
 
-## 为什么选 GeoQA
+## 23.4.2 为什么选 GeoQA
 
 [GeoQA-8K](https://huggingface.co/datasets/leonardPKU/GEOQA_8K_R1V) 是一个初等几何问答数据集，每条样本包含一张几何图形、一道中文题目和标准答案。
 
@@ -72,7 +72,7 @@ EasyR1/
 2. **视觉推理有难度**——不是 OCR 提取文字就行，模型需要理解图形中的空间关系（角度、面积、对称性）
 3. **社区已验证可行**——EasyR1 官方提供了 GeoQA-8K 的完整训练脚本和 baseline 结果
 
-## 环境准备
+## 23.4.3 环境准备
 
 ### 安装 EasyR1
 
@@ -136,9 +136,9 @@ EasyR1 内部会自动把 `<image>` 占位符替换为视觉 token，构建标�
 ]}]
 ```
 
-不需要手动构建 messages——你只需要在 `problem` 字段里放 `<image>` 标记，框架会处理其余部分。
+数据准备时不需要手动构建 `messages`。在 `problem` 字段中放入 `<image>` 标记后，框架会根据模板组装多模态输入。
 
-## Prompt 模板
+## 23.4.4 Prompt 模板
 
 EasyR1 使用 Jinja2 模板来包装原始 prompt，统一格式化模型的输入输出规范。GeoQA-8K 使用 R1-V 风格模板：
 
@@ -166,10 +166,10 @@ The final answer MUST BE put in <answer> </answer> tags.
 ```
 
 ::: details 为什么这里简化了模板？
-EasyR1 原版 r1v.jinja 使用 `<thinkutan>` / `</thinkutan>` 作为推理标签——这是 R1-V 论文的原始设计，用一个不太常见的标签名避免和模型预训练知识冲突。但原版 r1v.py 的 `format_reward` 正则 `</think\s*>` 无法匹配 `</thinkutan>`（因为 `粤` 不是空白字符），导致格式奖励实际上总是 0。本节使用了简化版模板，让标签和正则保持一致。如果你直接跑 EasyR1 官方脚本，会看到原始的 `<thinkutan>` 标签——代码不需要改动，训练仍能正常工作（只是 format_reward 信号会失效，整体 reward 退化为纯 accuracy）。
+EasyR1 原版 `r1v.jinja` 使用 `<thinkutan>` 和 `</thinkutan>` 作为推理标签，用较少见的标签名避免与模型预训练格式冲突。原版 `r1v.py` 的 `format_reward` 正则 `</think\s*>` 无法匹配 `</thinkutan>`，因此格式奖励会保持为 0。本节使用简化模板，使标签和正则一致。直接运行官方脚本时，训练仍可进行，但总奖励会退化为纯准确率奖励。
 :::
 
-## Reward 设计
+## 23.4.5 Reward 设计
 
 EasyR1 的奖励函数就是一个普通 Python 文件。框架通过 `importlib` 动态加载，不需要注册或装饰器。GeoQA-8K 的官方 reward 函数如下：
 
@@ -246,7 +246,7 @@ def compute_score(
 
 `mathruler` 是一个数学等价性判断库，支持数值比较、代数化简、单位换算等。它通过 `pip install mathruler` 安装，是 EasyR1 的依赖之一。
 
-## 训练配置
+## 23.4.6 训练配置
 
 EasyR1 的配置分为四个顶层块：`data`（数据）、`algorithm`（算法）、`worker`（模型/训练/推理/奖励各 worker 的参数）、`trainer`（训练循环控制）。
 
@@ -275,7 +275,7 @@ python3 -m verl.tainer.main \
     trainer.n_gpus_per_node=8
 ```
 
-这条命令做了什么？
+这条命令依次完成以下操作：
 
 1. **`config=examples/config.yaml`**：加载默认配置文件（包含所有字段的默认值）
 2. **`data.train_files=...`**：覆盖训练数据路径，直接从 HuggingFace Hub 加载 GeoQA-8K
@@ -285,11 +285,11 @@ python3 -m verl.tainer.main \
 6. **`worker.reward.reward_function=...`**：指定 reward 函数文件和入口函数名（用冒号分隔）
 7. **`trainer.n_gpus_per_node=8`**：使用 8 张 GPU
 
-CLI 的点号语法会逐层覆盖 YAML 中的对应字段。比如 `worker.actor.model.model_path` 对应 YAML 中 `worker.actor.model.path`。这种设计让你不用创建新的 YAML 文件就能快速切换实验配置。
+CLI 的点号语法会逐层覆盖 YAML 中的对应字段。例如，`worker.actor.model.model_path` 对应 YAML 中的模型路径字段，因此切换模型时不需要另外复制一份完整配置。
 
 ### 完整配置详解
 
-如果你需要更精细的控制（比如开 LoRA、调学习率、改 GRPO 参数），可以通过 CLI 覆盖或创建自己的 YAML。以下是 GeoQA 训练的完整配置拆解：
+需要启用 LoRA、修改学习率或调整 GRPO 参数时，可以继续使用 CLI 覆盖，也可以创建新的 YAML。下面按模块拆解 GeoQA 的训练配置。
 
 **数据配置（`data`）**：
 
@@ -424,7 +424,7 @@ python3 -m verl.tainer.main \
 - `freeze_vision_tower=true`：冻结视觉编码器（LoRA 模式下推荐冻结，避免视觉编码器退化）
 - `exclude_modules=".*visual.*"`：LoRA 只应用于语言模型部分，不动视觉编码器
 
-## 启动训练
+## 23.4.7 启动训练
 
 ### 单机多卡
 
@@ -505,7 +505,7 @@ python3 -m verl.tainer.main \
 
 如果同时开启了 WandB（`trainer.logger` 包含 `"wandb"`），这些指标会自动上传，可以在 WandB dashboard 上看曲线。
 
-## 训练指标分析
+## 23.4.8 训练指标分析
 
 ![EasyR1 GeoQA 训练曲线](./images/easyr1-geoqa-curves.png)
 
@@ -558,9 +558,9 @@ KL 值持续增长但增速放缓，说明模型在偏离初始策略但没有�
 
 EasyR1 默认使用 `low_var_kl` 估计器，比标准 KL 估计的方差更低，曲线更平滑。
 
-## 自定义 Reward 函数
+## 23.4.9 自定义 Reward 函数
 
-如果你想根据自己的需求调整 reward，只需要写一个 Python 文件。框架约定非常简单：
+自定义奖励时，需要新增一个符合框架接口的 Python 文件：
 
 ```python
 # my_reward.py
@@ -613,7 +613,7 @@ worker.reward.reward_function=./my_reward.py:compute_score
 
 `**kwargs` 会接收 YAML 中 `worker.reward.reward_function_kwargs` 配置的额外参数。比如 r1v.py 的 `format_weight` 就是通过这种方式传入的。
 
-## Checkpoint 和模型导出
+## 23.4.10 Checkpoint 和模型导出
 
 训练过程中，EasyR1 会定期保存 checkpoint 到 `checkpoints/<project_name>/<experiment_name>/global_step_N/`。checkpoint 包含 actor 模型权重、优化器状态和训练器状态。
 
@@ -638,7 +638,7 @@ model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
 
 如果开启了 LoRA，`model_merger.py` 会自动把 LoRA 权重合并回基座模型。合并后的模型和全参训练的模型使用方式完全一样，不依赖任何 LoRA 推理库。
 
-## 和 23.3 节手写实验的对比
+## 23.4.11 和 23.3 节手写实验的对比
 
 | 方面     | 11.1 手写 GRPO           | 本节 EasyR1                                  |
 | -------- | ------------------------ | -------------------------------------------- |
@@ -650,9 +650,9 @@ model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
 | 日志     | print                    | WandB / TensorBoard / SwanLab                |
 | 训练规模 | ~500 条，几分钟          | ~8K 条，几小时                               |
 
-EasyR1 帮你省掉的工作量：vLLM rollout 的集成、FSDP 分布式训练的调度、LoRA 的实现、梯度累积和显存优化、checkpoint 管理和恢复。你只需要关注两个核心决策：(1) 数据集怎么选，(2) reward 函数怎么设计。这两个决策也恰恰是 VLM RL 训练中最影响效果的因素。
+EasyR1 负责 vLLM rollout 集成、FSDP 调度、LoRA、梯度累积、显存优化和 checkpoint 管理。本节实验需要重点核对数据格式与奖励函数，因为这两部分直接决定模型看到了什么样本，以及什么行为会得到分数。
 
-## 扩展实验
+## 23.4.12 扩展实验
 
 1. **换基座模型**：对比 Qwen2.5-VL-3B 和 7B 的训练曲线。3B 模型的视觉编码器更小，几何推理的 accuracy 上限可能更低
 2. **换算法**：把 `algorithm.adv_estimator` 从 `grpo` 改为 `dapo` 或 `reinforce_plus_plus`，对比训练曲线。EasyR1 支持 7 种算法，只需要改一行配置

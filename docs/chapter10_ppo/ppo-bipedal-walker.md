@@ -4,7 +4,7 @@
 
 > **学习路径**：[8.1 TRPO 与信任域约束](./trust-region-clipping) → [8.2 PPO-Clip](./intro) → [8.3 GAE](./gae-reward-model) → **8.5 PPO 控制 BipedalWalker**
 
-> **本节代码**：[ppo_bipedal_walker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/ppo_bipedal_walker.py) · [render_bipedal_walker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/render_bipedal_walker.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/requirements.txt)
+> **本节代码与资源**：[ppo_bipedal_walker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/ppo_bipedal_walker.py) · [render_bipedal_walker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/render_bipedal_walker.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/requirements.txt)
 
 前面几章我们已经用 CartPole 和 LunarLander 看过离散动作任务：策略只需要在几个动作里选一个。但现实中的控制问题——机器人关节扭矩、汽车油门刹车、无人机旋翼转速——通常都是**连续动作空间**。PPO 的一个核心优势是原生处理连续动作：策略网络直接输出高斯分布的均值和标准差，从中采样得到连续动作，不需要把动作空间离散化。BipedalWalker-v3 就是这样一个连续控制任务。
 
@@ -118,7 +118,7 @@ PPO 训练过程中有 4 个关键指标，每一个都从不同角度反映策�
 
 ### 近似 KL 散度（Approximate KL Divergence）
 
-KL 散度 $D_{KL}(\pi_{old} \| \pi_{new})$ 衡量新旧策略之间的差异程度。PPO 的裁剪机制本质上是在间接控制这个量——每次更新后，新策略不能偏离旧策略太远。
+KL 散度 $D_{KL}(\pi_{old} \| \pi_{new})$ 衡量新旧策略的差异。PPO 的裁剪目标限制概率比的变化，从而间接减小一次更新造成的策略偏移。
 
 ![PPO BipedalWalker-v3 近似 KL 散度曲线：大部分时间低于 0.016，整体平稳](./images/ppo_bipedal_walker_kl.png)
 

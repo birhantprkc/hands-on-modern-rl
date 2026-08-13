@@ -4,7 +4,7 @@
 
 > **学习路径**：[15.3 RLVR 奖励](./rlvr) → [13.7 veRL 训练 GSM8K](../chapter15_rlhf/verl-ppo-gsm8k) → **15.8 veRL 训练代码生成**
 
-> **本节代码**：[数据准备](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter18_grpo/verl_code_rlvr/prepare_data.py) · [代码奖励](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter18_grpo/verl_code_rlvr/code_reward.py) · [单卡训练脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter18_grpo/verl_code_rlvr/run_qwen_coder_ppo_single_gpu.sh)
+> **本节代码与资源**：[数据准备](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter18_grpo/verl_code_rlvr/prepare_data.py) · [代码奖励](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter18_grpo/verl_code_rlvr/code_reward.py) · [单卡训练脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter18_grpo/verl_code_rlvr/run_qwen_coder_ppo_single_gpu.sh)
 
 13.7 节已经用 veRL 训练数学模型，只需抽取最终数字并与标准答案比较。代码任务多了一步：模型生成的程序必须进入隔离环境，经过语法检查、执行和单元测试，测试通过率再变成奖励。下面沿用同一套 veRL 训练框架，只替换数据处理和奖励链路。
 
@@ -30,7 +30,7 @@ flowchart LR
     style R fill:#fff3e0,stroke:#f57c00
 ```
 
-## 为什么代码生成适合 RLVR
+## 15.8.1 为什么代码生成适合 RLVR
 
 普通聊天任务很难定义"正确答案"。同一句回复，可能有人喜欢简洁，有人喜欢详细，Reward Model 也可能被模型钻空子。
 
@@ -61,7 +61,7 @@ assert two_sum([3, 3], 6) == [0, 1]
 
 最重要的是第三层。前两层只是让训练早期不至于完全没有信号。
 
-## 环境准备
+## 15.8.2 环境准备
 
 ### 硬件要求
 
@@ -144,7 +144,7 @@ python code/chapter18_grpo/verl_code_rlvr/prepare_data.py
 
 训练时模型只看到 `prompt`，veRL 会把 `reward_model.ground_truth` 传给 reward 函数做验证。这就是代码 RLVR 的核心——**reward 函数不评价文字风格，只评价代码能否跑通测试**。
 
-## Reward 函数设计
+## 15.8.3 Reward 函数设计
 
 13.7 节的 GSM8K reward 只需要从模型输出中提取最终数字，做一次数值比较。代码任务完全不同：需要从 markdown 中提取代码块，放到隔离环境中执行测试，处理编译错误、运行异常和超时。
 
@@ -280,7 +280,7 @@ HOMRL_ALLOW_UNSAFE_CODE_EXECUTION=1 \
 
 这个 reward 函数的核心思想是：**不评价文字风格，只评价代码能否跑通测试**。模型写了再长的解释，如果代码跑不通，reward 就是 0。这种硬信号比 RM 的软分数可靠得多。
 
-## Prompt 模板
+## 15.8.4 Prompt 模板
 
 训练代码模型时，prompt 要尽量约束输出格式。早期不要让模型自由写长解释，否则 verifier 需要花很多精力抽取代码。
 
@@ -303,7 +303,7 @@ Eurus-2-RL-Data 的 code 样本是"读 stdin、写 stdout"的竞赛题，**没�
 
 **为什么必须是 chat 格式？** veRL 会把 `prompt` 交给 `apply_chat_template`。纯文本字符串会被 Qwen 模板直接丢弃（只留下 system + assistant 特殊 token），模型看不到题目。所以即使训练 base coder，也建议保持 chat 结构，让模板能正确拼出完整 prompt。关键是保持训练和评测模板一致。
 
-## 单卡训练脚本
+## 15.8.5 单卡训练脚本
 
 基于 13.7 节的 veRL PPO 脚本结构，适配代码生成任务。整体框架不变，关键差异有三处：数据集换成 Eurus-2-RL-Data（只取 code 样本）、reward 函数换成代码验证、`max_response_length` 从 256 增大到 512（代码回答通常比数学推理更长）。
 
@@ -359,7 +359,7 @@ python3 -m verl.trainer.main_ppo \
 
 关键区别是最后一行：13.7 节用数学答案匹配（抽取数字做数值比较），本节用代码执行验证（提取代码 → 子进程运行 → 比对输入输出）。reward 信号按测试通过率给 0~1 的分数，但代码 reward 的工程复杂度更高。
 
-## 启动训练
+## 15.8.6 启动训练
 
 ### 直接运行脚本
 
@@ -404,7 +404,7 @@ Ray 会在 `main_ppo` 内自动初始化。单卡场景下，所有 worker 在�
 
 注意 `format` 指标通常比 `pass_rate` 先上升——模型先学会"按格式输出代码块"，然后才逐渐学会"写出能通过测试的代码"。这是代码 RLVR 的典型训练动态。
 
-## 训练指标分析
+## 15.8.7 训练指标分析
 
 ### 关键指标解读
 
@@ -443,7 +443,7 @@ Ray 会在 `main_ppo` 内自动初始化。单卡场景下，所有 worker 在�
 
 > **注意**：上表数据来自火山引擎官方在多 GPU 环境上的实验结果。本节的单卡脚本模型更小、训练步数更少，具体数值会有差异，但训练动态和趋势一致。
 
-## 模型评测
+## 15.8.8 模型评测
 
 训练完成后，对 checkpoint 做独立评测，确认 PPO 训练确实带来了能力提升。
 
@@ -485,7 +485,7 @@ evalscope eval \
 - **对比 baseline**：同时评测 RL 前的原始模型，才能量化 PPO 带来的真实提升。
 - **多 benchmark 对照**：只看 HumanEval 不够，LiveCodeBench 更能反映代码模型的实际能力。
 
-## 从单卡扩展到多卡
+## 15.8.9 从单卡扩展到多卡
 
 理解了单卡配置后，扩展到多卡只需要修改几个关键参数：
 
@@ -499,7 +499,7 @@ evalscope eval \
 
 学习率、clip_ratio、GAE 参数等**不需要改**——它们是算法参数，不随硬件规模变化。
 
-## 和 19.8 DeepCoder 实验的关系
+## 15.8.10 和 19.8 DeepCoder 实验的关系
 
 本节和 [19.8](../chapter22_agentic/rllm-deepcoder-lab) 讲的是同一个大方向：用 sandbox reward 训练代码模型。区别在于关注点不同：
 
@@ -508,9 +508,9 @@ evalscope eval \
 | 15.8 本节 | veRL | 把代码 verifier 接进 PPO/GRPO 训练框架    |
 | 19.8      | rLLM | 用 DeepCoder cookbook 跑完整 Agentic 实验 |
 
-如果你想先跑通一个端到端案例，优先看 10.5。如果你已经熟悉 veRL，想把数学 RLVR 扩展到代码任务，就沿着本节的 data、reward、trainer 三个接口补齐。
+初次接触端到端训练时，可以先完成 13.7 节的 GSM8K 实验。已经熟悉 veRL 后，可以沿本节的数据、奖励和训练器三个接口把数学 RLVR 扩展到代码任务。
 
-## 实验检查清单
+## 15.8.11 实验检查清单
 
 正式训练前，至少检查这些点：
 

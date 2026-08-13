@@ -4,11 +4,25 @@
 
 > **学习路径**：[14.1 DPO 目标函数](./intro) → [14.2 训练与评测指标](./metrics) → [14.3 DPO 改进方法](./dpo-theory-and-family) → **14.4 DPO 对齐实验**
 
-> **本节代码**：[数据生成](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/1-generate_data.py) · [训练前测试](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/2-test_before.py) · [DPO 训练](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/3-train_dpo.py) · [训练后测试](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/4-test_after.py)
+> **本节代码与资源**：[数据生成](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/1-generate_data.py) · [训练前测试](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/2-test_before.py) · [DPO 训练](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/3-train_dpo.py) · [训练后测试](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/4-test_after.py)
 
 前面已经推导了 DPO 如何提高 chosen 回答相对于 rejected 回答的概率。这里换成一个容易观察的任务：每条数据都把礼貌回答作为 chosen，把带有讽刺和攻击性的回答作为 rejected。实验按“准备数据 → 训练前测试 → DPO 训练 → 训练后测试”运行，最终要检查模型是否在保留回答内容的同时减少不友好的语气。
 
-## 偏好数据准备
+在仓库根目录运行完整实验：
+
+```bash
+cd code/chapter17_dpo
+pip install -r requirements.txt
+python 0-download_model.py
+python 1-generate_data.py
+python 2-test_before.py
+python 3-train_dpo.py
+python 4-test_after.py
+```
+
+五个脚本分别下载模型、生成偏好数据、保存训练前回答、执行 DPO 训练并保存训练后回答。比较结果时要同时检查语气和内容，不能只检查是否出现礼貌词。
+
+## 14.4.1 偏好数据准备
 
 我们构造一个包含"讽刺回答"和"礼貌回答"的偏好数据集。每一对数据中，$y_w$（chosen）是礼貌得体的回答，$y_l$（rejected）是阴阳怪气的回答。
 
@@ -51,7 +65,7 @@ dataset = Dataset.from_dict({
 print(f"偏好数据集大小: {len(dataset)} 条")
 ```
 
-## 运行 DPO 训练
+## 14.4.2 运行 DPO 训练
 
 ```python
 from trl import DPOTrainer, DPOConfig
@@ -97,9 +111,9 @@ trainer.save_model("./dpo_toxic_alignment/final_model")
 print("训练完成！")
 ```
 
-## 训练过程分析
+## 14.4.3 训练过程分析
 
-训练完成后，DPO 的日志会记录几个关键指标。让我们逐一理解它们：
+训练完成后，DPO 日志会记录四个关键指标。下面按指标所回答的问题逐一检查。
 
 ```python
 # ==========================================
@@ -174,7 +188,7 @@ print("DPO 训练指标图已保存")
 
 **Reward Accuracy**：在训练集上，模型的隐式奖励对"好回答 > 坏回答"的判别准确率。从最初的 50%（随机）逐渐上升到接近 100%。但要注意——Accuracy 接近 100% 不等于回答质量好，它只说明模型在训练集上学会了区分。
 
-## β 敏感性
+## 14.4.4 β 敏感性
 
 $\beta$ 是 DPO 中最关键的超参数，它控制模型偏离参考模型的程度：
 
@@ -185,7 +199,7 @@ $\beta$ 是 DPO 中最关键的超参数，它控制模型偏离参考模型的�
 | 0.5  | 强约束           | 慢       | 模型变化太小，训练不充分   |
 | 1.0  | 极强约束         | 极慢     | 几乎学不到东西             |
 
-$\beta$ 太小就像"不系安全带飙车"——模型可能会说出一堆语法正确但内容荒谬的话来迎合偏好。$\beta$ 太大就像"手刹没松就开车"——模型想变但被绑住了，训练了半天还在原地。
+$\beta$ 较小时，策略可以较大幅度偏离参考模型，回答质量可能随之退化。$\beta$ 较大时，策略受到更强限制，偏好变化会比较慢。
 
 ```mermaid
 flowchart LR
@@ -226,4 +240,4 @@ flowchart LR
 - `rewards/margins` 和 `rewards/accuracies` 反映训练集偏好是否被学到，独立提示上的生成结果检验能否泛化。
 - $\beta$ 控制模型偏离参考策略的幅度；训练数据过少时，即使训练指标很好，也可能只是记住了偏好对。
 
-训练指标只是表象，真正的魔法藏在 DPO 的数学推导中。为什么"改个 Loss 就能绕过整个 PPO 循环"？为什么不需要 Reward Model 也能训练？让我们深入数学——[DPO 数学推导](./dpo-theory-and-family)。
+训练指标说明偏好对上的概率关系是否发生变化。[DPO 目标与推导](./intro)进一步说明这种变化为何可以直接由偏好损失产生，而不需要单独训练奖励模型。

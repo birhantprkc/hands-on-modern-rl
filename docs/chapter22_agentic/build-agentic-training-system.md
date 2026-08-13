@@ -4,13 +4,22 @@
 
 > **学习路径**：[19.1 Agentic RL 基础](./overview) → [19.8 DeepCoder Agent](./rllm-deepcoder-lab) → [19.9 金融分析 Agent](./rllm-finqa-lab) → **19.10 从零实现训练系统**
 
-> **本节代码**：[完整实现目录](https://github.com/walkinglabs/hands-on-modern-rl/tree/main/docs/chapter22_agentic/code) · [trainer.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/docs/chapter22_agentic/code/trainer.py)
+> **本节代码与资源**：[完整实现目录](https://github.com/walkinglabs/hands-on-modern-rl/tree/main/docs/chapter22_agentic/code) · [trainer.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/docs/chapter22_agentic/code/trainer.py)
 
 前面几节分别从框架和案例理解了 Agentic RL。现在从一个 episode 出发搭建最小系统：模型生成代码，执行环境返回标准输出或错误，模型根据新观测继续行动，最终奖励再用于更新策略。CPU 即可运行这个教学版本；验收时要检查多轮轨迹是否完整、执行结果是否回传、奖励是否对应测试结果、参数是否真正更新。
 
-## Agentic RL 训练系统的 Infra 基础
+完整实现位于 `docs/chapter22_agentic/code/`。安装 PyTorch 和 Transformers 后，在该目录运行：
 
-要理解一个 Agentic RL 训练系统为什么长成 Relax 或 veRL 那样，我们需要先回到训练循环本身——不是看框架的类图，而是看**一个 episode 里到底发生了什么事**。
+```bash
+cd docs/chapter22_agentic/code
+python run.py
+```
+
+脚本会下载 0.5B 参数模型并执行 30 个训练步骤。这里的 `SandboxEnv` 只是带超时限制的教学实现，不提供容器或虚拟机级隔离；不要用它执行不可信代码。
+
+## 19.10.1 Agentic RL 训练系统的 Infra 基础
+
+先从一个 episode 开始。模型读取编程题，生成代码，环境执行代码并返回结果；模型读取这个新观测后决定继续修改还是提交答案。
 
 ### 一个 episode 的流程
 
@@ -131,35 +140,35 @@ flowchart LR
 
 ### 解耦带来的问题
 
-这个"看似简单的解耦"，恰恰是所有复杂性的来源：
+解耦后还需要处理三个工程问题：
 
 - **权重同步**：Train 侧更新后的权重，如何及时同步到 Rollout 侧？如果 Rollout 还在用旧权重生成轨迹，这些轨迹对当前策略的评估就不准确了。
 - **队列管理**：Rollout 产出速度可能远快于 Train 消费速度，缓冲区会不会溢出？数据会不会堆积？
 - **一致性**：Train 侧消费的轨迹，其生成时使用的模型权重与当前权重已经不同，如何处理这个**时间差**？
 
-Relax、veRL 等生产框架中的 **DCS 权重同步**、**心跳机制**、**PlacementGroup 调度**、**流式队列** 等设计，本质上都是围绕这个"推理与训练异步执行"的核心问题展开的工程方案。
+Relax、veRL 等生产框架使用 DCS 权重同步、心跳机制、PlacementGroup 调度和流式队列处理这些问题。
 
 本节我们先不处理这些高级问题，而是写一个**同步版本**——rollout 完成后立即训练，训练完再做下一轮 rollout。这样做的目的是让四个核心组件各自的职责和交互方式在简单场景下清晰可见。理解同步版本后，再引入异步解耦、分布式、容错等扩展，方向会自然清晰。
 
-## 从训练循环到组件设计
+## 19.10.2 从训练循环到组件设计
 
-前面我们描述了训练循环的四个阶段：rollout → reward → train → repeat。在同步版本中，这四个阶段依次执行，构成了训练的主循环。现在我们来问：要实现这个循环，系统需要哪些组件？
+同步版本依次执行 rollout、reward 和 train。按照每一步的数据输入与输出，可以把系统拆成四个组件。
 
 ### Rollout 阶段需要什么
 
 Rollout 阶段的核心任务是"模型与环境交互，产出轨迹"。把这个任务拆开：
 
-- **环境在哪里执行？** Agent 生成的代码需要被送到某个地方执行，执行结果需要安全地返回给模型。如果直接在训练进程中执行 `while True: pass`，整个进程会被卡死。因此我们需要一个**隔离的执行环境**——这就是 **Environment** 的职责。
-- **谁来驱动多轮交互？** 单次 `generate()` 只输出一帧，但一个 episode 通常需要多轮"生成→执行→观察→再生成"。我们需要一个循环驱动器来把模型和环境串起来，收集完整的交互历史——这就是 **RolloutWorker** 的职责。
-- **模型怎么生成动作、怎么接受梯度？** 模型需要一套接口用于推理（rollout 时生成代码），另一套接口用于训练（接收 advantage 做梯度更新）。同一份权重需要同时支持两种用法——这就是 **Policy** 的职责。
+- **Environment** 在隔离环境中执行 Agent 生成的代码，并把标准输出、错误和超时信息返回给模型。隔离可以避免死循环卡住训练进程。
+- **RolloutWorker** 把多次“生成、执行、观察”串成一个 episode，并保存完整交互历史。
+- **Policy** 提供推理接口生成动作，也提供训练接口接收优势并更新参数。
 
 ### Train 阶段需要什么
 
 Train 阶段的核心任务是"从轨迹中计算 advantage，然后做梯度更新"。把这个任务拆开：
 
-- **Advantage 怎么算？** GRPO 要求对同一个 prompt 采样多条轨迹，在组内做归一化。谁来组织"采样多条 → 计算 mean/std → 分配 advantage"这个流程？
-- **梯度更新怎么触发？** Policy 提供了训练接口，但谁来决定什么时候调用、调用多少次、用什么数据？
-- **整个训练循环怎么编排？** Rollout 产出轨迹、计算 advantage、调用 Policy 训练、记录指标——这些步骤的先后顺序和执行逻辑需要统一管理。
+- 对同一个 prompt 采样多条轨迹，并在组内计算平均奖励、标准差和优势；
+- 按批次调用 Policy 的训练接口；
+- 记录 rollout、奖励和参数更新指标。
 
 这就是 **Trainer** 的职责：编排整个"rollout → reward → train"循环，把其他三个组件组装成可运行的训练流程。
 
@@ -174,7 +183,7 @@ Train 阶段的核心任务是"从轨迹中计算 advantage，然后做梯度更
 
 下面我们先看一个完整的交互例子，然后逐个实现这四个组件。
 
-## 一次完整交互长什么样
+## 19.10.3 一次完整交互长什么样
 
 在动手写代码之前，我们先看一个具体例子。假设题目是"计算斐波那契数列第 10 项"。
 
@@ -202,7 +211,7 @@ Train 阶段的核心任务是"从轨迹中计算 advantage，然后做梯度更
 
 下面我们从 Rollout 阶段最基础的需求开始——**隔离执行**。
 
-## Environment — 沙箱和工具执行
+## 19.10.4 Environment — 沙箱和工具执行
 
 Agent 生成的代码要在哪里执行？一个自然的想法是直接在训练进程中运行。但如果 Agent 写出 `while True: pass` 这样的死循环，整个训练进程就会被卡住。更严重的是，Agent 可能生成删除文件的恶意代码。因此，我们需要一种机制，在隔离的环境中执行 Agent 的动作，同时将执行结果安全地返回给 Agent。
 
@@ -304,7 +313,7 @@ class SandboxEnv:
 - `_exec_code()` 用 subprocess 隔离，加 timeout 防止死循环——B.2 讨论的最轻量沙箱方案
 - 返回值包含 `observation`（环境反馈）和 `done`（是否终止），对应 POMDP 的观测函数 $O(s_t)$
 
-## Policy — 模型推理与训练
+## 19.10.5 Policy — 模型推理与训练
 
 环境可以执行代码了，但谁来决定写什么代码？我们需要一个策略（Policy）来生成动作。这里使用一个 0.5B 参数的 Qwen2.5 作为策略模型。
 
@@ -438,7 +447,7 @@ class Policy:
 - `ref_model` 是 KL 惩罚的锚点，防止模型偏离初始策略太远
 - 这里实现了最简的策略梯度（REINFORCE + advantage），没有 PPO 的 clipping——先跑通再优化
 
-## RolloutWorker — 驱动 Agent Loop
+## 19.10.6 RolloutWorker — 驱动 Agent Loop
 
 Policy 可以生成单步动作，Environment 可以执行单个动作并返回结果。但回想前面的例子，Agent 做一道编程题往往需要多轮交互：写代码、看报错、修改、再执行。单次 `generate()` 只输出一帧，如何把它们串成"生成→执行→观察→再生成"的循环？
 
@@ -575,7 +584,7 @@ class RolloutWorker:
 - 轨迹结构是 `{"prompt", "interactions": [...], "final_response", "reward"}`——比单轮 RL 的 `(prompt, completion, reward)` 复杂得多，但保留了完整的多轮交互信息
 - `_parse_action()` 是简化版解析器。生产框架会用 tokenizer + 特殊 token 做结构化解析，这里用字符串匹配足够理解概念
 
-## Trainer — 编排训练循环
+## 19.10.7 Trainer — 编排训练循环
 
 到这一步，我们已经能收集完整的交互轨迹了。但光有轨迹还不够——我们需要把它们变成梯度，更新模型参数。回顾第 15 章，GRPO 的核心思想是对同一个 prompt 采样多条轨迹，在组内做比较来计算 advantage。
 
@@ -710,7 +719,7 @@ class GRPOAgentTrainer:
 - GRPO 的组内比较在 Reward 归一化那段实现：同一 prompt 的多条轨迹计算 advantage = (reward - mean) / std
 - `_serialize_trajectory()` 把多轮轨迹展成文本。这里做了简化——生产框架会用 loss mask 区分模型生成的 token 和环境返回的 token（见 B.2 的 loss mask 讨论）
 
-## 拼起来跑
+## 19.10.8 拼起来跑
 
 到这一步，四个组件都已各自实现。Environment 提供隔离执行，Policy 提供推理和训练接口，RolloutWorker 驱动多轮交互循环，Trainer 编排 GRPO 训练流程。但它们目前还是独立的模块。如何把它们组装成一个可运行的系统？
 
@@ -800,9 +809,9 @@ trainer = GRPOAgentTrainer(
 history = trainer.fit(prompts, n_steps=30)
 ```
 
-## 与生产框架的差距
+## 19.10.9 与生产框架的差距
 
-跑通上面的代码后，你已经掌握了一个 Agentic RL 训练系统的基本骨架。但这个实现与 Relax、veRL 等生产框架之间还存在哪些差距？
+上面的代码实现了同步训练骨架。它与 Relax、veRL 等生产框架仍有以下差距：
 
 | 方面      | 本节最小实现                | 生产框架（Relax / veRL）                               |
 | --------- | --------------------------- | ------------------------------------------------------ |
@@ -816,9 +825,9 @@ history = trainer.fit(prompts, n_steps=30)
 | 轨迹存储  | 内存中的 dict               | 分布式存储（Redis / S3），按任务/步骤检索              |
 | 容错      | 无                          | 心跳监控，自动重启，checkpoint 恢复                    |
 
-每个差距都是一个独立的工程优化方向。理解骨架之后，你可以按需深入任何一个方向。
+这些差距分别对应推理吞吐、分布式训练、沙箱安全、数据一致性和故障恢复问题。
 
-## 扩展练习
+## 19.10.10 扩展练习
 
 1. **加 PPO clipping**：在 `train_step_with_advantage()` 中加入 PPO 的 clipped surrogate objective（参考第 8 章），对比 REINFORCE 和 PPO 的训练稳定性
 2. **加 loss mask**：在 `_serialize_trajectory()` 中标记哪些 token 是模型生成的、哪些是环境返回的，只在模型生成的 token 上计算 loss

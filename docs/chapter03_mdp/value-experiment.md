@@ -4,7 +4,7 @@
 
 > **学习路径**：[3.1 状态价值与贝尔曼期望方程](./value-bellman) → [3.2 动作价值与贝尔曼最优方程](./value-q) → **3.3 价值迭代与 Q-Learning**
 
-> **本节代码与图表**：[实验脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter03_mdp/gridworld_q_learning.py) · [GridWorld 环境图](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/docs/chapter03_mdp/images/gridworld-environment.svg) · [价值迭代图](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/docs/chapter03_mdp/images/gridworld-value-iteration.svg) · [Q-Learning 曲线](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/docs/chapter03_mdp/images/gridworld-q-learning.svg)
+> **本节代码与资源**：[实验脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter03_mdp/gridworld_q_learning.py) · [GridWorld 环境图](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/docs/chapter03_mdp/images/gridworld-environment.svg) · [价值迭代图](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/docs/chapter03_mdp/images/gridworld-value-iteration.svg) · [Q-Learning 曲线](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/docs/chapter03_mdp/images/gridworld-q-learning.svg)
 
 ## 3.3.1 运行 GridWorld 实验
 
