@@ -685,8 +685,10 @@ def move_catalog(query: str, learning_path: str, feature: str, page: int, langua
     return catalog_page(query, learning_path, feature, int(page) + direction, language)
 
 
-def choose_card(visible: list[str], event: gr.SelectData):
-    return visible[event.index]
+def choose_card(visible: list[str], language: str, event: gr.SelectData):
+    """Select a card and return its complete UI update in one round trip."""
+    experiment = visible[event.index]
+    return experiment, *select_experiment(experiment, language)
 
 
 def space_text(space) -> str:
@@ -768,7 +770,7 @@ TEXT = {
         "experiments": "Experiments",
         "catalog_title": "Choose an experiment",
         "catalog_copy": "Choose a learning path on the left, then optionally narrow it by goal on the right. Search works across the complete catalog.",
-        "catalog_version": "Navigation v2.5 · paged goals",
+        "catalog_version": "Navigation v2.6 · fewer requests",
         "path": "Learning path",
         "search": "Know a task name? Search the full catalog",
         "search_placeholder": "Optional: try CartPole, Pong, robot...",
@@ -816,7 +818,7 @@ TEXT = {
         "experiments": "实验数量",
         "catalog_title": "选择一个实验",
         "catalog_copy": "在左侧选择学习路线，再在右侧按训练目标细分。搜索会覆盖完整实验目录。",
-        "catalog_version": "导航版本 v2.5 · 目标分页",
+        "catalog_version": "导航版本 v2.6 · 减少请求",
         "path": "学习路线",
         "search": "知道任务名称？搜索完整目录",
         "search_placeholder": "可选：输入 CartPole、Pong、robot…",
@@ -905,16 +907,6 @@ def waiting_panel(language: str) -> str:
       <span class="run-wait__pulse" aria-hidden="true"><i></i></span>
     </section>
     """
-
-
-def begin_run(language: str):
-    copy = copy_for(language)
-    return gr.HTML(value=waiting_panel(language), visible=True), gr.Button(value=copy["start_running"], interactive=False)
-
-
-def finish_run(language: str):
-    copy = copy_for(language)
-    return gr.HTML(value="", visible=False), gr.Button(value=copy["start"], interactive=True)
 
 
 def panel_html(title: str, text: str, cls: str = "panel-copy") -> str:
@@ -1478,6 +1470,16 @@ def train(experiment: str, budget: float, alpha: float, gamma: float, epsilon: f
         yield status_card("idle", "Training stopped", "Diagnostic result produced", language), metric_card("ERROR", "see the latest log lines", language), error_figure(experiment, message), diagnostic, summary, console_panel("\n".join(logs), language)
 
 
+def train_with_ui(experiment: str, budget: float, alpha: float, gamma: float, epsilon: float, seed: float, language: str):
+    """Stream waiting, training, and completion states through one request."""
+    copy = copy_for(language)
+    unchanged = (gr.skip(),) * 6
+    yield *unchanged, gr.HTML(value=waiting_panel(language), visible=True), gr.Button(value=copy["start_running"], interactive=False)
+    for result in train(experiment, budget, alpha, gamma, epsilon, seed, language):
+        yield *result, gr.skip(), gr.skip()
+    yield *unchanged, gr.HTML(value="", visible=False), gr.Button(value=copy["start"], interactive=True)
+
+
 def slider_update(label: str, spec: tuple[float, float, float, float], visible: bool = True):
     minimum, maximum, value, step = spec
     return gr.Slider(minimum=minimum, maximum=maximum, value=value, step=step, label=label, visible=visible)
@@ -1643,8 +1645,6 @@ DEFAULT_EXPERIMENT = CARTPOLE_PPO
 copy = copy_for(DEFAULT_LANGUAGE)
 cfg = EXPERIMENTS[DEFAULT_EXPERIMENT]
 initial_feature_choices = feature_choices("", "Start here", DEFAULT_LANGUAGE)
-all_feature_values = [ALL_FEATURES] + sorted({experiment_feature(item) for item in EXPERIMENT_CHOICES})
-all_feature_choices = [(FEATURE_LABELS.get(value, value), value) for value in all_feature_values]
 initial_cards, initial_visible, initial_page, initial_meta, _, _ = catalog_page("", "Start here", ALL_FEATURES, 0, DEFAULT_LANGUAGE)
 
 with gr.Blocks(title="Hands-On Modern RL · Gymnasium CPU Playground") as demo:
@@ -1661,7 +1661,7 @@ with gr.Blocks(title="Hands-On Modern RL · Gymnasium CPU Playground") as demo:
             with gr.Column(elem_classes="catalog-filter-pane catalog-filter-pane--path"):
                 family = gr.Radio(choices=path_choices(DEFAULT_LANGUAGE), value="Start here", label=copy["path"], elem_classes="catalog-family")
             with gr.Column(elem_classes="catalog-filter-pane catalog-filter-pane--goal"):
-                feature = gr.Radio(choices=all_feature_choices, value=ALL_FEATURES, label=copy["goal"], visible=True, elem_classes="catalog-feature")
+                feature = gr.Radio(choices=initial_feature_choices, value=ALL_FEATURES, label=copy["goal"], visible=True, elem_classes="catalog-feature")
                 goal_pager = gr.HTML(goal_pager_html(DEFAULT_LANGUAGE), elem_classes="goal-pager-host")
         gallery = gr.Gallery(value=initial_cards, label=None, show_label=False, columns=4, rows=3, object_fit="cover", height="auto", allow_preview=False, buttons=[], elem_classes="experiment-gallery")
         visible_experiments = gr.State(initial_visible)
@@ -1700,7 +1700,6 @@ with gr.Blocks(title="Hands-On Modern RL · Gymnasium CPU Playground") as demo:
 
     gr.HTML(footer_html())
 
-    demo.load(lambda: gr.Radio(choices=initial_feature_choices, value=ALL_FEATURES, visible=True), outputs=[feature], queue=False, show_progress="hidden")
     catalog_outputs = [feature, gallery, visible_experiments, catalog_page_state, catalog_meta, previous_page, next_page]
     page_outputs = [gallery, visible_experiments, catalog_page_state, catalog_meta, previous_page, next_page]
     search.change(reset_search, inputs=[search, family, language], outputs=catalog_outputs, queue=False, show_progress="hidden", trigger_mode="always_last")
@@ -1708,12 +1707,9 @@ with gr.Blocks(title="Hands-On Modern RL · Gymnasium CPU Playground") as demo:
     feature.input(reset_catalog, inputs=[search, family, feature, language], outputs=page_outputs, queue=False, show_progress="hidden", trigger_mode="always_last")
     previous_page.click(lambda q, f, t, p, lang: move_catalog(q, f, t, p, lang, -1), inputs=[search, family, feature, catalog_page_state, language], outputs=page_outputs, queue=False, show_progress="hidden")
     next_page.click(lambda q, f, t, p, lang: move_catalog(q, f, t, p, lang, 1), inputs=[search, family, feature, catalog_page_state, language], outputs=page_outputs, queue=False, show_progress="hidden")
-    gallery.select(choose_card, inputs=[visible_experiments], outputs=[experiment], queue=False)
-    experiment.change(select_experiment, inputs=[experiment, language], outputs=[hero, task_info, budget, alpha, gamma, epsilon, status, metric, console, preview, artifact], queue=False)
+    gallery.select(choose_card, inputs=[visible_experiments, language], outputs=[experiment, hero, task_info, budget, alpha, gamma, epsilon, status, metric, console, preview, artifact], queue=False, show_progress="hidden")
     language.change(switch_language, inputs=[language, experiment, seed, family, search, feature, catalog_page_state], outputs=[hero, catalog_header, family, search, feature, goal_pager, gallery, visible_experiments, catalog_page_state, catalog_meta, previous_page, next_page, settings_header, task_info, budget, alpha, gamma, epsilon, seed, start, status, metric, chart_header, console, preview_header, artifact], queue=False)
-    run_event = start.click(begin_run, inputs=[language], outputs=[wait_state, start], queue=False)
-    run_event = run_event.then(train, inputs=[experiment, budget, alpha, gamma, epsilon, seed, language], outputs=[status, metric, curve, preview, artifact, console], concurrency_limit=1)
-    run_event.then(finish_run, inputs=[language], outputs=[wait_state, start], queue=False)
+    start.click(train_with_ui, inputs=[experiment, budget, alpha, gamma, epsilon, seed, language], outputs=[status, metric, curve, preview, artifact, console, wait_state, start], concurrency_limit=1)
 
 
 if __name__ == "__main__":
