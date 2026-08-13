@@ -688,7 +688,7 @@ def move_catalog(query: str, learning_path: str, feature: str, page: int, langua
 def choose_card(visible: list[str], language: str, event: gr.SelectData):
     """Select a card and return its complete UI update in one round trip."""
     experiment = visible[event.index]
-    return experiment, *select_experiment(experiment, language)
+    return experiment, *select_experiment(experiment, language), str(time.time_ns())
 
 
 def space_text(space) -> str:
@@ -1566,6 +1566,7 @@ CSS = """
 .catalog-feature label[hidden]{display:none!important}
 .catalog-interaction{position:relative!important}.catalog-wait-host{display:none!important;position:fixed!important;z-index:9999!important;inset:0!important;margin:0!important;padding:0!important;border:0!important;background:rgba(241,244,250,.74)!important;backdrop-filter:blur(3px)!important;pointer-events:auto!important}.catalog-interaction[data-catalog-busy="true"] .catalog-wait-host{display:flex!important;align-items:center!important;justify-content:center!important}.catalog-interaction[data-catalog-busy="true"] .catalog-controls,.catalog-interaction[data-catalog-busy="true"] .experiment-gallery{opacity:.48!important;filter:saturate(.65)!important}.catalog-wait-host>div{width:auto!important}.catalog-wait{display:flex!important;align-items:center!important;justify-content:center!important;gap:11px!important;width:max-content!important;max-width:calc(100vw - 36px)!important;padding:14px 18px!important;border:1px solid #c7d2fe!important;border-radius:13px!important;color:#293064!important;background:rgba(255,255,255,.98)!important;box-shadow:0 18px 44px rgba(35,43,92,.2)!important}.catalog-wait strong,.catalog-wait small{display:block!important}.catalog-wait strong{font-size:13px!important}.catalog-wait small{margin-top:3px;color:#68748a;font-size:11px!important}.catalog-wait__spinner{flex:none;width:21px;height:21px;border:2px solid #d9ddff;border-top-color:#5b5ce2;border-radius:50%;animation:run-spin .75s linear infinite}
 .catalog-done{display:none!important}
+.selection-done{display:none!important}#selected-task-detail{scroll-margin-top:18px!important}#selected-task-detail.task-detail-arrived{animation:task-arrived 1.15s ease-out}@keyframes task-arrived{0%{box-shadow:0 0 0 4px rgba(91,92,226,.2),0 16px 38px rgba(91,92,226,.16)}100%{box-shadow:none}}
 .experiment-gallery .grid-wrap{display:block!important;width:100%!important;height:auto!important;min-height:0!important}.experiment-gallery .grid-container{display:grid!important;width:100%!important;grid-template-columns:repeat(auto-fill,minmax(230px,270px))!important;justify-content:start!important;gap:12px!important}.experiment-gallery .gallery-item{width:100%!important;min-width:0!important}
 .experiment-gallery button,.experiment-gallery .thumbnail-item{height:auto!important;aspect-ratio:2/1!important}.experiment-gallery .caption-label{position:absolute!important;inset:0 0 auto 0!important;z-index:2!important;display:block!important;width:100%!important;min-height:72px!important;padding:14px 16px 18px!important;overflow:visible!important;text-overflow:clip!important;white-space:pre-line!important;overflow-wrap:anywhere!important;background:linear-gradient(180deg,rgba(5,9,30,.94),rgba(5,9,30,.76) 70%,transparent)!important;color:#fff!important;font-size:clamp(12px,1.25vw,17px)!important;font-weight:800!important;line-height:1.28!important;text-align:left!important;text-shadow:0 1px 2px rgba(0,0,0,.4)!important;pointer-events:none!important}
 @media(max-width:760px){.experiment-gallery .grid-container{grid-template-columns:1fr!important}}
@@ -1581,6 +1582,7 @@ function initializeGymPlaygroundUi() {
   let active = null, follow = true, saved = 0, internal = false, scheduled = false;
   let goalPage = 0, goalSignature = "", goalPagerBound = null;
   let catalogBefore = "", catalogBusyTimer = null, catalogBusyStarted = 0;
+  let selectionPending = false, selectionBefore = "";
   const catalogResult = () => {
     const goals = [...document.querySelectorAll(".catalog-feature label")].map(label => label.textContent.trim()).join("|");
     const cards = [...document.querySelectorAll(".experiment-gallery img")].map(img => img.src).join("|");
@@ -1612,6 +1614,11 @@ function initializeGymPlaygroundUi() {
   }, true);
   document.addEventListener("change", event => {
     if (event.target.closest(".catalog-search")) setCatalogBusy(true);
+  }, true);
+  document.addEventListener("click", event => {
+    if (!event.target.closest(".experiment-gallery button,.experiment-gallery .thumbnail-item")) return;
+    selectionPending = true;
+    selectionBefore = document.querySelector(".selection-done")?.textContent.trim() || "";
   }, true);
   const updateGoalPager = () => {
     const goal = document.querySelector(".catalog-feature");
@@ -1654,6 +1661,18 @@ function initializeGymPlaygroundUi() {
     if (catalog?.dataset.catalogBusy === "true" && performance.now() - catalogBusyStarted > 120 && catalogResult() !== catalogBefore) {
       const remaining = Math.max(0, 420 - (performance.now() - catalogBusyStarted));
       setTimeout(() => setCatalogBusy(false), remaining);
+    }
+    const selectionDone = document.querySelector(".selection-done")?.textContent.trim() || "";
+    if (selectionPending && selectionDone && selectionDone !== selectionBefore) {
+      selectionPending = false;
+      const detail = document.querySelector("#selected-task-detail");
+      if (detail) {
+        detail.classList.remove("task-detail-arrived");
+        requestAnimationFrame(() => {
+          detail.classList.add("task-detail-arrived");
+          detail.scrollIntoView({behavior:"smooth", block:"start"});
+        });
+      }
     }
     updateGoalPager();
     const element = document.querySelector(selector);
@@ -1730,7 +1749,8 @@ with gr.Blocks(title="Hands-On Modern RL · Gymnasium CPU Playground") as demo:
                 next_page = gr.Button(copy["next"], size="sm", visible=False)
             catalog_done = gr.HTML(value="0", elem_classes="catalog-done")
 
-    task_info = gr.HTML(task_brief(DEFAULT_EXPERIMENT, DEFAULT_LANGUAGE))
+    task_info = gr.HTML(task_brief(DEFAULT_EXPERIMENT, DEFAULT_LANGUAGE), elem_id="selected-task-detail")
+    selection_done = gr.HTML(value="0", elem_classes="selection-done")
 
     with gr.Row():
         with gr.Column(scale=1, min_width=310, elem_classes="control-card"):
@@ -1766,7 +1786,7 @@ with gr.Blocks(title="Hands-On Modern RL · Gymnasium CPU Playground") as demo:
     feature.input(reset_catalog, inputs=[search, family, feature, language], outputs=page_outputs, queue=False, show_progress="hidden", trigger_mode="always_last")
     previous_page.click(lambda q, f, t, p, lang: move_catalog(q, f, t, p, lang, -1), inputs=[search, family, feature, catalog_page_state, language], outputs=page_outputs, queue=False, show_progress="hidden")
     next_page.click(lambda q, f, t, p, lang: move_catalog(q, f, t, p, lang, 1), inputs=[search, family, feature, catalog_page_state, language], outputs=page_outputs, queue=False, show_progress="hidden")
-    gallery.select(choose_card, inputs=[visible_experiments, language], outputs=[experiment, hero, task_info, budget, alpha, gamma, epsilon, status, metric, console, preview, artifact], queue=False, show_progress="hidden")
+    gallery.select(choose_card, inputs=[visible_experiments, language], outputs=[experiment, hero, task_info, budget, alpha, gamma, epsilon, status, metric, console, preview, artifact, selection_done], queue=False, show_progress="hidden")
     language.change(switch_language, inputs=[language, experiment, seed, family, search, feature, catalog_page_state], outputs=[hero, catalog_header, family, search, feature, goal_pager, catalog_wait, gallery, visible_experiments, catalog_page_state, catalog_meta, previous_page, next_page, settings_header, task_info, budget, alpha, gamma, epsilon, seed, start, status, metric, chart_header, console, preview_header, artifact], queue=False)
     start.click(train_with_ui, inputs=[experiment, budget, alpha, gamma, epsilon, seed, language], outputs=[status, metric, curve, preview, artifact, console, wait_state, start], concurrency_limit=1)
 
