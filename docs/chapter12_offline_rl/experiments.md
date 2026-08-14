@@ -72,7 +72,7 @@ DPO 实际上是在使用回答对的相对顺序（好 vs 坏）来训练这个
 
 ## 2. 把偏好数据看作固定数据集
 
-为了让这个对应关系更清楚，我们把 LLM 偏好数据集和[第 9 章](../chapter11_continuous_control/deterministic-policy-gradient-ddpg)里大家熟悉的 D4RL 离线数据集（MuJoCo 机器人控制任务）逐项对比：
+为了让这个对应关系更清楚，我们把 LLM 偏好数据集和[第 9 章](../chapter11_continuous_control/ddpg)里大家熟悉的 D4RL 离线数据集（MuJoCo 机器人控制任务）逐项对比：
 
 | 维度             | D4RL (MuJoCo)                             | LLM Preference Data                                    |
 | ---------------- | ----------------------------------------- | ------------------------------------------------------ |

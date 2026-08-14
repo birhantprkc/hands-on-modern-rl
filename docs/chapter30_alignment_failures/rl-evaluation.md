@@ -407,7 +407,7 @@ def long_horizon_eval(agent, task, n_runs=10):
 
 让模型在 MuJoCo 物理仿真中训练四足机器人行走：
 
-- 这是经典连续控制任务（[第 9 章 SAC](../chapter11_continuous_control/deterministic-policy-gradient-ddpg)）
+- 这是经典连续控制任务（[第 9 章 SAC](../chapter11_continuous_control/ddpg)）
 - 需要理解环境、调试算法、调参
 - 成功标准：agent 在 1M 步内达到 baseline 性能
 

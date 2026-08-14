@@ -42,7 +42,7 @@ SFT 教会基本行为
 
 ### 定义目标能力：先写清楚什么叫"修好"
 
-假设团队要训练一个代码模型修复 Python 项目中的真实 bug。第一步先写清楚什么叫“修好”：新增测试必须通过，原有测试不能退化，模型不能修改无关文件，也不能绕过测试。由此得到能力清单、成功标准和安全边界。部署时如果还限制运行时间、工具次数和回答长度，这些约束也要在此时确定。
+假设团队要训练一个代码模型修复 Python 项目中的真实 bug。第一步先写清楚什么叫"修好"：新增测试必须通过，原有测试不能退化，模型不能修改无关文件，也不能绕过测试。由此得到能力清单、成功标准和安全边界。部署时如果还限制运行时间、工具次数和回答长度，这些约束也要在此时确定。
 
 ### 构造数据与环境：让每个任务都能重复启动
 
@@ -135,11 +135,19 @@ Qwen-AgentWorld 使用容器沙箱、MCP 工具、Android、网页和操作系�
 
 接下来的公司标题只表示资料来源，并不代表新的训练步骤。阅读一个案例时，先找目标、数据、SFT、RL、评测和回流分别写在哪里，再看它新增了哪一种方法。
 
-## 国内团队公开实践汇编
+---
+
+## 有些事不是没有药：二十多个团队的公开实践
+
+六个阶段讲完了，四篇代表性案例也拆解完了。但真正动手做的时候，你还是会遇到一堆具体问题：SFT 数据到底从哪来？长度奖励什么时候加？异步 RL 怎么保证数据不过期？多模态 reward 怎么平衡？
+
+这些问题不是没有答案——过去两年里，国内外二十多个团队已经把自己踩过的坑、试过的配方、跑通的系统，写进了技术报告、博客和论文里。下面把这些实践按团队整理出来，你不需要一口气读完。遇到具体问题时，回到前面的阶段表，找到对应的团队，看他们是怎么解决的就好。
+
+### 国内团队公开实践汇编
 
 后面的材料按团队整理，适合在理解六阶段闭环以后查阅。每个案例都可以从三个问题进入：训练任务从哪里来，奖励怎样判断成功，失败怎样回到下一轮。公司名称只表示资料来源，不代表另一套独立的学习路线。
 
-### MiniMax
+#### MiniMax
 
 > **资料入口**：[MiniMax M2.1: Post-Training Experience and Insights for Agent Models][^minimax_m2_1]、[MiniMax-M1][^minimax_m1]、[WebExplorer][^minimax_webexplorer]
 
@@ -229,7 +237,7 @@ MiniMax 的公开资料应该分三条线读：M2.1 的 agent 后训练经验、
 
 **可复现重点**不是复刻 512 H800，而是在小模型上验证三件事：长输出训练要逐步扩窗口；过易样本要过滤，否则没有 RL 信号；合成 reasoning 数据如果模式太单一，会让长上下文 RL 变得重复和不稳定。
 
-### 阿里 Qwen / 通义
+#### 阿里 Qwen / 通义
 
 > **资料入口**：[Qwen2.5 Technical Report][^qwen2_5]、[Qwen2.5-Math][^qwen2_5_math]、[QwQ-32B][^qwq_32b]、[Qwen3][^qwen3]、[Qwen3-Coder][^qwen3_coder]、[Qwen3-Coder-Next][^qwen3_coder_next]、[Tongyi DeepResearch][^tongyi_dr]
 
@@ -263,7 +271,7 @@ Qwen3 的关键不是单纯“用了 GRPO”，而是把思考模式做成产品
 
 Qwen3-Coder 的训练对象是 repository-level action：读文件、定位 bug、写 patch、运行测试、处理失败、提交修改。reward 的主信号来自单测、静态检查、编译、issue 需求覆盖和 patch 合理性。Tongyi DeepResearch 的训练对象是 search / read / synthesize 过程：任务不是回答一个事实，而是搜索证据、去重来源、比较冲突信息、组织带引用的报告。它们共同说明 Qwen 的 agent 后训练已经把“prompt -> answer”改成“environment episode -> verified outcome”。可复现时先做小规模 SWE-bench Lite 或网页 QA：固定工具协议，保留成功轨迹做 SFT，再用测试通过率或 answer judge 做 RL。
 
-### Moonshot Kimi
+#### Moonshot Kimi
 
 > **资料入口**：[Kimi k1.5][^kimi_k1_5]、[Kimi K2][^kimi_k2]、[Kimi-Researcher][^kimi_researcher]
 
@@ -293,7 +301,7 @@ K2 的公开报告强调 open agentic intelligence，重点不是单 benchmark�
 
 Kimi-Researcher 面向长程研究任务。它的训练单位是一个 research episode：模型提出搜索计划，调用搜索/浏览工具，阅读多个来源，提取证据，合并冲突信息，写出带引用的回答。最终 reward 不能只看“答案像不像”，还要看引用是否存在、证据是否支持结论、来源是否覆盖关键角度、是否遗漏反例、是否重复搜索低价值网页。最小复现路径是：构造 200-500 个需要多网页证据的问题；用浏览器工具记录轨迹；让 judge 分别打 evidence coverage、citation correctness、answer faithfulness、redundant-search penalty；先 SFT 成功轨迹，再用 episode-level reward 做 GRPO / DPO。
 
-### 字节 Seed / Doubao
+#### 字节 Seed / Doubao
 
 > **资料入口**：[Seed1.5-Thinking][^seed1_5_thinking]、[VAPO][^vapo]、[DAPO][^dapo]、[DAPO GitHub][^dapo_github]、[UI-TARS][^ui_tars]、[UI-TARS GitHub][^ui_tars_github]、[UI-TARS-2][^ui_tars_2]、[Seed Prover 1.5][^seed_prover]、[Seed1.8][^seed1_8]
 
@@ -333,7 +341,7 @@ UI-TARS-2 的 motivation 是 GUI-only agent 不足以完成真实任务：很多
 
 形式化数学的环境是 theorem prover，而不是浏览器。动作是选择 tactic、生成 lemma、调用搜索器；reward 是 proof 是否通过、证明长度、搜索步数和中间 lemma 是否复用。它给 agent RL 的启发是：只要环境能验证，就可以把复杂任务变成可训练 episode。Seed1.8 则把 reasoning、multimodal、tools 和 generalized agent 能力放进同一模型卡，说明后训练目标正在从“题库正确率”扩展到“多环境任务执行”。
 
-### DeepSeek
+#### DeepSeek
 
 > **资料入口**：[DeepSeekMath][^deepseek_math]、[DeepSeek-R1][^deepseek_r1]、[DeepSeek-V3.2][^deepseek_v3_2]
 
@@ -361,7 +369,7 @@ R1 正式版回到更工程化的四段式。第一步用少量高质量 cold-st
 
 V3.2 的方向是让模型在工具环境中合成和完成 agentic tasks。这里的训练样本不是单个答案，而是带工具调用、环境观察、失败恢复和最终交付的 episode。reward 不只看最终文本，还看工具调用是否成功、是否找到证据、代码是否通过测试、任务是否在环境里真的完成。它和 MiniMax M2.1、UI-TARS-2、LongCat 属于同一趋势：RLVR 正从 math verifier 扩展到 software / browser / GUI / tool verifier。
 
-### 智谱 Z.ai / GLM
+#### 智谱 Z.ai / GLM
 
 > **资料入口**：[GLM-4.5][^glm_4_5]、[GLM-5][^glm_5]
 
@@ -383,7 +391,7 @@ GLM-5 引入新的 asynchronous RL infrastructure，并使用 slime 的可定制
 
 分阶段 RL 的风险是：Reasoning RL 学到的能力在 Agentic RL 或 General RL 中被冲掉。GLM-5 用 on-policy cross-stage distillation 在后续阶段保留前阶段强能力：当前策略在线生成数据，前一阶段能力作为蒸馏目标或筛选信号参与训练。最小复现可以做三段小实验：MATH/代码 GRPO 得到 reasoning 模型；SWE-bench Lite 或工具任务 RL 得到 agentic 模型；最后混入通用指令做 DPO/GRPO，同时用第一阶段模型在数学题上的输出做 distillation，观察数学是否回退。
 
-### 腾讯混元 Hunyuan
+#### 腾讯混元 Hunyuan
 
 > **资料入口**：[Hunyuan-T1][^hunyuan_t1]、[Hunyuan-A13B][^hunyuan_a13b]、[Hunyuan-A13B-Instruct Model Card][^hunyuan_a13b_instruct]
 
@@ -405,7 +413,7 @@ T1 公开材料提到参考 data replay 和 periodic policy resetting，使长�
 
 A13B-Instruct 模型卡展示了 slow-thinking 默认开启，也可以通过 `enable_thinking=False` 关闭 CoT。这说明后训练数据要同时包含两类响应：带 `<think>` 的慢思考轨迹，以及直接回答的快思考轨迹。否则模型要么每次都慢想，要么复杂问题推理不足。最小复现可以在同一批 prompt 上构造两份标签：复杂题保留思考过程，简单问答只给短答；SFT 后在 RL / DPO 中加入“是否需要 thinking”的偏好，评估复杂题正确率和简单题平均长度。
 
-### 百度 ERNIE
+#### 百度 ERNIE
 
 > **资料入口**：[ERNIE 4.5 Technical Report][^ernie_4_5]、[ERNIE 5.0][^ernie_5_0]
 
@@ -431,7 +439,7 @@ Unified Preference Optimization 的动机是混合 reasoning tasks 和 non-reaso
 
 ERNIE 5.0 继续面向文本、图像、视频、语音统一模型。这里最大的难点是 reward 可比性和模态平衡：图像理解 reward、视频时序 reward、文本偏好 reward、语音任务 reward 的错误来源完全不同。复现时不要把多模态题简单拼成文本 JSON，而要为每种模态准备感知 eval、推理 eval 和偏好 eval，再统一做阶段式 SFT/RL。
 
-### 阶跃星辰 StepFun
+#### 阶跃星辰 StepFun
 
 > **资料入口**：[Step3][^step3]、[STEP3-VL-10B][^step3_vl_10b]、[Step-DeepResearch][^step_deepresearch]
 
@@ -453,7 +461,7 @@ Parallel Coordinated Reasoning 的目标是扩展 test-time compute。多模态�
 
 Deep research agent 的任务包括搜索、浏览、证据抽取、冲突比较、引用和长文组织。SFT 阶段应使用高质量 research trajectories，教模型如何规划 query、如何读来源、如何记录证据；RL 阶段的 reward 则要拆成 answer correctness、citation existence、evidence support、source coverage、redundant search penalty、final report structure。复现时可以用 300 个多来源问题、一个搜索 API、一个浏览器提取器和 citation checker，先训练轨迹格式，再对最终答案和引用证据做 episode-level reward。
 
-### 美团 LongCat
+#### 美团 LongCat
 
 > **资料入口**：[LongCat-Flash-Thinking-2601][^longcat_flash]
 
@@ -483,7 +491,7 @@ LongCat 主动注入工具超时、工具报错、返回缺字段、数据库不
 
 LongCat 的重思考模式不是只把单条 CoT 拉长，而是先生成多条推理/行动路径，再用总结模型分析、筛选和整合。它适合复杂 agent 任务，因为单一路径一旦早期工具选择错，后面会越走越偏。小型复现可以让模型对同一工具任务采样 3-5 条计划，用 verifier / judge 选最佳计划或合并计划，再执行。训练时把“候选路径 -> 比较 -> 最终计划”的轨迹回流 SFT / RL。
 
-### 蚂蚁 Ling / Ring
+#### 蚂蚁 Ling / Ring
 
 > **资料入口**：[Ling-1T][^ling_1t]、[Ring-1T][^ring_1t]
 
@@ -499,7 +507,7 @@ Ling / Ring 的公开材料更偏模型发布和推理效率，没有像 DeepSee
 
 复现时主要借鉴 fast/slow thinking 数据设计：为复杂数学、代码、分析题保留长思考轨迹，为普通问答保留短答；用偏好数据惩罚无意义长思考，并用 eval 同时看正确率和 token cost。
 
-### 华为 Pangu
+#### 华为 Pangu
 
 > **资料入口**：[Pangu Ultra][^pangu_ultra]、[Pangu Pro MoE][^pangu_pro_moe]、[盘古开源新闻][^pangu_news]
 
@@ -515,7 +523,7 @@ Pangu 公开信息的重点在昇腾原生训练、MoE 稀疏效率和开源模�
 
 复现层面可以把它作为“工程约束型后训练”案例：同一个 reasoning 模型同时评估正确率、激活专家数、平均输出长度、吞吐和部署成本。
 
-### 01.AI Yi
+#### 01.AI Yi
 
 > **资料入口**：[Yi-Lightning][^yi_lightning]
 
@@ -531,7 +539,7 @@ Yi-Lightning 披露的是传统产品级 LLM 后训练线：pre-training 之后�
 
 Yi-Lightning 还提醒一点：静态 benchmark 和真实人类偏好会有差距，后训练指标不能只看题库。
 
-### InternLM / 上海 AI Lab
+#### InternLM / 上海 AI Lab
 
 > **资料入口**：[InternLM2][^internlm2]
 
@@ -549,7 +557,7 @@ COOL（Conditional Online RLHF）的动机是偏好优化会让模型在不同�
 
 **学习点**：即使没有可执行 verifier，偏好 RL 也要做数据分桶和条件控制，否则模型容易向单一风格塌缩。
 
-### 百川 Baichuan 与 360 智脑
+#### 百川 Baichuan 与 360 智脑
 
 > **资料入口**：[Baichuan 2][^baichuan2]、[360Zhinao][^zhinao]
 
@@ -565,7 +573,7 @@ Baichuan2 是国内较早公开 SFT -> RM -> PPO 经典对齐流程的报告。S
 
 可复现实验可以把同一批中文指令采样 4 个回答，用 judge/RM 打分，保留 top-1 做 rejection sampling SFT，再用 bottom/top pair 做 DPO。这个流程虽然不如 agent RL 酷，但非常接近大量真实产品模型的日常后训练。
 
-### 昆仑万维 Skywork 与 小米 MiMo
+#### 昆仑万维 Skywork 与 小米 MiMo
 
 > **资料入口**：[Skywork-OR1][^skywork_or1]、[MiMo][^mimo]、[MiMo-VL-Miloco][^mimo_vl]
 
@@ -587,7 +595,7 @@ MiMo 的最小复现非常清楚：准备 80K 数学题和 50K 编程题，或�
 
 MiMo-VL 延续了“小模型 + 高质量可验证数据 + 稳定 RL”的路线，但对象变成视觉语言。可学习点和 STEP3-VL 类似：视觉题要区分 perception 错误和 reasoning 错误；reward 需要同时覆盖答案正确性、视觉证据引用和输出格式。复现时可把数学图表/OCR/几何题作为 RLVR 数据，再混入开放图片描述偏好数据做回填。
 
-### 快手、商汤、讯飞
+#### 快手、商汤、讯飞
 
 > **资料入口**：[Kwai Keye-VL][^keye_vl]、[SenseNova U1][^sensenova_u1]、[Spark X1][^spark_x1]
 
@@ -599,11 +607,11 @@ MiMo-VL 延续了“小模型 + 高质量可验证数据 + 稳定 RL”的路线
 
 ---
 
-## 7. 国外团队的公开案例
+### 国外团队的公开案例
 
 国外团队的公开材料更多覆盖通用偏好、安全对齐、端侧部署和企业工具。阅读方法仍然相同：先确定目标能力和成功标准，再看数据、奖励、训练方法与评测怎样连接。
 
-### OpenAI
+#### OpenAI
 
 > **资料入口**：[InstructGPT][^instructgpt]、[GPT-4][^gpt4]、[o1][^o1]、[o3/o4-mini][^o3_o4_mini]、[o3 Operator][^o3_operator]、[GPT-4.5][^gpt4_5]、[GPT-5][^gpt5]、[GPT-5.1][^gpt5_1]、[GPT-5.4 Thinking][^gpt5_4]、[GPT-5.5][^gpt5_5]、[GPT-5.5 Instant][^gpt5_5_instant]、[GPT-5-Codex][^gpt5_codex]、[GPT-5.1-Codex-Max][^gpt5_1_codex_max]、[GPT-5.2-Codex][^gpt5_2_codex]
 
@@ -629,7 +637,7 @@ OpenAI 系统卡中反复出现的一个方向是让模型在困难安全问题�
 
 Operator 和 Codex 类模型把后训练扩展到 browser / software engineering episode。coding agent 的环境要包含仓库状态、测试命令、patch verifier、lint、用户指令层级和失败恢复；browser agent 的环境要包含页面状态、可点击元素、任务成功检查和安全沙箱。GPT-5-Codex 的系统卡明确说它通过真实软件工程任务上的 RL 训练，学习贴近人类代码风格和 PR 偏好、严格遵循指令、反复运行测试直到通过；GPT-5.1-Codex-Max 继续把训练对象扩展到跨多个上下文窗口的长程 agentic coding，通过 compaction 在百万 token 级任务中保持连贯；GPT-5.2-Codex 则强调 SWE-Bench Pro、Terminal-Bench 2.0、Windows 原生环境、长上下文理解和可靠工具调用。最小复现可以用 SWE-bench Lite：checkout 仓库，给 issue，模型编辑文件，运行 tests，reward 为测试通过 + patch 合理性；也可以用 MiniWoB / BrowserGym：模型观察 DOM/截图，点击输入，reward 为任务完成和动作合法。
 
-### Anthropic
+#### Anthropic
 
 > **资料入口**：[Constitutional AI][^constitutional_ai]、[Anthropic CAI overview][^anthropic_cai]、[Claude 4 System Card][^claude4]、[Claude Sonnet 4.5][^claude_sonnet_4_5]、[Claude Opus 4.5][^claude_opus_4_5]、[Claude Opus 4.6][^claude_opus_4_6]
 
@@ -649,7 +657,7 @@ Claude 4 系列系统卡关注 reward hacking、sabotage、sycophancy、alignmen
 
 当模型有更长思考和工具能力时，安全训练不再只是“输出拒答”。模型可能在思考中制定规避策略，或在工具环境中完成不该完成的步骤。因此安全 reward 要覆盖策略遵循、工具限制、信息泄露、隐私、欺骗和拒答质量。复现时可以把工具任务和安全规则结合：例如要求模型处理文件，但禁止读取无关敏感文件；reward 同时检查任务成功和越权行为。
 
-### Google DeepMind
+#### Google DeepMind
 
 > **资料入口**：[Gemini 1.5][^gemini_1_5]、[Gemini 2.5][^gemini_2_5]、[Gemini 2.5 Deep Think][^gemini_2_5_deep_think]、[Gemini 2.5 Computer Use][^gemini_2_5_computer_use]、[Gemini 3.1 Pro][^gemini_3_1_pro]、[Gemma 3][^gemma_3]
 
@@ -671,7 +679,7 @@ Gemini Computer Use 面向屏幕状态和动作序列：观察网页/桌面，�
 
 Gemma 系列提供更接近开源社区的路径：用强教师蒸馏和高质量数据过滤提升小模型，再针对数学、指令、多语言、安全做专项 post-training。它的意义是：不一定复刻 frontier 级 RL 系统，小模型也能通过数据质量、教师选择、能力分桶和 targeted preference optimization 得到实用能力。
 
-### Meta Llama
+#### Meta Llama
 
 > **资料入口**：[The Llama 3 Herd of Models][^llama3_herd]
 
@@ -689,7 +697,7 @@ Llama 的 SFT 不应理解成“堆 instruction JSON”。数据需要覆盖通�
 
 Llama 的安全不是最后加拒答样本，而是在数据过滤、SFT、安全 RM、红队、发布阈值中持续出现。Preference optimization 进一步拉开好坏答案概率差，但也可能牺牲多样性和诚实性，所以需要 truthfulness、安全、拒答、helpfulness 同时评估。它是一条适合开源团队复现的基础线：即使没有 agent 环境，也能把 SFT、RS、DPO/RLHF、安全评测做完整。
 
-### Microsoft Phi
+#### Microsoft Phi
 
 > **资料入口**：[Phi-4][^phi_4]、[Phi-4-reasoning][^phi_4_reasoning]
 
@@ -703,7 +711,7 @@ Phi-4-reasoning 的重点是小模型 reasoning。它不是靠巨大参数硬推
 
 Phi-4-reasoning 的思路可以抽象为：先用高质量 synthetic reasoning traces 做 SFT，让模型会展开推理；再用 outcome reward 对可验证题做 RL，强化正确路径并控制无效长思考。小模型尤其要监控 average response length，因为一点 RL 就可能让输出变长但正确率不升。最小复现实验是用 Phi/Qwen 7B-14B、MATH/GPQA 子集、强教师生成 CoT，SFT 后每题采样 8 个，用答案 verifier 做 GRPO，并加入长度统计。
 
-### NVIDIA Nemotron
+#### NVIDIA Nemotron
 
 > **资料入口**：[Nemotron-4 340B][^nemotron_4]、[Llama-Nemotron][^llama_nemotron]、[Llama Nemotron Ultra][^nemotron_ultra]、[Nemotron Agent Blog][^nemotron_agents]、[Nemotron-H][^nemotron_h]、[Nemotron 3][^nemotron_3]
 
@@ -725,7 +733,7 @@ NVIDIA 强调蒸馏能搬运老师能力，但要进一步提升，需要 curric
 
 Nemotron 的输出不只是权重，还有 NIM、NeMo Gym、企业推理栈。post-training 评估应包含 latency、throughput、function calling 成功率、RAG 引用忠实性和推理开销。企业模型如果只看 AIME，会忽略上线最常见的失败点。
 
-### Mistral
+#### Mistral
 
 > **资料入口**：[Magistral][^magistral]
 
@@ -743,7 +751,7 @@ Magistral 的公开摘要很值得放在 reasoning RL 章节：Mistral 明确说
 
 Magistral 的一个有意思结论是，只在 text data 上做 RL 仍能保持或提升 multimodal understanding、instruction following 和 function calling。这说明 RL 不一定必然破坏通用能力，但需要持续评估。最小复现时，做完数学/文本 RL 后，要同时跑函数调用、普通指令、多语言和视觉文本化任务，确认没有被 reasoning 数据拉偏。
 
-### Apple
+#### Apple
 
 > **资料入口**：[Apple Foundation Models 2024][^apple_fm]、[Apple Foundation Models 2025][^apple_fm_2025]
 
@@ -761,7 +769,7 @@ Apple 报告强调 Responsible AI 和 locale-specific evaluation。消费级模�
 
 Apple 的 Foundation Models framework 暴露 guided generation、constrained tool calling 和 LoRA。它说明产品级后训练不能脱离 API：如果接口支持 constrained decoding，训练时就应加入 JSON/schema/tool 数据；如果允许 LoRA 个性化，基础模型后训练要保持可适配性。最小复现可以在小模型上训练工具调用 JSON schema，并用 constrained decoder 评估 schema success rate。
 
-### xAI Grok
+#### xAI Grok
 
 > **资料入口**：[Grok-1][^grok_1]、[Grok 4][^grok_4]、[Grok 4.1][^grok_4_1]、[Grok 4.1 Model Card][^grok_4_1_card]
 
@@ -777,7 +785,7 @@ xAI 的公开材料更侧重模型卡和发布说明，没有给出完整 post-t
 
 复现时可以用偏好数据训练多个 reward head 或多个 judge rubric，再做 multi-objective DPO/RL。风险是人格 reward 容易推动 sycophancy，所以必须单独评估“是否为了讨好用户而承认错误事实”。
 
-### IBM Granite
+#### IBM Granite
 
 > **资料入口**：[Granite 3.3][^granite_3_3]、[Granite 4.0][^granite_4_0]、[Granite 4.1][^granite_4_1]
 
@@ -791,7 +799,7 @@ IBM Granite 的后训练重点是企业小模型：RAG、工具调用、安全�
 
 **评估指标**要包括 RAG citation faithfulness、function calling success、refusal correctness、latency、cost 和 thinking on/off 的差异。
 
-### Salesforce xLAM / SFR-RL
+#### Salesforce xLAM / SFR-RL
 
 > **资料入口**：[Salesforce xLAM][^xlam]、[Salesforce SFR-RL][^sfr_rl]
 
@@ -809,7 +817,7 @@ Agentic rollouts 长且不稳定，纯同步会等慢任务，纯异步又牺牲
 
 长程 agent rollout 中，一个 inference engine crash 或工具卡死都可能拖住 batch。SFR-RL 的 inference gateway 自动检测失败、重建 engine actor、恢复权重、重排 in-flight work。它还强调 scalable local-first tool execution 和 Expert Parallelism 支持。复现时即使用小集群，也应实现 timeout、retry、任务重排和失败标记，否则 agent RL 数据会被系统错误污染。
 
-### Amazon Nova
+#### Amazon Nova
 
 > **资料入口**：[Amazon Nova][^nova]、[Nova Family Technical Report][^nova_report]、[Nova Premier][^nova_premier]、[Nova Forge][^nova_forge]
 
@@ -825,7 +833,7 @@ Amazon Nova 的技术报告偏模型卡，内部后训练 recipe 没有展开到
 
 最小复现可以用一个私有 API verifier 模拟企业 reward：模型生成 SQL、代码补丁或客服动作；本地服务执行并返回 pass/fail 和 rubric 分；训练器只通过 HTTP 调 reward。这样能复现 Nova Forge 的关键抽象：模型厂提供 checkpoint、训练基础设施和 reward 接口，企业提供私有环境与验证器。
 
-### Cohere Command A
+#### Cohere Command A
 
 > **资料入口**：[Cohere Research][^cohere_research]、[Command A][^command_a]
 
@@ -869,7 +877,9 @@ Tulu 3 完整开源数据、代码和训练 recipe，主题就是 multi-stage po
 
 ---
 
-## 8. 从案例回到训练闭环
+## 从案例回到训练闭环
+
+看完二十多个团队的实践，再回头看六个阶段，会发现几条清晰的规律：
 
 1. **奖励从“人喜欢哪个回答”变成“任务过程是否真的完成”。** 早期 RLHF 看 preference pair；R1、Qwen、Seed、Mistral 看答案可验证；MiniMax、Kimi、LongCat、Tongyi 看工具轨迹、环境状态和最终交付。
 2. **数据从静态样本变成可生成、可验证、可回放的环境。** GitHub PR、Docker、Playwright、浏览器、数据库、工具图谱、搜索网页都变成后训练数据的一部分。
@@ -887,13 +897,15 @@ Tulu 3 完整开源数据、代码和训练 recipe，主题就是 multi-stage po
 
 一个很小但完整的练习可以是：用 5K 数学题或 1K 代码修复题做 SFT，采样 8 个候选，用规则 verifier 过滤，再用 GRPO 训练一轮，最后评估正确率、平均输出长度、格式错误率和通用聊天退化。这样的闭环比只停留在算法名称层面更能揭示后训练的真实难点。
 
-## 9. 本节小结
+## 本节小结
 
 工业后训练从目标能力开始，把数据、环境、SFT、RL、评测和失败样本回流接成多轮闭环。算法只是其中一个环节；环境是否可重复、奖励是否可信、评测能否发现真实失败，共同决定下一轮训练能否继续提高能力。
 
 [18.3 训练稳定性](./modern-industrial-practice) 将沿着这条闭环检查训练信号：哪些曲线说明模型正在学习，哪些变化意味着奖励、优化或系统已经出现问题。
 
-## 10. 参考资料
+---
+
+## 参考资料
 
 ### 国内公司与实验室
 

@@ -119,7 +119,7 @@ $$
 R_{\text{RLAIF}}(x, y) = r_\phi(x, y) - \beta \, D_{KL}\big(\pi_\theta(\cdot \mid x) \,\|\, \pi_{\text{ref}}(\cdot \mid x)\big)
 $$
 
-这一步和 [第 8 章 PPO](../chapter10_ppo/intro) 一模一样，KL 系数 $\beta$ 仍然防止策略漂太远。
+这一步和 [第 8 章 PPO](../chapter10_ppo/ppo-bipedal-walker) 一模一样，KL 系数 $\beta$ 仍然防止策略漂太远。
 
 ### RLHF vs RLAIF：本质区别
 

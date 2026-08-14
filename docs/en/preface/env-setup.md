@@ -203,7 +203,7 @@ pip install mlagents
 python -c "from mlagents_envs.environment import UnityEnvironment; print('ML-Agents ready')"
 ```
 
-Using ML-Agents also requires downloading or building Unity environments (`.exe` / `.app` / Linux executables). Pre-built environments are available from [ML-Agents GitHub Releases](https://github.com/Unity-Technologies/ml-agents/releases). For detailed usage instructions, see [Learning Resources and Reproduction Projects](../appendix_game_projects/intro).
+Using ML-Agents also requires downloading or building Unity environments (`.exe` / `.app` / Linux executables). Pre-built environments are available from [ML-Agents GitHub Releases](https://github.com/Unity-Technologies/ml-agents/releases). For detailed usage instructions, see [Learning Resources and Reproduction Projects](../appendix_game_projects/game-projects).
 
 ::: tip Unity ML-Agents use cases
 The unique value of ML-Agents is **3D spatial reasoning**: Atari uses 2D pixels, CartPole uses low-dimensional vectors, while ML-Agents provides a complete 3D physics environment (gravity, collisions, occlusion). If your research involves visual navigation, spatial reasoning, or multi-agent 3D coordination, ML-Agents is a strong complement to Gymnasium/PyBullet.

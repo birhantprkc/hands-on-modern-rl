@@ -94,7 +94,7 @@ After reading this chapter, you should be able to:
 The following concepts appear throughout the chapter. Review them first if needed:
 
 - [GRPO and RLVR](../chapter18_grpo/rlvr) introduces verifiable rewards, a natural reward source for agentic tasks.
-- [PPO and Reward Models](../chapter10_ppo/intro) develops the policy-optimization framework used here.
+- [PPO and Reward Models](../chapter10_ppo/ppo-clip-objective) develops the policy-optimization framework used here.
 - [The MDP Five-Tuple](../chapter03_mdp/mdp) provides the starting point for formalizing multi-turn interaction.
 
 We now begin with the overall structure of an agentic RL system.

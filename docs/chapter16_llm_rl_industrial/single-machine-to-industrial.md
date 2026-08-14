@@ -376,7 +376,7 @@ REINFORCE 和 vanilla PG 有个工程问题：步长太大策略就崩溃。TRPO
 
 $$\max_\theta \; \mathbb{E}\left[\frac{\pi_\theta(a_t \mid s_t)}{\pi_{\theta_{\text{old}}}(a_t \mid s_t)} A_t\right] \quad \text{s.t.} \quad \bar{D}_{\text{KL}}(\pi_{\theta_{\text{old}}} \| \pi_\theta) \leq \delta$$
 
-TRPO 用共轭梯度法 + line search 求解这个约束优化，工程复杂。详细推导见 [第 8 章 PPO](../chapter10_ppo/intro)。
+TRPO 用共轭梯度法 + line search 求解这个约束优化，工程复杂。详细推导见 [第 8 章 PPO](../chapter10_ppo/ppo-bipedal-walker)。
 
 #### PPO 的裁剪目标
 

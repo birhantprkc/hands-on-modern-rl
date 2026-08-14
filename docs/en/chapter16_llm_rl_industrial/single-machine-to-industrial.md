@@ -377,7 +377,7 @@ REINFORCE and vanilla policy gradient methods have an engineering issue: the ste
 
 $$\max_\theta \; \mathbb{E}\left[\frac{\pi_\theta(a_t \mid s_t)}{\pi_{\theta_{\text{old}}}(a_t \mid s_t)} A_t\right] \quad \text{s.t.} \quad \bar{D}_{\text{KL}}(\pi_{\theta_{\text{old}}} \| \pi_\theta) \leq \delta$$
 
-TRPO uses conjugate gradient method + line search to solve this constrained optimization, which is engineering complex. Detailed derivation is in [Chapter 8 PPO](../chapter10_ppo/intro).
+TRPO uses conjugate gradient method + line search to solve this constrained optimization, which is engineering complex. Detailed derivation is in [Chapter 8 PPO](../chapter10_ppo/ppo-clip-objective).
 
 #### PPO's Clipping Objective
 

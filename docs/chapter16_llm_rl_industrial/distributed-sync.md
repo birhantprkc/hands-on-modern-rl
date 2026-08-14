@@ -21,7 +21,7 @@ Rollout GPU 生成回答
 2. **谁在等待谁。** 生成一条回答要几秒钟，参数更新只要几百毫秒，慢的那一步会让其他所有设备闲置。
 3. **何时交换数据与参数。** 同步太频繁通信开销太大，间隔太久 rollout 又会用过时策略生成回答。
 
-## 分布式 RL 的三项系统决策
+## 分布式 RL 需要做的三项系统决策
 
 | 系统问题                  | 常见选择                   | 主要取舍                                               |
 | ------------------------- | -------------------------- | ------------------------------------------------------ |
@@ -37,20 +37,20 @@ Rollout GPU 生成回答
 
 下面继续沿着这批回答的路径展开。首先确认生成端和训练端计算的是同一个策略；然后用框架安排各个模型；生成速度不足时优化 rollout，显存不足时切分训练状态；任务耗时差别变大后再引入异步；模型换成 MoE 后，还要处理专家路由和通信。这个顺序也是排查多机训练问题的顺序。
 
-## 1. 保证生成端和训练端使用同一策略
+## 训推一致性：生成端和训练端必须使用同一策略
 
 参数同步解决了模型版本问题。rollout GPU 和训练 GPU 拿到同一组权重后，还要经过各自的计算引擎才能得到 token 概率。推理侧通常使用 vLLM 或 SGLang，并采用 KV Cache 和低精度计算；训练侧常用 FSDP 或 Megatron，并保留反向传播所需的计算图。两条计算路径不同，最终得到的概率也可能不同。
 
 把 rollout 引擎实际执行的策略记为 $\pi_{\text{rollout}}$，把训练端记录的旧策略记为 $\pi_{\text{old}}$。理想情况下二者应当相同；出现模型版本滞后、浮点精度差异、MoE 路由差异或 log-probability 重算误差时，二者就会产生偏差。这就是训推不一致（Training-Inference Mismatch）。
 
-### 1.1 生成策略与训练策略的偏差来源
+### 生成策略与训练策略的偏差来源
 
 - rollout 侧通常使用 vLLM 或 SGLang，以 FP8/BF16 生成回答，并启用 KV Cache 优化。
 - 训练侧通常使用 FSDP 或 Megatron，以 BF16/FP32 计算 log-probability 和梯度，并可能启用激活重计算。
 
 模型权重相同，只能保证两边从同一组参数出发。计算精度、算子实现和 MoE 专家路由仍会改变 token 的 log-probability。高概率 token 的微小误差通常影响有限；低概率 token 数量多，误差累积后可能明显改变梯度估计。
 
-### 1.2 PPO Clipping 的适用边界
+### PPO Clipping 为什么无法修正训推偏差
 
 PPO 使用下面的重要性采样比率限制一次更新的幅度：
 
@@ -68,7 +68,7 @@ $\hat A_t$ 表示动作 $a_t$ 比当前平均水平好多少，$\epsilon$ 决定
 
 这个计算有一个前提：分母 $\pi_{\text{old}}$ 必须是生成动作时真正使用的策略。如果回答来自 $\pi_{\text{rollout}}$，训练端却用另一条计算路径重算 $\pi_{\text{old}}$，那么 $r_t$ 在更新开始以前就已经不准确。clipping 只能限制参数更新，不能修正两个引擎算出的概率差异。
 
-### 1.3 训推偏差的排查顺序
+### 训推偏差的排查顺序
 
 排查时沿着回答的生成和训练路径逐项对齐：
 
@@ -77,7 +77,7 @@ $\hat A_t$ 表示动作 $a_t$ 比当前平均水平好多少，$\epsilon$ 决定
 3. 对齐两侧的浮点精度和算子实现，再比较误差是否缩小。
 4. 对 MoE 模型额外记录专家路由，确认训练端是否复现了生成时的路由。
 
-### 1.4 训推偏差的修正方法
+### 训推偏差的修正方法
 
 - **统一计算精度。** 先用 FP16/BF16 替代 rollout 侧的 FP8，判断低精度计算是否是主要误差来源。需要继续使用 FP8 时，应同时加入偏差监控和重要性采样修正。
 - **记录真实行为策略。** 直接保存 rollout 时的 log-probability，避免训练端把重新计算的结果当作真实行为概率。
@@ -86,7 +86,7 @@ $\hat A_t$ 表示动作 $a_t$ 比当前平均水平好多少，$\epsilon$ 决定
 - **处理长尾 token。** 动态词表剪枝等方法会过滤偏差最大的低概率区域，减少误差在长序列中的累积。
 - **回放 MoE 路由。** R3（Rollout Routing Replay）在训练时复现 rollout 的专家选择，减少路由变化造成的概率偏差。
 
-### 1.5 相关研究
+### 相关研究工作
 
 下面几类工作分别从数值精度、分布修正和系统调度处理这一问题：
 
@@ -100,13 +100,13 @@ $\hat A_t$ 表示动作 $a_t$ 比当前平均水平好多少，$\epsilon$ 决定
 
 工程中的 On-policy 程度取决于 $\pi_{\text{rollout}}$ 与当前训练策略之间的距离。参数同步控制模型版本，精度对齐、概率记录和重要性采样修正继续控制计算路径带来的偏差。[第 4 章算法分类](../chapter03_mdp/algorithm-taxonomy)介绍了 On-policy 与 Off-policy 的算法区别；这里关注的是同一概念落到分布式系统后怎样被测量和修正。
 
-## 2. 安排模型与 GPU
+## 模型与 GPU 的资源安排
 
-### 2.1 veRL 怎样组织五类角色
+### veRL 的 HybridFlow：五类角色的编排
 
 训推一致性解决了“数据能不能正确更新模型”。下一步是让 Actor、Critic、Reference Model、Reward Model 和 rollout 引擎在不同 GPU 上协作。veRL（Volcano Engine Reinforcement Learning）把这个问题拆成算法主循环、模型计算和资源分配三个层级，对应论文为 [HybridFlow](https://arxiv.org/abs/2409.19256)。
 
-#### HybridFlow 的设计目标
+#### HybridFlow 的核心设计
 
 HybridFlow 把 RLHF/GRPO/PPO 训练抽象成 **single-controller 多模型编排**：
 
@@ -133,7 +133,7 @@ HybridFlow 把 RLHF/GRPO/PPO 训练抽象成 **single-controller 多模型编排
 
 #### HybridFlow 的三个核心抽象
 
-##### ResourcePool
+##### ResourcePool：GPU 资源分组
 
 把 GPU 分组，每组可以放一个或多个模型：
 
@@ -159,7 +159,7 @@ mapping = {
 }
 ```
 
-##### Worker
+##### Worker：模型实例封装
 
 每个 Worker 是一个独立的模型实例，封装了具体的训练/推理逻辑：
 
@@ -189,7 +189,7 @@ class RolloutWorker:
         self.engine.load_weights(new_weights)
 ```
 
-##### Driver（Single Controller）
+##### Driver：单控制器编排
 
 Driver 是 RL 算法的主循环，编排所有 Worker：
 
@@ -219,7 +219,7 @@ class PPODriver:
             self.critic_worker.update(prompts, responses, rewards)
 ```
 
-#### HybridFlow 的混合控制机制
+#### HybridFlow 的混合并行策略
 
 Hybrid 指**统一的混合并行策略**——同一个框架内可以组合：
 
@@ -230,7 +230,7 @@ Hybrid 指**统一的混合并行策略**——同一个框架内可以组合：
 
 这些配置决定 Actor、Critic、Reference Model、Reward Model 和 rollout 引擎能否共享资源。框架之间的主要差别也在这里：有些允许灵活组合资源池，有些要求各模型使用独立进程或固定后端。
 
-#### 框架架构对比
+#### 主流框架架构对比
 
 | 维度         | veRL (HybridFlow) | OpenRLHF          | NeMo-Aligner     | TRL            |
 | ------------ | ----------------- | ----------------- | ---------------- | -------------- |
@@ -242,7 +242,7 @@ Hybrid 指**统一的混合并行策略**——同一个框架内可以组合：
 
 [第 15 章 GRPO 实践](../chapter18_grpo/grpo-practice-and-mechanism) 用的就是 veRL。
 
-### 2.2 同一训练流程的其他实现
+### 其他主流框架的实现方式
 
 veRL 使用一个 Driver 编排多个角色，但这并非唯一实现。OpenRLHF 更强调 Ray 进程之间的角色分离，NeMo-Aligner 围绕 NVIDIA 的 Megatron 与 TRT-LLM 构建，TRL 则把复杂度压缩到适合单机实验的 Trainer 接口。比较它们时，仍然看同三个问题：模型怎样放置，生成使用什么后端，参数怎样同步。
 
@@ -305,7 +305,7 @@ trainer.train(dataset)
 
 它适合学习、原型验证和 1–8 张 GPU 的小规模实验。模型数量、生成吞吐和跨节点调度成为瓶颈后，需要换用专门的分布式 RL 框架。
 
-#### 四种框架的适用场景
+#### 四种框架的选型建议
 
 | 框架             | 易用性 | 性能 | 规模上限  | 工业采用                 |
 | ---------------- | ------ | ---- | --------- | ------------------------ |
@@ -320,15 +320,15 @@ trainer.train(dataset)
 - 研究、中等规模：OpenRLHF 或 veRL
 - 大规模生产：veRL 或 NeMo-Aligner（看硬件栈）
 
-## 3. 提高生成吞吐并控制显存
+## 生成吞吐优化与显存控制
 
-### 3.1 Rollout 引擎怎样提高生成吞吐
+### Rollout 引擎的生成吞吐优化
 
 在许多 LLM RL 任务中，生成回答占用的时间长于一次参数更新，具体成本见[附录 A.2](../appendix_industrial_training/rl-infrastructure)。Rollout 引擎因此直接决定训练进程能否持续拿到新数据。下面以 vLLM 为例说明生成端的三项优化。
 
-#### vLLM 的三项核心优化
+#### vLLM 的三项核心技术
 
-##### PagedAttention
+##### PagedAttention：分页式 KV 缓存
 
 传统 KV cache 是连续分配，导致显存碎片严重。vLLM 借鉴 OS 的分页机制，把 KV cache 分成固定大小的 block：
 
@@ -346,7 +346,7 @@ blocks = allocate_blocks(num_blocks)
 
 显存利用率从 50-70% 提升到 95%+，batch size 提升 2-4 倍。
 
-##### Continuous Batching
+##### Continuous Batching：动态批处理
 
 传统 batching 是"等一个 batch 全部生成完才换"。vLLM 是**动态 batching**——某条序列生成完后立刻换上新序列：
 
@@ -360,7 +360,7 @@ blocks = allocate_blocks(num_blocks)
 
 吞吐提升 5-10 倍 vs 静态 batching。
 
-##### Speculative Decoding
+##### Speculative Decoding：投机解码
 
 用小模型先 draft 几个 token，大模型并行验证：
 
@@ -384,7 +384,7 @@ def speculative_decode(prompt, draft_model, target_model, num_draft=4):
 
 吞吐提升 2-3 倍（典型 LLM 推理）。
 
-#### vLLM 在 RL 数据流中的位置
+#### vLLM 在 RL 数据流中的作用
 
 veRL 中 vLLM 作为 RolloutWorker：
 
@@ -410,7 +410,7 @@ class VLLMRolloutWorker:
 
 **Prefix Caching** 对 GRPO 特别重要——同一个 prompt 生成 $G=8$ 条回答，前缀（prompt 部分）的 KV cache 可以复用，节省 70-80% 的显存和时间。
 
-#### SGLang 的生成与调度机制
+#### SGLang 的生成与调度优化
 
 [SGLang](https://github.com/sgl-project/sglang) 由 LMSYS 团队开发，在 agentic 场景下比 vLLM 更快：
 
@@ -424,11 +424,11 @@ class VLLMRolloutWorker:
 - **SGLang**：agentic rollout、多轮、结构化输出
 - **TRT-LLM**：针对 NVIDIA GPU 的推理优化
 
-### 3.2 显存怎样分摊到多张 GPU
+### 多 GPU 显存分摊技术
 
 生成速度解决以后，训练端仍要容纳权重、梯度、优化器状态和激活。一个 70B 模型的 BF16 全参数训练远超单张 80GB H100 的容量，因此这些状态必须切分或重算。
 
-#### 训练显存的构成
+#### 训练显存的构成分析
 
 训练显存包含权重、梯度、优化器状态和激活。以常见的 BF16 权重与梯度、FP32 主权重和 Adam 一阶、二阶动量为例，每个参数大约需要：
 
@@ -455,7 +455,7 @@ $$
 
 这个估算的作用是确定量级，并非精确预测显存。激活检查点、优化器实现、序列长度和 batch size 都会改变实际占用；但它已经足以说明 70B 全参数训练无法放进一张 80GB GPU。
 
-#### ZeRO（Zero Redundancy Optimizer）
+#### ZeRO：零冗余优化器
 
 [DeepSpeed ZeRO, arXiv:1910.02054](https://arxiv.org/abs/1910.02054) 把训练状态切分到多个 GPU：
 
@@ -481,7 +481,7 @@ config = {
 }
 ```
 
-#### FSDP（Fully Sharded Data Parallel）
+#### FSDP：完全分片数据并行
 
 PyTorch 原生的 ZeRO-3 等价物，比 DeepSpeed 更易用：
 
@@ -499,7 +499,7 @@ model = FSDP(
 
 veRL 默认用 FSDP——比 DeepSpeed 更稳定、与 PyTorch 生态更兼容。
 
-#### Gradient Checkpointing（梯度检查点）
+#### Gradient Checkpointing：梯度检查点
 
 不切分模型，而是用计算换显存——前向时不保存中间激活，反向时重新计算：
 
@@ -517,7 +517,7 @@ class CheckpointedBlock(nn.Module):
 
 激活显存从 $O(L)$ 降到 $O(\sqrt{L})$（$L$ 是层数），代价是前向计算两次——训练慢 20-30%。
 
-#### 组合使用时的显存估算
+#### 显存优化组合配置估算
 
 对 70B 模型（8 张 H100 80GB）：
 
@@ -530,9 +530,9 @@ class CheckpointedBlock(nn.Module):
 
 LoRA（[第 18 章](./industrial-post-training)）只训少量参数，显存需求大幅降低。工业级 70B RL 训练通常用 LoRA + FSDP。
 
-## 4. 让多机流水线持续运行
+## 多机流水线的持续运行
 
-### 4.1 异步调度怎样减少等待
+### 异步调度：减少流水线等待
 
 同步训练需要等一批 rollout 全部结束以后再更新，耗时较长的轨迹会让训练 GPU 等待。异步训练让生成和更新分别推进，再通过队列交换轨迹。下面比较 LlamaRL、AReaL 和 AgentRL 的调度方法。
 
@@ -619,7 +619,7 @@ controller.route_function_calls(task_workers)
 
 这套结构适合 SWE-Agent、Computer Use 和 Deep Research Agent 等多轮环境任务。
 
-#### 异步框架对比
+#### 三种异步框架对比
 
 | 框架        | 主要贡献者       | 核心机制                             | 加速比     | 适用场景       |
 | ----------- | ---------------- | ------------------------------------ | ---------- | -------------- |
@@ -627,11 +627,11 @@ controller.route_function_calls(task_workers)
 | **AReaL**   | Ant Group 和清华 | 全异步 rollout + staleness-aware PPO | 2.77×      | 大规模 LLM RL  |
 | **AgentRL** | THUDM/智谱       | 多轮多任务 + 统一环境接口            | 论文未标注 | Agent 训练     |
 
-### 4.2 MoE 为什么增加系统复杂度
+### MoE 带来的额外系统复杂度
 
 DeepSeek V3、Qwen3 和 GLM-4.5 都采用 MoE 架构。每个 token 只激活少量专家，参数能够分散到更多 GPU；与此同时，RL 的样本分布会改变专家负载，训练系统还要记录路由和通信状态。
 
-#### MoE 训练的数据流
+#### MoE 训练的数据流特点
 
 MoE 模型的参数分布不均匀——大多数参数在 expert 里，每条样本只激活少数 expert：
 
@@ -648,7 +648,7 @@ MoE 模型结构（DeepSeek V3）:
 总参数: 1.3T，激活参数: 60B
 ```
 
-#### MoE RL 的三项系统问题
+#### MoE RL 的三项系统挑战
 
 ##### Expert 负载不均
 
@@ -728,7 +728,7 @@ GLM-4.5 用 **slime** 框架训练（[THUDM/slime](https://github.com/THUDM/slim
 - SGLang 推理后端
 - 原生 MoE 优化（DeepEP 通信、fp8 rollout）
 
-### 4.3 怎样减少流水线空闲
+### 减少流水线空闲时间
 
 模型切到多张 GPU 后，每张卡并不会自动保持忙碌。流水线阶段可能等待前一阶段，长度不同的样本也会在同一 batch 中留下空位。DualPipe 减少前向与反向之间的等待，Best-Fit Packing 则把长度接近的序列装入同一批次。它们分别处理计算时间线和样本形状造成的空闲。
 
@@ -803,11 +803,11 @@ def best_fit_pack(items, bin_capacity):
 
 DeepSeek V3 用 Best-Fit Packing 让 GPU 利用率从 70% 提升到 95%。
 
-### 4.4 怎样定位性能瓶颈
+### 性能瓶颈定位方法
 
 前面的每项技术都可能把瓶颈推到下一处：生成加快以后，权重同步可能变慢；模型切分以后，跨卡通信可能占据主要时间；样本装箱改善以后，数据读取又可能跟不上。性能分析先记录每一步实际耗时，再决定增加 GPU、修改并行方式还是调整 batch。
 
-#### 性能分析工具
+#### 常用性能分析工具
 
 ##### PyTorch Profiler
 
@@ -884,7 +884,7 @@ H100 bf16 峰值 ~1000 TFLOPS。典型 LLM RL 训练 MFU：
 
 MFU 低于 30% 时，应结合时间分解继续检查通信、数据加载和 rollout 等待。MFU 本身不能说明具体瓶颈位于哪一步。
 
-### 4.5 把各项技术放进大规模集群
+### 大规模集群配置实践
 
 模型并行、异步 rollout、显存优化和故障恢复最终要在同一套集群配置中协作。下面用一份大规模 MoE 训练配置说明这些参数之间的关系。
 

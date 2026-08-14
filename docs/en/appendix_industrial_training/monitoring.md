@@ -24,7 +24,7 @@ Six metrics you should watch in real time during training:
 | **Value Loss**      | Keeps decreasing     | Not decreasing = the critic is not learning                                |
 | **Reward Margin**   | Stable or increasing | Shrinking = the reward model is losing discrimination                      |
 
-**The most dangerous signal**: reward goes up while entropy collapses. The model may be reward hacking (learning a shortcut that "games" the reward). See Appendix A for more discussion: [Appendix A](/en/appendix_industrial_training/intro).
+**The most dangerous signal**: reward goes up while entropy collapses. The model may be reward hacking (learning a shortcut that "games" the reward). See Appendix A for more discussion: [Appendix A](/en/appendix_industrial_training/training-debugging).
 
 ## Quick Lookup Table for Common Problems
 

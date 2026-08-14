@@ -301,4 +301,4 @@ Next Steps Recommendation:
 
 - **Do a Baseline Experiment**: Refer to the GRPO/DPO code in [Appendix D Code Quick Reference](../appendix_code_cheatsheet/sft-kl) and run it on a single GPU.
 - **Plan a Mid-Scale Experiment**: Refer to the distributed training and monitoring sections in [Appendix B Engineering Practices](../appendix_industrial_training/training-debugging).
-- **Read the Cost Disclosure in Frontier Papers**: Look for training details in the tech reports in [Appendix F](../appendix_paper_reading/intro).
+- **Read the Cost Disclosure in Frontier Papers**: Look for training details in the tech reports in [Appendix F](../appendix_paper_reading/paper-reading-guide).

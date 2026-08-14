@@ -474,4 +474,4 @@ GAIL 在机器人操控、自动驾驶等任务上表现优异，但训练不稳
 
 实际上，提升样本效率正是 PPO 之后强化学习发展的一条核心主线。下一章我们就沿着这条主线继续：从 off-policy 连续控制（DDPG/TD3/SAC）复用历史数据，到基于模型的 RL 用"想象"数据训练，再到搜索与世界模型——这些都是比 PPO 样本效率更高的方法。
 
-下一章：[9. 样本效率：Off-Policy 连续控制与基于模型的 RL](../chapter11_continuous_control/intro)
+下一章：[9. 样本效率：Off-Policy 连续控制与基于模型的 RL](../chapter11_continuous_control/ddpg)

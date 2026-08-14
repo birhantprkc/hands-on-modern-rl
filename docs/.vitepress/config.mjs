@@ -645,7 +645,7 @@ function optimizedMermaidPlugin(md) {
 }
 
 const zhNav = [
-  { text: '预备知识', link: '/preface/intro' },
+  { text: '预备知识', link: '/preface/introduction' },
   { text: '基础与经典 RL', link: '/chapter01_cartpole/principles' },
   { text: '深度强化学习', link: '/chapter07_dqn/from-q-to-dqn' },
   { text: '大模型对齐', link: '/chapter15_rlhf/base-model-to-assistant' },
@@ -658,16 +658,16 @@ const zhNav = [
 ]
 
 const enNav = [
-  { text: 'Preface', link: '/en/preface/intro' },
+  { text: 'Preface', link: '/en/preface/introduction' },
   { text: 'Fundamentals', link: '/en/chapter01_cartpole/principles' },
   { text: 'Deep RL', link: '/en/chapter07_dqn/from-q-to-dqn' },
   { text: 'LLM Alignment', link: '/en/chapter15_rlhf/base-model-to-assistant' },
-  { text: 'Agentic RL', link: '/en/chapter22_agentic/intro' },
+  { text: 'Agentic RL', link: '/en/chapter22_agentic/overview' },
   {
     text: 'Safety & Frontiers',
     link: '/en/chapter32_selfplay/self-play-outlook/'
   },
-  { text: 'Appendices', link: '/en/appendix_industrial_training/intro' }
+  { text: 'Appendices', link: '/en/appendix_industrial_training/training-debugging' }
 ]
 
 const zhSidebar = {
@@ -678,7 +678,7 @@ const zhSidebar = {
       items: [
         {
           text: '强化学习导论',
-          link: '/preface/intro'
+          link: '/preface/introduction'
         },
         {
           text: '强化学习发展史',
@@ -871,11 +871,7 @@ const zhSidebar = {
           collapsed: false,
           items: [
             {
-              text: '8. PPO：稳定的 Actor-Critic',
-              link: '/chapter10_ppo/intro'
-            },
-            {
-              text: '8.1 动手：PPO 控制 BipedalWalker',
+              text: '8.1 PPO 算法概述',
               link: '/chapter10_ppo/ppo-bipedal-walker'
             },
             {
@@ -887,15 +883,19 @@ const zhSidebar = {
               link: '/chapter10_ppo/gae-reward-model'
             },
             {
-              text: '加餐：PPO 数学推导',
+              text: '8.4 动手：PPO 控制 BipedalWalker',
+              link: '/chapter10_ppo/ppo-bipedal-walker'
+            },
+            {
+              text: '8.5 加餐：PPO 数学推导',
               link: '/chapter10_ppo/ppo-math'
             },
             {
-              text: '加餐：PPO 游戏项目',
+              text: '8.6 加餐：PPO 游戏项目',
               link: '/chapter10_ppo/ppo-game-benchmark'
             },
             {
-              text: '加餐：长程任务与规划',
+              text: '8.7 加餐：长程任务与规划',
               link: '/chapter10_ppo/rl-long-horizon-planning'
             }
           ]
@@ -905,23 +905,23 @@ const zhSidebar = {
           collapsed: false,
           items: [
             {
-              text: '9. 样本效率：Off-Policy 连续控制与基于模型的 RL',
-              link: '/chapter11_continuous_control/intro'
-            },
-            {
-              text: '9.1 确定性策略梯度与 DDPG',
+              text: '9.1 Off-Policy 连续控制概述',
               link: '/chapter11_continuous_control/ddpg'
             },
             {
-              text: '9.2 TD3 与 SAC',
+              text: '9.2 确定性策略梯度与 DDPG',
+              link: '/chapter11_continuous_control/ddpg'
+            },
+            {
+              text: '9.3 TD3 与 SAC',
               link: '/chapter11_continuous_control/td3-sac'
             },
             {
-              text: '9.3 基于模型的强化学习',
+              text: '9.4 基于模型的强化学习',
               link: '/chapter11_continuous_control/model-based'
             },
             {
-              text: '9.4 搜索与世界模型',
+              text: '9.5 搜索与世界模型',
               link: '/chapter11_continuous_control/search-world-models'
             }
           ]
@@ -1449,11 +1449,11 @@ const zhSidebar = {
           items: [
             {
               text: 'C.1 学习资源与项目路线',
-              link: '/appendix_paper_reading/intro'
+              link: '/appendix_paper_reading/learning-resources'
             },
             {
               text: 'C.2 GPU 小时估算表',
-              link: '/appendix_gpu_hours/intro'
+              link: '/appendix_gpu_hours/gpu-hours-estimation'
             },
             {
               text: 'C.3 训练指标词典',
@@ -1600,7 +1600,7 @@ const enSidebar = {
       items: [
         {
           text: 'Introduction to RL',
-          link: '/en/preface/intro'
+          link: '/en/preface/introduction'
         },
         {
           text: 'Brief History of RL',
@@ -1794,7 +1794,7 @@ const enSidebar = {
             },
             {
               text: '8.2 PPO-Clip Objective',
-              link: '/en/chapter10_ppo/intro'
+              link: '/en/chapter10_ppo/ppo-clip-objective'
             },
             {
               text: '8.3 GAE',
@@ -1816,7 +1816,7 @@ const enSidebar = {
           items: [
             {
               text: '9.1 Deterministic Policy Gradients and DDPG',
-              link: '/en/chapter11_continuous_control/intro'
+              link: '/en/chapter11_continuous_control/deterministic-policy-gradient-ddpg'
             },
             {
               text: '9.2 TD3 and SAC',
@@ -1844,7 +1844,7 @@ const enSidebar = {
           items: [
             {
               text: '10.1 Offline Data and Distribution Shift',
-              link: '/en/chapter12_offline_rl/intro'
+              link: '/en/chapter12_offline_rl/offline-data-distribution-shift'
             },
             {
               text: '10.2 Sequence Modeling for Offline RL',
@@ -1880,7 +1880,7 @@ const enSidebar = {
           items: [
             {
               text: '12.1 Intrinsic Motivation and Exploration',
-              link: '/en/chapter14_exploration_marl_hierarchical/intro'
+              link: '/en/chapter14_exploration_marl_hierarchical/intrinsic-motivation-exploration'
             },
             {
               text: '12.2 Multi-Agent Reinforcement Learning',
@@ -1938,7 +1938,7 @@ const enSidebar = {
           items: [
             {
               text: '14.1 DPO Objective and Derivation',
-              link: '/en/chapter17_dpo/intro'
+              link: '/en/chapter17_dpo/dpo-objective-derivation'
             },
             {
               text: '14.2 DPO Training and Evaluation Metrics',
@@ -2002,7 +2002,7 @@ const enSidebar = {
             },
             {
               text: '16.2 R1-Zero Pure RL Reasoning',
-              link: '/en/chapter19_reasoning/intro'
+              link: '/en/chapter19_reasoning/r1-zero-pure-rl-reasoning'
             },
             {
               text: '16.3 Test-Time Scaling',
@@ -2058,7 +2058,7 @@ const enSidebar = {
           items: [
             {
               text: '18.1 From Single-Machine Experiments to Industrial Training',
-              link: '/en/chapter16_llm_rl_industrial/intro'
+              link: '/en/chapter16_llm_rl_industrial/single-machine-to-industrial'
             },
             {
               text: '18.2 Industrial Post-Training Pipeline',
@@ -2222,7 +2222,7 @@ const enSidebar = {
             },
             {
               text: '24.4 Visual Generation and DanceGRPO',
-              link: '/en/chapter29_visual_generation/intro'
+              link: '/en/chapter29_visual_generation/visual-generation-dancegrpo'
             },
             {
               text: '24.5 Video RLHF and Physics-Aware Generation',
@@ -2356,11 +2356,11 @@ const enSidebar = {
           items: [
             {
               text: 'C.1 Paper Reading Guide',
-              link: '/en/appendix_paper_reading/intro'
+              link: '/en/appendix_paper_reading/paper-reading-guide'
             },
             {
               text: 'C.2 GPU Hours Estimation Table',
-              link: '/en/appendix_gpu_hours/intro'
+              link: '/en/appendix_gpu_hours/gpu-hours-estimation'
             },
             {
               text: 'C.3 Metrics Glossary',

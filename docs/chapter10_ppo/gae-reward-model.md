@@ -442,7 +442,7 @@ $\lambda=1$ 时 $\hat{A}_t = G_t - V(s_t)$。$V(s_t)$ 是噪声，但 $G_t$ 是�
 
 PPO 的成功之处在于：它在 Actor-Critic 架构上只做了两个关键改动（裁剪目标 + GAE），就大幅提升了训练稳定性，同时保持了实现简洁。这也是为什么 PPO 成为了目前最常用的强化学习算法之一。
 
-**RM 是 PPO 在 LLM 对齐中最沉重的负担——训练它需要大量标注，维护它需要大量显存，信任它需要冒 reward hacking 的风险。能不能跳过这一步？** 到第 14 章，我们会看到 DPO 给出的答案——[DPO：绕过奖励模型](../chapter17_dpo/intro)。
+**RM 是 PPO 在 LLM 对齐中最沉重的负担——训练它需要大量标注，维护它需要大量显存，信任它需要冒 reward hacking 的风险。能不能跳过这一步？** 到第 14 章，我们会看到 DPO 给出的答案——[DPO：绕过奖励模型](../chapter17_dpo/dpo-objective-derivation)。
 
 ---
 

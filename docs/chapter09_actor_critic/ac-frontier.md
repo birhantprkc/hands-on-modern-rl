@@ -250,7 +250,7 @@ Isaac Lab 内置了多种机器人模型，覆盖从机械臂到四足到双足�
 
 这三者的共同点是：**核心都是 Actor + Critic 的架构**。变化的是训练算法的细节（V-trace vs 熵正则化 vs 标准 PPO）、训练规模（单机 vs 数千 GPU 并行）和部署目标（游戏 vs 真实机器人）。Actor-Critic 架构之所以能从 CartPole 扩展到这些工业级应用，正是因为"一个网络做决策，一个网络做评估"这个分工会随规模增长而越来越有效。
 
-基础 Actor-Critic 在简单环境中工作得很好，但在复杂任务上会遇到训练不稳定的问题。下一章我们来学习 PPO——目前最常用的稳定 Actor-Critic 算法：[8. PPO：稳定的 Actor-Critic](../chapter10_ppo/intro)。
+基础 Actor-Critic 在简单环境中工作得很好，但在复杂任务上会遇到训练不稳定的问题。下一章我们来学习 PPO——目前最常用的稳定 Actor-Critic 算法：[8. PPO：稳定的 Actor-Critic](../chapter10_ppo/ppo-bipedal-walker)。
 
 ---
 

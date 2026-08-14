@@ -173,7 +173,7 @@ The oscillations also reveal the central tension in reinforcement learning: expl
 
 This is close to how humans learn. When you first learn to cook, you try many recipes (exploration). Once you discover a dish you really like, you make it repeatedly (exploitation). But if you lock in too early, you might miss something even better.
 
-> In Chapter 8's [PPO](../chapter10_ppo/intro), an entropy bonus is a mechanism that forces the policy to keep exploring. It adds a term to the loss that prevents the policy from becoming "too certain" too early.
+> In Chapter 8's [PPO](../chapter10_ppo/ppo-clip-objective), an entropy bonus is a mechanism that forces the policy to keep exploring. It adds a term to the loss that prevents the policy from becoming "too certain" too early.
 
 <details>
 <summary>Thinking: If B only wins with probability 55% (instead of 70%), can the policy still learn?</summary>

@@ -6,7 +6,7 @@ title: '8.5 Hands-On: BipedalWalker Continuous Control'
 
 > **Section goal**: Train PPO to control a bipedal robot on randomized terrain and understand how learning in a continuous action space differs from discrete control.
 
-> **Learning path**: [8.1 TRPO and Trust Regions](./trust-region-clipping) → [8.2 PPO-Clip](./intro) → [8.3 GAE](./gae-reward-model) → **8.5 PPO on BipedalWalker**
+> **Learning path**: [8.1 TRPO and Trust Regions](./trust-region-clipping) → [8.2 PPO-Clip](./ppo-clip-objective) → [8.3 GAE](./gae-reward-model) → **8.5 PPO on BipedalWalker**
 
 > **Code and resources**: [ppo_bipedal_walker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/ppo_bipedal_walker.py) · [render_bipedal_walker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/render_bipedal_walker.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/requirements.txt)
 

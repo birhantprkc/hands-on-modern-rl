@@ -505,7 +505,7 @@ Actor-Critic 不是终点，而是一个骨架。后续章节中你会看到它�
 
 | 章节                                                           | 变体              | 关键改进                                          |
 | -------------------------------------------------------------- | ----------------- | ------------------------------------------------- |
-| [第 8 章 PPO](../chapter10_ppo/intro)                          | PPO-Clip          | 限制策略更新幅度，防止"步子迈太大"                |
+| [第 8 章 PPO](../chapter10_ppo/ppo-bipedal-walker)                          | PPO-Clip          | 限制策略更新幅度，防止"步子迈太大"                |
 | [第 8 章 GAE](../chapter10_ppo/gae-reward-model)               | 广义优势估计      | 多步 TD Error 的指数加权和，精确控制偏差-方差权衡 |
 | [第 14 章 DPO](../chapter17_dpo/dpo-objective-derivation)                         | 隐式 Actor-Critic | 用偏好数据替代 Critic，去掉 on-policy 的限制      |
 | [第 15 章 GRPO](../chapter18_grpo/grpo-practice-and-mechanism) | 去掉 Critic       | 用组内均值替代 $V(s)$，省掉一个网络               |

@@ -1,149 +1,157 @@
+---
+title: A.1 Training Debugging Guide
+---
+
 # A.1 Training Debugging Guide
 
-The main text provides the core of algorithms, training paradigms, and system capabilities. Practical training also requires a set of reusable diagnostic methods to translate metrics such as reward, KL divergence, entropy, length, and gradient into specific issues. This appendix begins with a training debugging guide, followed by supplementary content on training systems, Agent sandboxes, evaluation benchmarks, core implementations, and mathematical tools.
+The main text established the algorithms, training paradigms, and system capabilities. Real experiments also need a repeatable diagnostic method that turns reward, KL, entropy, sequence length, and gradient signals into concrete failure hypotheses. The appendices begin with training debugging and then provide infrastructure, agent sandboxes, evaluation benchmarks, core implementations, and mathematical tools.
 
-> After learning RL algorithms, you will realize that **the real challenge is not the algorithm, but the engineering**. The model can't fit on a single card, training runs for a whole day with loss still increasing, and evaluation scores are completely off from expectations—these issues are not covered in any RL textbook, but you will encounter them every day in practice.
->
-> Each section of this appendix addresses only one thing. You can jump to the relevant section as needed.
+Once you have learned the core RL algorithms, a different reality quickly becomes obvious: **the real difficulty is rarely the algorithm, but the engineering**.
+
+The model does not fit on a single GPU. Training runs for an entire day and the loss still goes up. Offline scores disagree with your intuition. The evaluation looks fine, but the product regresses. These are not questions that standard RL textbooks answer, but in real work you will face them every week.
+
+This appendix is deliberately structured so that each section explains one thing clearly. Jump around as needed.
 
 ## Structure of This Appendix
 
-| Section                                                                                | Topic                                            | What It Solves                                                                                                           |
-| -------------------------------------------------------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| [A.2 RL Training System: Sampling, Asynchronous, and Distributed](./rl-infrastructure) | How to Run an RL Training System                 | Sampling bottlenecks, rollout engine, asynchronous training, weight synchronization, DP/TP/PP/EP                         |
-| [A.3 Agentic RL Infrastructure](./agentic-rl-infra)                                    | What Infrastructure is Needed for Agentic RL     | Sandbox, trajectory storage, tool execution, multi-turn scheduling, Relax case                                           |
-| [A.4 RL Post-Training and Agentic RL Benchmark](./evaluation-badcase)                  | How to Know if the Model and Agent Have Improved | Post-training evaluation, Agentic benchmark, training monitoring, Badcase attribution, and go-live gate                  |
-| [C.3 Large Model RL Training Metrics Glossary](./metrics-glossary)                     | What Do the Metrics in Training Logs Mean        | PPO/GRPO/DPO/RM training metrics grouped by function, including abnormal signals and framework differences               |
-| [C/F.4 Industrial Exercises](./industrial-exercises)                                   | Post-Training and RL Job Competencies            | Dissecting real work, competency maps, and 8 industrial exercises based on job requirements in China, the US, and Europe |
+| Section                                                                                              | Topic                                                 | What Problem It Solves                                                                                |
+| ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| [A.2 RL Training Infrastructure: Sampling, Asynchrony, and Distributed Systems](./rl-infrastructure) | How an RL training system actually runs               | Sampling bottlenecks, rollout engines, async training, weight synchronization, DP/TP/PP/EP            |
+| [A.3 Agentic RL Infrastructure](./agentic-rl-infra)                                                  | What infrastructure Agentic RL requires               | Sandboxes, trajectory storage, tool execution, multi-turn scheduling, a Relax case study              |
+| [A.4 RL Post-Training and Agentic RL Benchmarks](./evaluation-badcase)                               | How to tell whether the model and agent are improving | Post-training evaluation, agentic benchmarks, training monitoring, badcase attribution, release gates |
+| [C.3 A Glossary of RL Training Metrics for LLMs](./metrics-glossary)                                 | What the metrics in training logs actually mean       | PPO/GRPO/DPO/RM metrics grouped by function, abnormal signals, framework differences                  |
+| [C.4 Industry Exercises](./industrial-exercises)                                                     | Practical skills for post-training and RL roles       | Real job tasks decomposed into stable capabilities, a skills map, and 8 industry-style exercises      |
 
 ## Reading Suggestions
 
-- **If you are working on LLM fine-tuning**: Read in the order of A.2 → A.4 → C.3
-- **If you are working on Agentic RL**: Read in the order of A.2 → A.3 → A,4
-- **If you are working on game/robot RL**: Focus on the non-LLM RL part of A.2 and the monitoring section of A.4
-- **If you are preparing for an interview**: Directly read C.4 for practice, and go back to previous sections if you encounter blind spots
-- **If you are looking up the meaning of metrics**: Directly read [C.3 Metric Glossary](./metrics-glossary), and refer to it as needed
+- **If you are doing LLM post-training**: read A.2 → A.4 → C.3.
+- **If you are doing Agentic RL**: read A.2 → A.3 → A.4.
+- **If you are doing game or robotics RL**: focus on the non-LLM part of A.2 and the monitoring part of A.4.
+- **If you are preparing for interviews**: start from the exercises in C.4, and then jump back when you find gaps.
+- **If you only need the meaning of a metric**: go directly to [C.3 Metrics Glossary](./metrics-glossary) and look it up.
 
-You have already written DQN, Actor-Critic, and PPO, and you have read through the training processes of RLHF, GRPO, and Agentic RL. At this point, a very natural question arises:
+## Training Debugging in Practice
 
-> Why does the same algorithm run in the paper and in others' code, but when you change the environment, switch the reward, or scale up the model, it becomes unstable?
+You have written DQN, Actor-Critic, and PPO, and you have also seen the training pipelines for RLHF, GRPO, and Agentic RL. A very natural question arises at this point:
 
-This is not just your problem. The difficulty of reinforcement learning has never been just about "whether you can derive the formulas" — the real challenge lies in the training process itself, which is a closed loop that changes the data distribution in reverse: the policy changes, the sampled data changes, the reward model may be biased, and the value function is chasing a moving target. In supervised learning, a single batch error typically only affects one gradient update; in RL, a bad policy collects bad data, and the bad data trains out an even worse policy.
+> Why does the same algorithm work in a paper, work in someone else's code, but become unstable as soon as you change the environment, swap the reward, or scale up the model?
 
-Therefore, this appendix is not a "common error list," nor does it only cover four failure modes. It is a lesson in debugging: we first build a mental model, and then follow this model to examine various training anomalies.
+This is not just your problem. The difficulty of reinforcement learning is never only "can we derive the formula?" The hard part is that training itself is a closed loop that changes its own data distribution: the policy is changing, the sampled data is changing, the reward model may be biased, and the value function is chasing a moving target. In supervised learning, a bad batch usually affects one gradient step; in RL, a bad policy collects bad data, and that bad data trains an even worse policy.
 
-After completing this section, you should be able to answer three questions:
+So this appendix is not a "catalog of common errors," nor does it only cover four failures. It is a debugging lesson: we first build a mental model, then use that model to examine various training anomalies.
 
-1. When the training curve is problematic, which part should you suspect first?
-2. What is the relationship between the following metrics: Reward, Loss, KL, Entropy, Value Loss, GPU memory usage, and evaluation scores?
-3. How can you systematically troubleshoot an unstable RL experiment, rather than randomly tweaking hyperparameters by intuition?
+After reading this section, you should be able to answer three questions:
 
-## Looking at Training from a Closed Loop Perspective
+1. When a training curve goes wrong, which part of the loop should you suspect first?
+2. What is the relationship between Reward, Loss, KL, Entropy, Value Loss, GPU memory, and evaluation scores?
+3. Facing an unstable RL experiment, how do you debug step by step instead of tuning hyperparameters blindly?
 
-Let's draw an abstract closed loop. Note that this is not a specific implementation diagram of a particular framework, nor does it mean that all modern LLM RL systems must look like this; it's simply a tool to help you understand that a typical RL training process generally involves the following stages: "generate behavior → score → construct training signal → update policy."
+### Training as a Closed Loop
+
+Let us first draw an abstract loop. Note that this is not the implementation diagram of any specific framework, nor does it mean all modern LLM RL must look exactly like this. It simply helps you see clearly: an RL training run roughly goes through "generate behavior, score, construct training signal, update policy."
 
 ```mermaid
 flowchart LR
-    P["Policy<br/>Policy"] --> R["Rollout / Generation<br/>Sampling / Generation"]
-    R --> E["Environment / Tools<br/>Environment / Tools"]
-    E --> S["Trajectory / Completion<br/>Trajectory / Completion"]
-    S --> W["Reward Signal<br/>Reward Signal"]
-    W --> T["Returns / Advantages / Weights<br/>Training Signal Construction"]
-    T --> U["Policy Update<br/>Policy Update"]
+    P["Policy"] --> R["Rollout / Generation"]
+    R --> E["Environment / Tools"]
+    E --> S["Trajectory / Completion"]
+    S --> W["Reward Signal"]
+    W --> T["Training Signal Construction<br/>Returns / Advantages / Weights"]
+    T --> U["Policy Update"]
     U --> P
 
-    W -.-> V["Value Function<br/>Critic / Value Head<br/>Common in PPO"]
+    W -.-> V["Critic / Value Head<br/>common in PPO"]
     V -.-> T
-    P -.-> K["Reference Policy<br/>Reference Policy<br/>Optional KL Constraint"]
+    P -.-> K["Reference Policy<br/>optional KL constraint"]
     K -.-> T
-    P -.-> B["Offline Evaluation / Human Inspection<br/>Eval & Audit"]
-    B -.->|"Calibrating Reward Design"| W
+    P -.-> B["Eval & Audit"]
+    B -.->|"calibrate reward design"| W
 ```
 
-In this diagram, any single component failing can ultimately result in "reward not increasing." However, the solutions to these issues are entirely different.
+Any broken link in this loop can eventually show up as "reward does not improve." But the fix is completely different depending on where the break is.
 
-Here, we need to distinguish three things.
+We need to distinguish three things.
 
-**Reward Signal** is the actual score computed during training. It may come from the environment itself, a hand-written reward function, a reward model, a verifier, or a weighted combination of several rules.
+**Reward signal** is the actual score computed during training. It may come from the environment itself, a hand-written reward function, a reward model, a verifier, or a weighted combination of several rules.
 
-**Training Signal Construction** is the process of turning the reward into "what should be encouraged and what should be suppressed in this update." In PPO / Actor-Critic, this is typically represented as return, value target, and advantage. The advantage can be roughly understood as "how much better this action or response is compared to the current expectation." If the actual return is higher than the critic's estimated value, the advantage is positive, and the policy will be more inclined to repeat this behavior; conversely, it will be suppressed. In GRPO / RLVR, a common approach is not to train a critic but instead to sample multiple responses to the same prompt, using the relative rewards within the group to construct advantage-like training weights. The TRL GRPO documentation also breaks down the process into generation, computing advantage, estimating KL, and computing loss, but the advantage here comes from the normalization of within-group rewards, not from the critic's prediction[^trlgrpo].
+**Training signal construction** turns the reward into "what should be encouraged and what should be suppressed in this update." In PPO / Actor-Critic, this typically appears as returns, value targets, and advantages. The advantage can be roughly understood as "how much better is this action or response compared to the current expectation." If the actual return exceeds the Critic's predicted value, the advantage is positive, and the policy becomes more inclined to repeat this behavior; otherwise it gets suppressed. In GRPO / RLVR, the common approach is not to train a Critic, but to sample multiple responses for the same prompt and construct advantage-like training weights from the relative reward rankings within the group. TRL's GRPO documentation also breaks the process into generation, advantage computation, KL estimation, and loss calculation, but the advantage comes from within-group reward normalization rather than Critic predictions [^trlgrpo].
 
-**Evaluation and Manual Sampling** are forms of side supervision. They are used to select checkpoints, detect reward hacking, and decide whether to roll back, but they do not directly enter the gradient update process under normal circumstances. Evaluation results can alert you that "the reward design is wrong," but they are not equivalent to the reward signal during training.
+**Evaluation and audit** are side-channel supervision. They are used to select checkpoints, detect reward hacking, and decide whether to roll back. Under normal circumstances, they do not directly enter gradient updates. Evaluation results can remind you that "the reward design is wrong," but they are not the same as the reward signal used during training.
 
-Therefore, this diagram is more suitable as a "unified debugging map," rather than the sole flow of modern Agentic RL. PPO-RLHF would resemble the "Critic + KL" version in the diagram; GRPO/RLVR would be closer to the "multiple generations + reward/verifier + intra-group relative advantage" version; Agentic RL extends a single response into a multi-step tool trajectory, with rewards possibly coming from the final environment state, a rule-based verifier, or human/model review. If the environment wiring is wrong, adjusting the learning rate won't help; if the reward function is being exploited, further training will only make the model better at cheating; if the Critic is not trainable, the PPO advantage will become noise; if KL divergence surges, it indicates the policy has left the trusted region; and if the evaluation protocol is corrupted, all the beautiful curves may be just illusions.
+Therefore, this diagram is better thought of as a "unified debugging map" rather than "the only workflow for modern Agentic RL." PPO-RLHF looks more like the Critic + KL version in the diagram; GRPO/RLVR looks more like a "multiple generations + reward/verifier + within-group relative advantage" version; Agentic RL extends a single response into a multi-step tool trajectory, where the reward may come from the final environment state, a rule-based verifier, or human/model review. If the environment wiring is wrong, tuning the learning rate will not help; if the reward function is being gamed, continuing to train will only make the model better at cheating; if the Critic cannot learn, PPO's advantage becomes noise; if KL spikes, the policy has left the trust region; if the evaluation protocol is contaminated, all the beautiful curves may be illusions.
 
-::: tip Remember this one sentence
-The first principle of RL debugging is not "tuning parameters," but "identifying which part of the feedback loop is broken first."
+::: tip First rule
+The first principle of RL debugging is not "tune parameters." It is "locate which link in the loop broke first."
 :::
 
-## Initial Diagnosis of Training Anomalies
+### First-Pass Diagnosis
 
-When training anomalies occur, the most common approach is to immediately adjust hyperparameters. For example, reducing the learning rate, increasing the batch size, increasing the KL coefficient, or training for more steps. This seems proactive, but it introduces new variables, making the original problem harder to identify.
+When a training anomaly appears, the most common wrong reaction is to immediately change hyperparameters. For example, lowering the learning rate, increasing the batch size, adding a KL coefficient, or continuing to train more steps. This may seem proactive, but it introduces new variables and makes the original problem harder to locate.
 
-This section introduces a more suitable initial diagnostic process for course experiments and research reproducibility. Its goal is not to immediately fix the training but to first determine the source of the anomaly: experimental configuration, evaluation protocol, reward signal, model output, or the optimization process itself.
+This section describes a preliminary diagnostic process better suited for course experiments and research reproduction. Its goal is not to fix training immediately, but to first determine which stage the anomaly comes from: experiment configuration, evaluation protocol, reward signal, model outputs, or the optimization process itself.
 
-### Recording Experimental Context
+#### Record the experiment context
 
-First, record the basic context of this experiment, including the configuration file, random seed, code version, checkpoint, training logs, and evaluation commands. Reinforcement learning experiments are highly sensitive to random seeds and implementation details. The same algorithm setting may exhibit significant differences under different seeds[^drltm]. If these information is not saved, subsequent analysis will have difficulty distinguishing between "the algorithm is inherently unstable" and "the experimental conditions have changed."
+First, record the basic context of this experiment, including the config file, random seed, code version, checkpoint, training logs, and evaluation commands. RL experiments are highly sensitive to random seeds and implementation details. The same algorithm configuration can show significant differences under different seeds [^drltm]. If this information is not saved, subsequent analysis will struggle to distinguish "the algorithm is genuinely unstable" from "the experiment conditions changed."
 
-### Distinguishing Training Metrics from Evaluation Metrics
+#### Separate training metrics from evaluation metrics
 
-Training reward only indicates that the model is optimizing a certain reward signal, and cannot directly reflect an improvement in task performance. A more reliable way to observe is to distinguish three types of information:
+Training reward only indicates that the model is optimizing a reward signal; it does not directly prove task ability improvement. A more reliable approach is to simultaneously track three types of information:
 
-- **Training Metrics**: For example, training reward, policy loss, KL divergence, entropy, etc., used to observe whether the optimization process is stable.
-- **Evaluation Metrics**: For example, held-out benchmark, private test set, task success rate, etc., used to determine whether the model's capability has improved.
-- **Behavioral Samples**: The actual outputs of the model or agent, used to determine whether it has learned incorrect patterns.
+- **Training metrics**: for example, training reward, policy loss, KL, entropy, etc., used to observe whether the optimization process is stable.
+- **Evaluation metrics**: for example, held-out benchmarks, private test sets, task success rates, used to determine whether ability is improving.
+- **Behavior samples**: actual model or agent outputs, used to determine whether it has learned incorrect patterns.
 
-For example, in RLHF training, if the reward increases while the evaluation score remains unchanged, and the response length continues to increase, this should not be interpreted as "the training is not long enough," but rather as a suspicion that the reward signal contains a preference for length.
+For example, in RLHF training, if reward increases while evaluation scores remain flat and response length keeps growing, this should usually not be interpreted as "training has not run long enough." Instead, suspect a length preference in the reward signal.
 
-### Checking Model Output Samples
+#### Inspect model output samples
 
-Curves are a compressed representation of the training process, while samples can reveal specific behaviors. When diagnosing, at least three types of samples should be checked: high reward samples, low reward samples, and random samples from the latest checkpoint.
+Curves are a compressed representation of the training process; samples can reveal specific behaviors. During diagnosis, at minimum, inspect three types of samples: high-reward samples, low-reward samples, and random samples from the latest checkpoint.
 
-In language model training, reward hacking often first manifests as a change in text style: responses become longer, more complex in format, and include more polite language, but with a decrease in information density. In Agentic RL, it may also manifest as an increase in the number of tool calls, but the final environment state does not truly complete the task.
+In language model training, reward hacking often first manifests as changes in text style: longer responses, more complex formatting, more polite language, but lower information density. In Agentic RL, it may also appear as increased tool call counts without the final environment state actually completing the task.
 
-### Constructing a Minimal Reproduction Experiment
+#### Construct a minimal reproduction experiment
 
-After verifying the logs and samples, the experiment should be reduced to a version that can be run quickly: a smaller model, smaller batch size, fewer prompts, and fewer training steps. The minimal reproduction experiment does not aim for the final performance score, but rather answers the fundamental questions:
+After confirming logs and samples, scale the experiment down to a quickly runnable version: a smaller model, a smaller batch, fewer prompts, and fewer training steps. The minimal reproduction experiment does not aim for final scores but answers basic questions:
 
 - Can the implementation learn under simple settings?
 - Does the reward have discriminative power?
 - Is the evaluation protocol stable?
 - If using PPO/Actor-Critic, can the value function fit a fixed rollout?
-- If using GRPO/RLVR, is the reward ranking of multiple responses for the same prompt reasonable?
+- If using GRPO/RLVR, is the reward ranking across multiple responses for the same prompt reasonable?
 
-Many RL errors do not immediately cause the program to crash. For example, a mistake in the `done` mask, a reward sign error, a padding token participating in the loss, or a change in the evaluation temperature, may allow the training to end normally, but the model may learn incorrect behaviors. Therefore, completing a minimal reproduction before large-scale training is a very important step in the debugging process.
+Many RL errors do not immediately crash the program. For example, a wrong `done` mask, reversed reward signs, padding tokens included in the loss, or changed evaluation temperature can all let training complete normally but learn wrong behaviors. Therefore, completing a minimal reproduction before large-scale training is a critical step in the debugging process.
 
-## Diagnosis Order
+### Diagnostic Order
 
-The following sections will discuss different types of training issues separately. When diagnosing in practice, it is recommended to follow an order from the outside in.
+The following sections will discuss different types of training problems separately. During actual diagnosis, it is recommended to investigate from outside in.
 
-First, check the environment and data. Is the state the agent sees correct? Are the actions being executed correctly by the environment? Are the termination signals handled properly? Is the reward sign as expected? If there is an error at this level, subsequent algorithm updates are merely optimizing on incorrect data.
+First, check the environment and data. Is the agent seeing the correct states? Are actions being executed correctly by the environment? Are terminal signals handled correctly? Do reward signs match expectations? If errors exist at this level, subsequent algorithm updates are merely optimizing on incorrect data.
 
-Next, check the evaluation protocol. If settings such as sampling temperature, maximum output length, tool permissions, and test set division change, the evaluation results cannot be directly compared. Public test sets that are repeatedly used for hyperparameter tuning will gradually lose their evaluation significance.
+Second, check the evaluation protocol. If sampling temperature, max output length, tool permissions, or test set splits have changed, evaluation results cannot be directly compared. If a public test set has been repeatedly used for hyperparameter tuning, it gradually loses its assessment value.
 
-Then, check the reward signal. Is the reward too sparse? Are there extreme high-score samples? Is the reward signal consistent with human judgment or independent evaluation? If the reward signal is unreliable, the more thorough the training, the more likely the model will optimize in the wrong direction.
+Third, check the reward signal. Is the reward too sparse? Are there extreme high-score outliers? Is it consistent with human judgment or independent evaluation? If the reward signal is unreliable, the more thoroughly you train, the more likely the model will optimize in the wrong direction.
 
-Finally, move into the algorithm internals. For PPO, check whether the policy update is too large; for methods with a Critic, check whether the value function is effective; for GRPO/RLVR, check whether the reward comparisons within the group are reasonable; and for Agentic RL, also check whether the tool trajectory is consistent with the final environment state.
+Finally, enter the algorithm internals. PPO requires checking whether the policy update is too large; methods with a Critic require checking whether the value function is effective; GRPO/RLVR requires checking whether within-group reward comparisons are reasonable; Agentic RL also requires checking whether tool trajectories are consistent with the final environment state.
 
-This order helps avoid suspecting all modules at once. First, determine which layer the anomaly roughly belongs to, and then proceed to the corresponding section for more detailed investigation.
+This ordering avoids suspecting all modules at once. First determine roughly which layer the anomaly belongs to, then enter the corresponding section for more detailed investigation.
 
-## Environment and Data: First Confirm the World is Real
+### Environment and Data: First Confirm the World Is Real
 
-The most easily overlooked bug in reinforcement learning often lies before the algorithm.
+The most easily overlooked bugs in reinforcement learning are often upstream of the algorithm.
 
-For example, in CartPole, the action is discrete (0/1), but you pass in a continuous action; in the MuJoCo environment, the action range is `[-1, 1]`, but the policy output is not passed through tanh; in dialogue training, the padding token is not masked, and the model learns to predict the padding position; in agent tasks, if a tool returns a failure, it is mistakenly considered a successful trajectory and written into the training set.
+For example, CartPole actions are discrete 0/1, but you passed in continuous actions; the action range in MuJoCo is `[-1, 1]`, but the policy output was not passed through tanh; in dialogue training, padding tokens were not masked, so the model is "learning" from filler positions; in an agent task, a tool returned failure but it was treated as a successful trajectory and written into the training set.
 
-The common characteristic of these issues is that training can run, and the curves may move, but the curves have no meaning.
+The common characteristic of these problems: training can run, curves will move, but the curves are meaningless.
 
-### Minimal Unit Test
+#### Minimal unit test
 
-Before formal training, at least perform four checks:
+Before formal training, run at least four checks:
 
 ```python
 def sanity_check_env(env, policy):
     obs, info = env.reset(seed=0)
-    assert obs is not available
+    assert obs is not None
 
     action = policy.sample(obs)
     next_obs, reward, terminated, truncated, info = env.step(action)
@@ -160,63 +168,63 @@ def sanity_check_env(env, policy):
     }
 ```
 
-Then perform a more crude but very effective test: run 100 trajectories with a random policy and plot the reward distribution. Then run 100 trajectories with a hand-written "weak expert policy." If the expert policy and the random policy show no significant difference, do not train the model yet—first check the environment and the reward.
+Then do a cruder but very effective test: run 100 trajectories with a random policy and plot the reward distribution. Then run 100 trajectories with a hand-written "weak expert policy." If the expert policy is not clearly better than random, do not train the model yet. Debug the environment and reward first.
 
-::: warning Common Wiring Errors
-Many training issues that do not converge are not due to the algorithm, but rather due to reward sign being reversed, terminal state not being handled, action scale mismatch, observation normalization being missed, or the chosen/rejected labels in the dataset being reversed.
+::: warning Common wiring mistakes
+Many training failures that seem like algorithm problems are actually reward sign errors, unhandled terminal states, action scale mismatches, missing observation normalization, or reversed chosen/rejected labels in the dataset.
 :::
 
-## Don't Let the Test Set Become the Training Set
+### Evaluation Protocol: Do Not Let the Test Set Become the Training Set
 
-RL projects are easily "contaminated by evaluation." You may not have included the test set in your training data, but by repeatedly using the test set to tune prompts, rewards, KL coefficients, and checkpoints, it has already become part of the training process.
+RL projects are highly susceptible to "evaluation contamination." You may not have put the test set into the training data, but if you repeatedly use the test set to tune prompts, rewards, KL coefficients, and checkpoint selection, it has already been participating in training decisions.
 
-This is especially serious in post-training and Agentic RL. The model may not have truly improved, but it may have become more adapted to a particular public benchmark, a specific judge, or a certain output format.
+This is especially severe in post-training and Agentic RL. The model may not have genuinely become stronger; it may just be better adapted to a particular public benchmark, a particular judge, or a particular output format.
 
-A lecture-style guideline is as follows:
+A practical heuristic:
 
-| Set             | Purpose                              | Can Be Viewed Frequently? |
-| --------------- | ------------------------------------ | ------------------------- |
-| Smoke set       | Quickly detect implementation errors | Yes                       |
-| Dev set         | Tune parameters and reward           | Yes, but with record      |
-| Public test     | Observe trends                       | Minimize viewing          |
-| Private test    | Act as a release gate                | Avoid as much as possible |
-| Human audit set | Calibrate reward and judge           | Periodic sampling         |
+| Split           | Use                          | Look at often?        |
+| --------------- | ---------------------------- | --------------------- |
+| smoke set       | catch implementation errors  | yes                   |
+| dev set         | tune parameters, tune reward | yes, but with records |
+| public test     | observe trends               | sparingly             |
+| private test    | release gate                 | rarely                |
+| human audit set | calibrate reward and judge   | periodic spot-checks  |
 
-The evaluation protocol should also be fixed: temperature, top_p, max_tokens, prompt templates, tool permissions, timeout rules, and pass@1/pass@k should all be clearly specified. The ALE evaluation protocol research also reminds us of this: environmental randomness, initial states, and evaluation methods can significantly affect RL conclusions[^ale].
+The evaluation protocol must also be fixed: temperature, top_p, max_tokens, prompt templates, tool permissions, timeout rules, pass@1/pass@k should all be documented. The ALE evaluation protocol study also reminds us that environment randomness, starting states, and evaluation method changes can significantly affect RL conclusions [^ale].
 
-## There Is No Learning Without Reward
+### Reward Signal: Having a Reward Is Not Enough
 
-The "reward" referred to here is not the "reward design" as an action, but rather the actual reward signal obtained during training for each transition, each response, or each trajectory. This signal must satisfy two conditions: the direction is correct, and the signal is dense enough.
+The "reward" discussed here is not the act of "reward design," but the actual reward signal received by each transition, each response, or each trajectory during training. This signal must satisfy two conditions simultaneously: correct direction and sufficient density.
 
-Direction being correct means that the reward is genuinely encouraging the desired behavior. The signal being dense means that the model can detect some difference in the reward even in the early stages of training. If 99.9% of the trajectories have a reward of 0, the policy gradient will see nothing but silence.
+Correct direction means the reward genuinely encourages the behavior you want. Sufficient density means the model can see meaningful differences in the reward even during early training. If 99.9% of trajectories have reward 0, the policy gradient sees silence.
 
-### Observing Reward Distribution
+#### Inspect the reward distribution
 
-Before training, draw a reward histogram, rather than starting training directly.
+Before training, plot the reward histogram instead of jumping straight into training.
 
-| Distribution Shape                    | Possible Problem              | Handling                                                            |
-| ------------------------------------- | ----------------------------- | ------------------------------------------------------------------- |
-| Almost all 0                          | Reward is too sparse          | Add intermediate rewards, curriculum learning, increase exploration |
-| Almost all 1                          | Reward is too lenient         | Increase task difficulty, split scoring dimensions                  |
-| Extreme long tail                     | Few samples dominate gradient | Reward clipping / normalization                                     |
-| Confusing positive and negative signs | Reward definition is unclear  | Go back to check each sample individually                           |
-| Low correlation with human scoring    | Proxy is unreliable           | Rewrite reward or add human calibration                             |
+| Distribution                      | Likely problem                | Response                                               |
+| --------------------------------- | ----------------------------- | ------------------------------------------------------ |
+| almost all 0                      | reward too sparse             | add intermediate rewards, curriculum, exploration      |
+| almost all 1                      | reward too loose              | increase task difficulty, decompose scoring dimensions |
+| extreme long tail                 | few samples dominate gradient | reward clipping / normalization                        |
+| sign confusion                    | unclear reward definition     | go back and inspect samples individually               |
+| low correlation with human scores | unreliable proxy              | rewrite reward or add human calibration                |
 
-In PPO, the reward also affects the advantage. When the reward scale is too large, the advantage becomes a very sharp gradient signal, and the policy update may directly jump out of the trust region. Many high-quality implementations perform reward normalization, advantage normalization, and gradient clipping, and these implementation details themselves can significantly alter the algorithm's performance[^implementation][^whatmatters].
+In PPO, reward also affects advantage. When the reward scale is too large, advantage becomes a very sharp gradient signal, and the policy update may dash straight out of the trust region. Many high-quality implementations include reward normalization, advantage normalization, and gradient clipping. These implementation details themselves change algorithm behavior [^implementation][^whatmatters].
 
-## Model Learns Exam Techniques
+### Reward Hacking: The Model Learned Test-Taking Skills
 
-Reward hacking is not the model being "disobedient"—quite the opposite, it is the model being too good at optimizing the given metric. In the AI safety literature, this phenomenon is often referred to as specification gaming: the system satisfies the formalized objective but violates the designer's true intent [^concrete][^weng].
+Reward hacking is not the model "disobeying." On the contrary, the model is too good at optimizing the metric you gave it. The AI safety literature often calls this specification gaming: the system satisfies the formalized objective but violates the designer's true intent [^concrete][^weng].
 
-The most classic example in the language model context is: the reward model prefers detailed answers, so the model starts to write longer, more polite, and more hollow responses. The reward continues to rise, while human inspection scores deteriorate. Research on reward model overoptimization also shows that the agent's reward can continue to improve, but human preferences tend to decline after a certain point [^overopt].
+The classic language model version: the reward model prefers detailed answers, so the model starts producing longer, more polite, emptier responses. Reward keeps climbing, but human audit deteriorates. Research on reward model overoptimization also shows that the proxy reward can continue improving while the true preference declines past a certain point [^overopt].
 
-### Triad of Diagnosis
+#### Diagnostic triad
 
-Reward hacking typically exhibits three signals simultaneously:
+Reward hacking typically has three signals appearing simultaneously:
 
-1. **Reward Increase**: The training dashboard looks good.
-2. **Abnormal Sub-metrics**: Systematic changes in length, repetition rate, format templates, refusal rate, and tool call frequency.
-3. **Decline in Human Evaluation**: Human inspection scores, private sets, and task success rates do not improve in sync.
+1. **Reward increases**: the training dashboard looks great.
+2. **Side metrics change abnormally**: length, repetition rate, format templates, refusal rate, and tool call counts undergo systematic changes.
+3. **Real evaluation declines**: human audit, private test set, and task success rate do not improve in sync.
 
 ```python
 def audit_reward_hacking(samples):
@@ -231,23 +239,23 @@ def audit_reward_hacking(samples):
     return suspicious
 ```
 
-When fixing this issue, do not simply add a single penalty term and stop. A more stable approach is to split the reward into separate components: accuracy, constraint satisfaction, safety, conciseness, format, and tool results. Each of these aspects should be scored individually. Work such as RewardBench also indicates that the reward model itself needs to be evaluated and cannot be assumed to always represent human preferences [^rewardbench].
+When fixing this, do not just add one penalty term and stop. A more robust approach is to log reward components separately: accuracy, constraint satisfaction, safety, conciseness, formatting, and tool outcomes scored independently. Work like RewardBench also demonstrates that reward models themselves need evaluation; you cannot assume they always represent human preferences [^rewardbench].
 
-## The Safety Belt of PPO Can Also Fail
+### Policy Update: PPO's Seatbelt Can Still Fail
 
-The core intuition of PPO is "small steps update." TRPO explicitly limits policy changes using KL divergence constraints, while PPO approximates this goal with the clipped surrogate objective[^trpo][^ppo][^spinningup]. However, clipping is not a magic shield.
+PPO's core intuition is "small updates." TRPO explicitly constrains policy change with a KL constraint; PPO approximates this goal with a clipped surrogate objective [^trpo][^ppo][^spinningup]. But clipping is not a magic shield.
 
-If the learning rate is too large, PPO epochs are too many, the batch size is too small, or the advantage scaling is abnormal, the policy may still take a big step forward.
+If the learning rate is too high, PPO epochs are too many, the batch is too small, or the advantage scale is abnormal, the policy can still move too far in a single step.
 
-### Look at Three Metrics
+#### Watch three metrics
 
-| Metric        | How to Interpret                                    | What It Indicates When Abnormal                |
-| ------------- | --------------------------------------------------- | ---------------------------------------------- |
-| KL divergence | The distance between new and old/reference policies | The policy is drifting too fast                |
-| Clip fraction | What proportion of samples are clipped              | PPO is frequently braking                      |
-| Entropy       | How much randomness the policy still has            | Premature convergence or degenerate randomness |
+| Metric        | What to check                                 | What anomaly indicates                       |
+| ------------- | --------------------------------------------- | -------------------------------------------- |
+| KL divergence | distance between new and old/reference policy | policy drifting too fast                     |
+| clip fraction | how many samples are clipped                  | PPO is braking frequently                    |
+| entropy       | how much randomness remains in the policy     | premature convergence or random degeneration |
 
-Policy collapse typically does not start from the reward. Instead, it begins with KL divergence, clip fraction, and entropy. The reward is a posterior symptom.
+Policy collapse usually does not start from reward. It starts from KL, clip fraction, and entropy. Reward is a posterior symptom.
 
 ```python
 def ppo_guardrail(metrics):
@@ -260,177 +268,177 @@ def ppo_guardrail(metrics):
     return "continue"
 ```
 
-In RLHF, we also need to look at the KL divergence relative to the reference model. The InstructGPT process introduces a KL penalty to prevent the RL stage from ruining the language capabilities learned from the SFT stage[^instructgpt].
+In RLHF, you also need to watch KL relative to the reference model. InstructGPT-style pipelines introduce a KL penalty precisely to prevent the RL phase from destroying the language capabilities learned during SFT [^instructgpt].
 
-## Critic: Fault Sources in PPO / Actor-Critic
+### Critic: The Failure Source in PPO / Actor-Critic
 
-This section is focused on methods that include a Critic or value head, such as Actor-Critic, PPO, and some implementations of PPO-RLHF. Methods like GRPO/RLVR, which are critic-free, can skip this section and instead check the construction of reward, KL, and loss within the group.
+This section only applies to methods with a Critic or value head, such as Actor-Critic, PPO, and some PPO-RLHF implementations. Critic-free methods like GRPO/RLVR can skip this section and instead check within-group reward, KL, and loss construction.
 
-In Actor-Critic, the Critic's job is to estimate the state value. It does not directly output actions, so many people debug by only looking at the policy loss. However, if the Critic is incorrect, the advantage will be wrong; and if the advantage is wrong, the Actor will update in the wrong direction.
+In Actor-Critic, the Critic's job is to estimate state value. It does not directly output actions, so many people only look at policy loss during debugging. But if the Critic is wrong, the advantage will be wrong; if the advantage is wrong, the Actor will update in the wrong direction.
 
-### Signals of a Broken Critic
+#### Signals of a broken Critic
 
-| Signal                                             | Explanation                                     |
-| -------------------------------------------------- | ----------------------------------------------- |
-| Value loss does not decrease over time             | Critic has not learned to fit the return        |
-| Explained variance < 0                             | Worse than the mean prediction                  |
-| Policy reward oscillates                           | Actor is being pushed around by noisy advantage |
-| Value prediction scale is much smaller than return | Reward scale or value target is problematic     |
+| Signal                                          | What it means                             |
+| ----------------------------------------------- | ----------------------------------------- |
+| value loss does not decrease over time          | Critic has not fitted the returns         |
+| explained variance < 0                          | worse than predicting the mean            |
+| policy reward oscillates                        | Actor is pushed around by noisy advantage |
+| value prediction scale much smaller than return | reward scale or value target problem      |
 
-Common fixes include: reducing the reward scale, normalizing the return, decreasing/increasing the critic learning rate, increasing the critic network capacity, checking the bootstrap target, and checking the terminal mask.
+Common fixes include: reducing reward scale, normalizing returns, adjusting critic learning rate up or down, increasing critic network capacity, checking bootstrap targets, and checking terminal masks.
 
-A very practical check is: fix a batch of rollouts, do not update the actor, and only train the critic. See if it can fit the return of this batch. If it cannot, first fix the critic.
+A very practical check: fix a batch of rollouts, do not update the actor, and train only the Critic. See if it can fit the returns from that batch. If it cannot, fix the Critic first.
 
-## Exploration Is Not Just About Randomness
+### Exploration: Too Certain and Too Random Are Both Wrong
 
-Exploration in reinforcement learning can manifest in two opposing ways.
+Exploration problems have two opposite manifestations.
 
-One is when the entropy drops to zero quickly: the model prematurely believes a particular action or response template, getting stuck in a local optimum. Another is when the entropy remains high throughout: the policy behaves like a random walk, and the reward is not effectively absorbed into the parameters.
+One is entropy quickly dropping to zero: the model prematurely commits to a particular action or response template, stuck in a local optimum. The other is entropy staying high: the policy behaves like a random walk, and reward is never absorbed into the parameters.
 
-| Behavior                         | Possible Causes                                                          | Fixes                                                 |
-| -------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------- |
-| Entropy drops quickly            | Reward is too strong, KL divergence is too weak, temperature is too low  | Add entropy bonus, lower learning rate, strengthen KL |
-| Entropy remains high             | Reward is too sparse, learning rate is too low, advantage noise is large | Reward shaping, increase sampling, check advantage    |
-| Diverse behavior but no progress | Exploration is not being evaluated or distinguished                      | Modify reward or add curriculum                       |
-| Single behavior but high reward  | Possible reward hacking                                                  | Sample and inspect high reward trajectories           |
+| Manifestation                    | Likely cause                                        | Fix                                                |
+| -------------------------------- | --------------------------------------------------- | -------------------------------------------------- |
+| entropy drops to zero fast       | reward too strong, KL too weak, temperature too low | add entropy bonus, lower lr, strengthen KL         |
+| entropy stays high               | reward too sparse, lr too low, noisy advantage      | reward shaping, increase sampling, check advantage |
+| diverse behavior but no progress | exploration is not differentiated by evaluation     | change reward or add curriculum                    |
+| uniform behavior but high reward | possible reward hacking                             | spot-check high-reward trajectories                |
 
-In the context of language models, exploration is not only about "action randomness." It also includes response length, reasoning paths, tool selection, and the boundary between answering and not answering. Simply observing token entropy is insufficient; one must also consider the diversity of behavior at the level of actions.
+In language models, exploration is not just "action randomness." It also includes response length, reasoning paths, tool selection, and the boundary between refusing and not refusing. Looking at token entropy alone is insufficient; you must also look at behavioral-level diversity.
 
-## Data Freshness: On-Policy is Not Just a Slogan
+### Data Freshness: On-Policy Is Not a Slogan
 
-PPO is an on-policy algorithm: it assumes that the data used for updates comes from a policy that is "close to current." During training, we save old logprob values precisely to measure how much the new policy differs from the sampling policy.
+PPO is an on-policy algorithm: it assumes the data used for updates comes from the "current nearby" policy. During training, we save old logprobs specifically to know how much the new policy differs from the sampling policy.
 
-If the rollout worker and learner are out of sync, or if the buffer contains very old data, you will observe a strange phenomenon: the loss can still be computed, gradients can still flow, but the metrics fluctuate wildly, and the clip fraction becomes hard to interpret.
+If rollout workers and the learner are out of sync, or if very old data is mixed into the buffer, you will see a strange phenomenon: loss can still be computed, gradients can still flow, but metrics fluctuate up and down, and clip fraction becomes hard to interpret.
 
-When debugging, ask three questions:
+During investigation, ask three questions:
 
-1. Does each rollout record the version of the policy that generated it?
+1. Does each rollout record which policy version generated it?
 2. Are the old logprobs used during updates consistent with the sampling policy?
-3. How many training iterations has the policy undergone before the rollout enters training?
+3. How many update rounds has the policy gone through before the rollout enters training?
 
-Agentic RL is more prone to this issue, as a single trajectory can be long, tool execution can be slow, and sampling and training are inherently asynchronous. Do not only pursue throughput; also control the degree of data staleness.
+Agentic RL is more susceptible to this pitfall because a single trajectory can be very long, tool execution is slow, and sampling and training are inherently asynchronous. Do not only pursue throughput; also control data staleness.
 
-## NaN Usually Has Precursors
+### Numerical Stability: There Are Usually Warning Signs Before NaN
 
-NaNs rarely appear out of nowhere. They are typically preceded by sharp peaks in gradient norms, extreme logprob values, reward outliers, exploding value loss, and overflow in mixed precision.
+NaN rarely appears out of nowhere. It is usually preceded by grad norm spikes, extreme logprob values, reward outliers, value loss explosions, or mixed-precision overflow.
 
-| Problem             | Check                          | Fix                         |
-| ------------------- | ------------------------------ | --------------------------- |
-| Gradient norm spike | p95 / max gradient norm        | Gradient clipping, lower lr |
-| Logprob extreme     | Taking log of zero probability | Clamp, check mask           |
-| FP16 overflow       | Loss scale, NaN step           | BF16, dynamic loss scaling  |
-| Reward outlier      | Reward max/min                 | Clipping, normalization     |
-| Value explosion     | Value target distribution      | Return normalization        |
+| Problem          | Check                       | Fix                         |
+| ---------------- | --------------------------- | --------------------------- |
+| grad norm spikes | p95 / max grad norm         | gradient clipping, lower lr |
+| extreme logprobs | taking log of 0 probability | clamp, check mask           |
+| fp16 overflow    | loss scale, NaN step        | bf16, dynamic loss scaling  |
+| reward outliers  | reward max/min              | clipping, normalization     |
+| value explosion  | value target distribution   | return normalization        |
 
-Do not wait until the loss becomes NaN before stopping training. Training scripts should save the experimental state and stop current updates when key metrics exceed their boundaries.
+Do not wait until the loss becomes NaN to stop training. The training script should save the experiment state and stop the current update when key metrics exceed bounds.
 
-## VRAM is Only Part of the Ledger
+### System Resources: GPU Memory Is Only Part of the Ledger
 
-RLHF/PPO consumes more resources than standard SFT because it may require actor, critic, reference model, reward model, and also needs to store rollout, logprob, value, advantage, and long-sequence activations simultaneously.
+RLHF/PPO consumes more resources than standard SFT because it may simultaneously require an actor, a critic, a reference model, and a reward model, plus storage for rollouts, logprobs, values, advantages, and long-sequence activations.
 
-VRAM usage mainly comes from four sources:
+GPU memory mainly comes from four areas:
 
-| Source          | Why It Occupies VRAM                | Common Handling                                |
-| --------------- | ----------------------------------- | ---------------------------------------------- |
-| Model Weights   | Multiple models are resident        | Freezing, sharing, separating rollout/training |
-| Optimizer State | Adam's first/second moment          | ZeRO, FSDP, 8-bit optimizer                    |
-| Gradients       | More trainable parameters cost more | LoRA, freezing the main model                  |
-| Activations     | Larger batch and seq_len cost more  | Checkpointing, shortening sequences            |
+| Source          | Why it uses memory                   | Common handling                          |
+| --------------- | ------------------------------------ | ---------------------------------------- |
+| Model weights   | multiple models resident             | freeze, share, separate rollout/training |
+| Optimizer state | Adam first/second moments            | ZeRO, FSDP, 8-bit optimizer              |
+| Gradients       | more trainable params = more cost    | LoRA, freeze backbone                    |
+| Activations     | larger batch and seq_len = more cost | checkpointing, shorter sequences         |
 
-ZeRO shards the optimizer state, gradients, and parameters across multiple GPUs[^zero][^deepspeedzero]; FSDP reduces the resident memory per GPU by sharding parameters and on-demand all-gather[^fsdp]; LoRA freezes the main model and only trains low-rank adapters[^lora]. These are not "advanced optimizations," but rather prerequisites for large model RL training to even start.
+ZeRO shards optimizer states, gradients, and parameters across multiple GPUs [^zero][^deepspeedzero]; FSDP reduces per-GPU resident memory through parameter sharding and on-demand all-gather [^fsdp]; LoRA freezes the main model and only trains low-rank adapters [^lora]. These are not "advanced optimizations" but prerequisites for whether large-model RL training can even start.
 
-However, resource issues are not only about OOM. Throughput drop, low GPU utilization, rollout workers, and reward model scoring becoming a bottleneck, all lead to slower training and older data, which in turn affect the algorithm's stability.
+But resource issues are not limited to OOM. Throughput drops, low GPU utilization, rollout workers waiting on the environment, or reward model scoring becoming a bottleneck can all slow down training, make data stale, and ultimately feed back into algorithm instability.
 
-## Additional Pitfalls in RLHF and Agentic RL
+### Additional Pitfalls in RLHF and Agentic RL
 
-Reinforcement learning for language models and agents introduces several additional failure modes beyond those in classical control settings.
+RL for language models and agents has several extra categories of failure compared to classical control.
 
-| Scenario   | Additional Pitfalls               | Examples                                                                 |
-| ---------- | --------------------------------- | ------------------------------------------------------------------------ |
-| RLHF       | Length Preference                 | Responses become longer, but information density decreases               |
-| RLHF       | Refusal Bias                      | Safety reward is too strong, leading to excessive refusal                |
-| RLHF       | Judge Bias                        | LLM judge prefers a certain writing style                                |
-| RLVR/GRPO  | Format Hacking                    | Model learns to output in a specific format but with incorrect reasoning |
-| Agentic RL | Tool Hacking                      | Repeatedly calling tools to game the process score                       |
-| Agentic RL | Pseudo Success                    | Text claims completion, but the environment state remains unchanged      |
-| Agentic RL | Long Trajectory Credit Assignment | Final failure is difficult to attribute to a specific step               |
+| Scenario   | Extra pitfall                     | Example                                                   |
+| ---------- | --------------------------------- | --------------------------------------------------------- |
+| RLHF       | Length preference                 | responses get longer but information density drops        |
+| RLHF       | Refusal drift                     | safety reward too strong, model over-refuses              |
+| RLHF       | Judge bias                        | LLM judge prefers a certain writing style                 |
+| RLVR/GRPO  | Format hacking                    | model learns to output correct format but wrong reasoning |
+| Agentic RL | Tool hacking                      | repeatedly calling tools to inflate process scores        |
+| Agentic RL | Pseudo-success states             | text says done, but environment state unchanged           |
+| Agentic RL | Long-trajectory credit assignment | hard to attribute final failure to a specific step        |
 
-Therefore, evaluation of Agentic RL cannot be limited to the final text; it must also consider the environment state, the legality of tool calls, the number of steps, cost, and the agent's ability to recover from failure. Evaluation of RLHF cannot be limited to the reward model; it must also include manual sampling, private sets, length, repetition rate, safety regression, and real task success rate.
+Therefore, Agentic RL evaluation cannot just look at final text; it must examine environment state, whether tool calls are legal, step count, cost, and failure recovery ability. RLHF evaluation cannot just look at the reward model; it must simultaneously consider human audit, private test sets, length, repetition rate, safety regression, and real task success rates.
 
-## A Complete Troubleshooting Path
+### A Complete Troubleshooting Walkthrough
 
-Suppose you observe: reward increases, benchmark remains stagnant, and output becomes longer.
+Suppose you see: reward increases, benchmark does not improve, outputs get longer and longer.
 
-Do not immediately say "training is not converging." Follow the closed-loop system to troubleshoot:
+Do not immediately say "training did not converge." Trace along the loop:
 
-1. **Evaluation Protocol**: Are the temperature and max_tokens of the benchmark consistent with the baseline?
-2. a **Sample Inspection**: Do the samples with the highest reward tend to be longer, emptier, or more templated?
-3. **Reward Decomposition**: Does the reward contain implicit preferences for length, format, or polite tone?
-4. **KL and Entropy**: Is the policy deviating too far from the reference model? Is there mode collapse?
-5. **Fixing Experiment**: Add a length penalty or information density metric, and run a short training comparison.
-6. **Online Judgment**: If the reward drops but the private set increases, it suggests the previous reward function may have been incorrect.
+1. **Evaluation protocol**: are the benchmark's temperature and max_tokens consistent with the baseline?
+2. **Sample spot-check**: are the highest-reward samples longer, emptier, more templated?
+3. **Reward decomposition**: does the reward contain hidden preferences for length, format, or polite language?
+4. **KL and entropy**: has the policy drifted too far from the reference model, or collapsed into a mode?
+5. **Fix experiment**: add a length penalty or information density metric, run a short training comparison.
+6. **Go/no-go decision**: if reward drops but the private set improves, the previous reward was probably wrong.
 
-Consider another example: reward plummets, KL diverges, and clip fraction remains at 0.5 long-term.
+Now consider another example: reward drops sharply, KL spikes, clip fraction stays at 0.5 for a long time.
 
-In this case, prioritize the suspicion that the policy update is too aggressive:
+Here, suspect overly aggressive policy updates first:
 
 1. Roll back to the most recent healthy checkpoint.
 2. Lower the learning rate.
-3. Reduce the number of PPO epochs.
-4. Enable target KL early stop.
-5. Check advantage normalization and reward scaling.
+3. Reduce PPO epochs.
+4. Enable target KL early stopping.
+5. Check advantage normalization and reward scale.
 
-These two examples correspond to completely different fixes. This is why "what to do when reward doesn't increase" is not a good question; a better question is "which part of the closed-loop system has broken first?"
+The two examples require completely different fixes. This is why "reward is not improving, what should I do?" is not a good question. A better question is: "which piece of evidence in the loop broke first?"
 
-## Checklist Before, During, and After Training
+### Pre-Training, During Training, and Post-Training Checklists
 
-### Before Training
+#### Before training
 
-| Check Item               | Question                                                              |
-| ------------------------ | --------------------------------------------------------------------- |
-| Environment Unit Test    | Are reset/step/done/reward as expected?                               |
-| Random Strategy Baseline | What is the reward distribution of the random strategy?               |
-| Weak Expert Baseline     | Can a simple rule clearly outperform the random strategy?             |
-| Reward Histogram         | Is the reward all 0, all 1, or extremely skewed?                      |
-| Eval Config              | Is the evaluation protocol fixed and saved?                           |
-| Memory Estimation        | Are the number of models, batch size, and sequence length acceptable? |
+| Check item             | Question                                             |
+| ---------------------- | ---------------------------------------------------- |
+| Environment unit test  | do reset/step/done/reward match expectations?        |
+| Random policy baseline | what is the random policy reward distribution?       |
+| Weak expert baseline   | can a simple rule clearly beat random?               |
+| Reward histogram       | is reward all 0, all 1, or extreme long tail?        |
+| Eval config            | is the evaluation protocol fixed and saved?          |
+| Memory estimate        | can the hardware handle model count, batch, seq_len? |
 
-### During Training
+#### During training
 
-| Signal                      | Action                                                   |
-| --------------------------- | -------------------------------------------------------- |
-| KL Spike                    | Stop updates, reduce lr, or strengthen KL                |
-| Clip Fraction Too High      | Reduce PPO epochs or update step size                    |
-| Entropy Drops Rapidly       | Check exploration and reward hacking                     |
-| Value Loss Does Not Drop    | Train Critic separately for fitting test                 |
-| Reward Rises but Eval Falls | Immediately check high reward samples                    |
-| Response Length Expansion   | Check for length preference                              |
-| OOM or Throughput Drop      | First reduce micro batch / seq_len, then apply ZeRO/FSDP |
+| Signal                          | Action                                                    |
+| ------------------------------- | --------------------------------------------------------- |
+| KL spikes                       | stop updates, lower lr or strengthen KL                   |
+| Clip fraction persistently high | reduce PPO epochs or update step size                     |
+| Entropy drops to zero fast      | check exploration and reward hacking                      |
+| Value loss does not decrease    | train Critic alone on a fitting test                      |
+| Reward rises, eval drops        | immediately spot-check high-reward samples                |
+| Response length inflation       | check length preference                                   |
+| OOM or throughput drops         | first reduce micro batch / seq_len, then deploy ZeRO/FSDP |
 
-### Post-Training
+#### After training
 
-| Artifact             | Why                                                 |
-| -------------------- | --------------------------------------------------- |
-| Best eval checkpoint | The last step may not be the best                   |
-| Last checkpoint      | Facilitates reproducibility of training tail issues |
-| Failed checkpoint    | Facilitates analysis of pre-crash symptoms          |
-| Reward audit samples | Determine whether reward hacking occurs             |
-| Multi-seed results   | Avoid accidental success                            |
-| Private set report   | Prevent overfitting to public sets                  |
+| Deliverable          | Why                                     |
+| -------------------- | --------------------------------------- |
+| Best eval checkpoint | the last step is not necessarily best   |
+| Last checkpoint      | for reproducing training-tail issues    |
+| Failed checkpoint    | for analyzing pre-crash symptoms        |
+| Reward audit samples | to determine if reward hacking occurred |
+| Multi-seed results   | to avoid accidental success             |
+| Private set report   | to prevent public set overfitting       |
 
-## Summary
+### Summary
 
-Debugging reinforcement learning is not about memorizing a list of "fault names," but rather tracing evidence along the feedback loop.
+Reinforcement learning debugging is not about memorizing a list of "failure names." It is about following the closed loop to find evidence.
 
-The environment and data determine whether what you learn reflects the real world; the reward and evaluation determine whether the optimization direction aligns with your intended goal; the policy update and Critic determine whether the gradient is stable; exploration determines whether the model can discover better behaviors; and system resources determine whether training can continuously generate fresh data.
+The environment and data determine whether you are learning from the real world; the reward and evaluation determine whether the optimization direction matches your true goal; the policy update and Critic determine whether the gradients are stable; exploration determines whether the model can discover better behaviors; system resources determine whether training can continuously produce fresh data.
 
-When you encounter anomalies, do not first ask, "What should the learning rate be set to?" Instead, ask:
+When you encounter an anomaly, do not first ask "what should I set the learning rate to?" First ask:
 
-> Which curve broke first? Which part of the feedback loop does it belong to? Is there a minimal experiment to validate this judgment?
+> Which curve broke first? Which link in the loop does it belong to? Is there a minimal experiment that can verify this hypothesis?
 
-This is the beginning of moving reinforcement learning training from "black-box tuning" toward engineering practice.
+That is the beginning of RL training moving from "black-art hyperparameter tuning" to engineering.
 
-## References
+### References
 
 [^ppo]: Schulman et al., [Proximal Policy Optimization Algorithms](https://arxiv.org/abs/1707.06347), 2017.
 

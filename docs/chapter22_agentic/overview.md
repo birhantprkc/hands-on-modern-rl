@@ -94,7 +94,7 @@ $$
 本章会频繁用到以下概念，建议先复习：
 
 - [GRPO 与 RLVR](../chapter18_grpo/rlvr)——"可验证奖励"是 Agentic RL 的天然奖励来源
-- [PPO 与奖励模型](../chapter10_ppo/intro)——策略优化的基础框架
+- [PPO 与奖励模型](../chapter10_ppo/ppo-bipedal-walker)——策略优化的基础框架
 - [MDP 五元组](../chapter03_mdp/mdp)——形式化多轮交互的出发点
 
 准备好后，先从 Agentic RL 的整体图景开始——[19.1 Agentic RL 基础](./overview)。

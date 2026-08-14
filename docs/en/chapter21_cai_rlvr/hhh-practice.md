@@ -119,7 +119,7 @@ $$
 R_{\text{RLAIF}}(x, y) = r_\phi(x, y) - \beta \, D_{KL}\big(\pi_\theta(\cdot \mid x) \,\|\, \pi_{\text{ref}}(\cdot \mid x)\big)
 $$
 
-This step is identical to that in [Chapter 8 on PPO](../chapter10_ppo/intro). The KL coefficient $\beta$ still prevents the policy from drifting too far.
+This step is identical to that in [Chapter 8 on PPO](../chapter10_ppo/ppo-clip-objective). The KL coefficient $\beta$ still prevents the policy from drifting too far.
 
 ### RLHF vs RLAIF: Fundamental Differences
 

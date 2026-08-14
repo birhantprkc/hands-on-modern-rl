@@ -205,7 +205,7 @@ pip install mlagents
 python -c "from mlagents_envs.environment import UnityEnvironment; print('ML-Agents ready')"
 ```
 
-使用 ML-Agents 需要下载或自行构建 Unity 环境（`.exe` / `.app` / Linux 可执行文件）。预构建环境可从 [ML-Agents GitHub Releases](https://github.com/Unity-Technologies/ml-agents/releases) 获取。详细使用方式参见[学习资料与复现项目推荐](../appendix_paper_reading/intro)。
+使用 ML-Agents 需要下载或自行构建 Unity 环境（`.exe` / `.app` / Linux 可执行文件）。预构建环境可从 [ML-Agents GitHub Releases](https://github.com/Unity-Technologies/ml-agents/releases) 获取。详细使用方式参见[学习资料与复现项目推荐](../appendix_paper_reading/learning-resources)。
 
 ::: tip Unity ML-Agents 适用场景
 ML-Agents 的独特价值在于**3D 空间推理**：Atari 是 2D 像素，CartPole 是低维向量，而 ML-Agents 提供完整的 3D 物理环境（重力、碰撞、遮挡）。如果你的研究涉及视觉导航、空间推理或多智能体 3D 协作，ML-Agents 是 Gymnasium/PyBullet 之外的有力补充。

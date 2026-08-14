@@ -1,6 +1,6 @@
 # 9.1 Deterministic Policy Gradients and DDPG
 
-> [Chapter 8: PPO](../chapter10_ppo/intro) addressed policy learning in continuous action spaces by using a Gaussian policy to output continuous actions and clipping updates to maintain stability. PPO, however, is on-policy: after every policy update, it must collect new samples, resulting in **extremely low sample efficiency**. This chapter addresses two questions: (1) How can continuous actions be handled off-policy with DDPG, TD3, and SAC? (2) How can an environment model further improve sample efficiency through model-based RL, AlphaZero, and Dreamer?
+> [Chapter 8: PPO](../chapter10_ppo/ppo-clip-objective) addressed policy learning in continuous action spaces by using a Gaussian policy to output continuous actions and clipping updates to maintain stability. PPO, however, is on-policy: after every policy update, it must collect new samples, resulting in **extremely low sample efficiency**. This chapter addresses two questions: (1) How can continuous actions be handled off-policy with DDPG, TD3, and SAC? (2) How can an environment model further improve sample efficiency through model-based RL, AlphaZero, and Dreamer?
 
 ## Deterministic Policy Gradients and DDPG
 

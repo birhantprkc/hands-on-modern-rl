@@ -1,7 +1,5 @@
 # C.1 学习资源与项目路线
 
-<!--@include: ../appendix_paper_reading/intro.md{8,}-->
-
 > 学完本书前 17 章后，读者已具备阅读强化学习前沿论文的全部数学与工程基础。但 RL 文献浩繁——arXiv 每年新增数千篇，真正决定方向、值得反复读的不到一百篇。本附录按主题把这批"必读论文"分类整理，每篇标注**核心贡献一句话**与**阅读优先级**（★ 必读 / ◆ 推荐 / ◇ 扩展），帮助读者建立从经典 RL 到 2026 年前沿的完整文献地图。
 >
 > 阅读建议：按 C.1.1 → C.1.2 → C.1.3 顺序建立理论根基，再按研究方向在 C.1.4 和 C.1.5 中挑选相关论文精读。每篇论文都应在动手复现（[附录 A](../appendix_industrial_training/training-debugging)、[附录 B](../appendix_code_cheatsheet/sft-kl)）之后回看，才会发现第一次读时忽略的工程细节。
@@ -32,8 +30,8 @@
 | ★      | Mnih et al. _Playing Atari with Deep Reinforcement Learning_ (arXiv:1312.5602, 2013)                                                      | DQN 早期版本（NIPS Workshop），首次把 CNN 与 Q-Learning 结合，开启深度 RL。                                                            |
 | ★      | Mnih et al. _Human-level Control through Deep Reinforcement Learning_ (Nature, 2015)                                                      | DQN 完整版：经验回放 + 目标网络，49 个 Atari 游戏达到人类水平。                                                                        |
 | ★      | Mnih et al. _Asynchronous Methods for Deep Reinforcement Learning_ (A3C, arXiv:1602.01783, 2016)                                          | 异步 actor-critic：多线程并行采样消除相关性，无需经验回放；A2C 是其同步版本，至今仍是基线。                                            |
-| ★      | Schulman et al. _Proximal Policy Optimization Algorithms_ (arXiv:1707.06347, 2017)                                                        | PPO：clip 替代 TRPO 的二阶优化，工程友好、训练稳定。LLM 后训练 PPO 的直接原型。详见[第 8 章](../chapter10_ppo/intro)。                 |
-| ★      | Lillicrap et al. _Continuous Control with Deep Reinforcement Learning_ (DDPG, arXiv:1509.02971, 2015)                                     | 把 DPG 扩展到深度网络，确定性策略梯度 + 经验回放，连续控制的开山之作。详见[第 9 章](../chapter11_continuous_control/deterministic-policy-gradient-ddpg)。           |
+| ★      | Schulman et al. _Proximal Policy Optimization Algorithms_ (arXiv:1707.06347, 2017)                                                        | PPO：clip 替代 TRPO 的二阶优化，工程友好、训练稳定。LLM 后训练 PPO 的直接原型。详见[第 8 章](../chapter10_ppo/ppo-bipedal-walker)。                 |
+| ★      | Lillicrap et al. _Continuous Control with Deep Reinforcement Learning_ (DDPG, arXiv:1509.02971, 2015)                                     | 把 DPG 扩展到深度网络，确定性策略梯度 + 经验回放，连续控制的开山之作。详见[第 9 章](../chapter11_continuous_control/ddpg)。           |
 | ★      | Fujimoto et al. _Addressing Function Approximation Error in Actor-Critic Methods_ (TD3, arXiv:1802.09477, 2018)                           | 双 Q + 延迟更新 + 目标平滑，修复 DDPG 的 Q 值过估计与训练不稳定。                                                                      |
 | ★      | Haarnoja et al. _Soft Actor-Critic: Off-Policy Maximum Entropy Deep RL with a Stochastic Actor_ (arXiv:1801.01290, 2018)                  | 最大熵 RL + 自动温度调节，MuJoCo 长期霸榜，连续控制首选算法。                                                                          |
 | ★      | Hessel et al. _Rainbow: Combining Improvements in Deep RL_ (arXiv:1710.02298, 2017)                                                       | 把 Double DQN、Dueling、PER、NoisyNet、Multi-step、Distributional Q 这 6 个 DQN 改进组合，证明"组合优于单点改进"。消融实验是经典教材。 |
@@ -126,7 +124,7 @@ RLHF / RLVR 在让模型变强的同时打开了**奖励黑客、欺骗、对齐
 | ★      | Qwen Team. _Qwen3 Technical Report_ (arXiv:2505.09388, 2025)                                                    | Qwen3 全系列（0.6B–235B-A22B MoE）训练细节，含 SFT/RLHF/RLVR 三阶段完整 recipe。                                                                         |
 | ★      | Kimi Team. _Kimi K2_ (arXiv:2507.20534, 2025)                                                                   | 1T MoE 开放训练，验证大规模 GSPO 在 Agent 任务上的可扩展性。已在 C.1.3 列出。                                                                            |
 | ★      | Kimi Team. _Kimi K2.5: Visual Agentic Intelligence_ (arXiv:2602.02276, 2026)                                    | K2 的下一代多模态 agent 模型：联合文本-视觉预训练与 RL，Agent Swarm 并行任务编排显著降低推理延迟。                                                       |
-| ★      | DeepSeek-AI. _DeepSeek-V3 Technical Report_ (arXiv:2412.19437, 2024)                                            | 671B MoE（37B 激活），2.664M H800 小时训练 14.8T tokens；MLA + DeepSeekMoE + FP8 是核心工程创新。预训练成本参考见[附录 G](../appendix_gpu_hours/intro)。 |
+| ★      | DeepSeek-AI. _DeepSeek-V3 Technical Report_ (arXiv:2412.19437, 2024)                                            | 671B MoE（37B 激活），2.664M H800 小时训练 14.8T tokens；MLA + DeepSeekMoE + FP8 是核心工程创新。预训练成本参考见[附录 G](../appendix_gpu_hours/gpu-hours-estimation)。 |
 | ★      | Gao et al. _Seedance 1.0: Exploring the Boundaries of Video Generation Models_ (arXiv:2506.09113, 2025)         | 视频生成模型的 RLVR fine-tuning，把 RL 从 token 扩展到时空 latent。                                                                                      |
 | ★      | Peng et al. _DanceGRPO: A Unified Post-training Framework for Generative Video Models_ (arXiv:2505.07818, 2025) | 把 GRPO 适配到视频扩散模型，统一图文与视频 RLVR。                                                                                                        |
 | ★      | Meituan LongCat Team. _LongCat-Video Technical Report_ (arXiv:2510.22200, 2025)                                 | 美团 13.6B 参数的 DiT 视频生成模型，单模型支持文生视频/图生视频/续写，多奖励 RLHF 对齐长视频生成。                                                       |
@@ -159,10 +157,10 @@ RLHF / RLVR 在让模型变强的同时打开了**奖励黑客、欺骗、对齐
 本书每章末尾的"延伸阅读"已列出该章核心论文。本附录是更全的、跨章节的论文地图。建议把本附录与各章末尾清单交叉使用：
 
 - [第 14 章 DPO](../chapter17_dpo/dpo-objective-derivation) → C.1.3 Rafailov et al.
-- [第 8 章 PPO](../chapter10_ppo/intro) → C.1.1 Schulman PPO、C.1.2 A3C
+- [第 8 章 PPO](../chapter10_ppo/ppo-bipedal-walker) → C.1.1 Schulman PPO、C.1.2 A3C
 - [第 13 章 RLHF](../chapter15_rlhf/base-model-to-assistant) → C.1.3 InstructGPT
 - [第 15 章 GRPO/RLVR](../chapter18_grpo/grpo-practice-and-mechanism) → C.1.3 R1、Shao et al.
-- [第 9 章 连续控制](../chapter11_continuous_control/intro) → C.1.2 DDPG/TD3/SAC/Dreamer V3
+- [第 9 章 连续控制](../chapter11_continuous_control/ddpg) → C.1.2 DDPG/TD3/SAC/Dreamer V3
 - [第 25 章 对齐失败](../chapter30_alignment_failures/classical-failures) → C.1.4 全部
 - [第 18 章 工业级 LLM RL](../chapter16_llm_rl_industrial/single-machine-to-industrial) → C.1.5.3 全部
   :::

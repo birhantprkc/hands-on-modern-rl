@@ -5,6 +5,6 @@ import { onMounted } from 'vue'
 const router = useRouter()
 
 onMounted(() => {
-  router.go(withBase('/preface/intro'))
+  router.go(withBase('/preface/introduction'))
 })
 </script>

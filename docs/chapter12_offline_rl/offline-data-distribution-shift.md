@@ -15,13 +15,13 @@ Part II 我们学了一整套在线强化学习算法：从 DQN 到 DDPG、TD3�
 
 Part III 就从**离线强化学习（Offline RL）**开始——这是一种"只能看历史数据，不能与环境交互"的设定。随后我们会把固定数据学习的思路推进到模仿学习、逆向强化学习、元强化学习、探索、多智能体与分层决策。
 
-回忆一下[第 9 章](../chapter11_continuous_control/deterministic-policy-gradient-ddpg)中学过的 DDPG、TD3 和 SAC，它们其实已经可以用 replay buffer 复用历史数据；基于模型的强化学习也能借助环境模型减少真实交互。不过，这些方法仍然允许新策略继续采样并修正旧经验——它们本质上还是在线的。离线强化学习彻底取消了这条反馈通道：**训练期间只能使用一份固定数据集，绝对不能和环境交互**。
+回忆一下[第 9 章](../chapter11_continuous_control/ddpg)中学过的 DDPG、TD3 和 SAC，它们其实已经可以用 replay buffer 复用历史数据；基于模型的强化学习也能借助环境模型减少真实交互。不过，这些方法仍然允许新策略继续采样并修正旧经验——它们本质上还是在线的。离线强化学习彻底取消了这条反馈通道：**训练期间只能使用一份固定数据集，绝对不能和环境交互**。
 
 这一听起来很小的限制，为什么会带来那么大的麻烦？本节我们就沿着三个核心问题展开：固定数据为什么会导致分布偏移，BCQ、CQL 与 IQL 怎样限制错误估值，AWAC 与 TD3+BC 又怎样把行为克隆加入策略更新。理解了这条主线以后，[10.2](./sequence-modeling) 才会转向 Decision Transformer 开创的序列建模路线——那条路线甚至连 Bellman 方程都不用了。
 
 ## 1. 固定数据为什么会产生分布偏移
 
-在[第 5 章 DQN](../chapter07_dqn/from-q-to-dqn)和[第 9 章 SAC](../chapter11_continuous_control/deterministic-policy-gradient-ddpg)中，我们都会用下一状态的估值来更新当前状态。先写出这个大家已经很熟悉的一步目标：
+在[第 5 章 DQN](../chapter07_dqn/from-q-to-dqn)和[第 9 章 SAC](../chapter11_continuous_control/ddpg)中，我们都会用下一状态的估值来更新当前状态。先写出这个大家已经很熟悉的一步目标：
 
 $$y = r + \gamma \cdot \mathbb{E}_{s' \sim P(\cdot \mid s, a)}\left[V(s')\right]$$
 
