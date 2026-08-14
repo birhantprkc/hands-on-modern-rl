@@ -897,7 +897,7 @@ const zhSidebar = {
               link: '/chapter11_continuous_control/td3-sac'
             },
             {
-              text: '9.3 Model-Based RL',
+              text: '9.3 基于模型的强化学习',
               link: '/chapter11_continuous_control/model-based'
             },
             {
