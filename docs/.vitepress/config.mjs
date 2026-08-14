@@ -861,7 +861,7 @@ const zhSidebar = {
               link: '/chapter09_actor_critic/bipedalwalker'
             },
             {
-              text: '7.7 加餐：Actor-Critic 前沿应用',
+              text: '7.7 动手：Actor-Critic 前沿应用',
               link: '/chapter09_actor_critic/ac-frontier'
             }
           ]
@@ -887,15 +887,15 @@ const zhSidebar = {
               link: '/chapter10_ppo/ppo-bipedal-walker'
             },
             {
-              text: '8.5 加餐：PPO 数学推导',
+              text: '8.5 动手：PPO 数学推导',
               link: '/chapter10_ppo/ppo-math'
             },
             {
-              text: '8.6 加餐：PPO 游戏项目',
+              text: '8.6 动手：PPO 游戏项目',
               link: '/chapter10_ppo/ppo-game-benchmark'
             },
             {
-              text: '8.7 加餐：长程任务与规划',
+              text: '8.7 动手：长程任务与规划',
               link: '/chapter10_ppo/rl-long-horizon-planning'
             }
           ]
@@ -2532,7 +2532,6 @@ export default defineConfig({
   base,
   cleanUrls: true,
   lastUpdated: true,
-  srcExclude: ['**/_archive_v5.1/**', '**/_archive/**'],
   markdown: {
     image: {
       lazyLoading: true
