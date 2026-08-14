@@ -2420,9 +2420,9 @@ watch(
   }
 }
 
-/* Keep the full course menu hidden until it fits beside the widest allowed
-   sidebar. Narrower viewports use the same screen menu as mobile. */
-@media (min-width: 768px) and (max-width: 1439px) {
+/* Use the compact screen menu only on tablet-sized viewports. Desktop and
+   laptop widths keep the course shortcuts visible in the navigation bar. */
+@media (min-width: 768px) and (max-width: 1099px) {
   .VPNavBar .VPNavBarMenu,
   .VPNavBar .VPNavBarExtra {
     display: none !important;

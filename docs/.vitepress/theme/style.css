@@ -1286,6 +1286,72 @@ aside.VPSidebar {
   color: rgba(121, 134, 203, 0.15);
 }
 
+/* ---- Formula + symbol explanation: render adjacent Markdown blocks as one unit ---- */
+.vp-doc p:has(> .katex-display) + blockquote {
+  margin-top: 0;
+  padding: 1rem 1.5rem 1.25rem;
+  border: 1px solid rgba(63, 81, 181, 0.12);
+  border-top: 1px solid rgba(63, 81, 181, 0.1);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  background: rgba(63, 81, 181, 0.035);
+  color: var(--vp-c-text-1);
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: var(--ct-doc-line-height);
+  text-align: left;
+}
+
+.vp-doc p:has(> .katex-display):has(+ blockquote) {
+  margin-bottom: 0;
+  padding: 1.25rem 1.5rem 1rem;
+  border: 1px solid rgba(63, 81, 181, 0.12);
+  border-bottom: 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: rgba(63, 81, 181, 0.035);
+}
+
+.vp-doc p:has(> .katex-display):has(+ blockquote) .katex-display {
+  margin: 0 auto;
+  padding: 0;
+}
+
+.vp-doc p:has(> .katex-display) + blockquote::before {
+  display: none;
+}
+
+.vp-doc p:has(> .katex-display) + blockquote p {
+  margin: 0;
+  color: var(--vp-c-brand-1);
+  font-size: 0.95rem;
+  font-weight: 650;
+}
+
+.vp-doc p:has(> .katex-display) + blockquote ul,
+.vp-doc p:has(> .katex-display) + blockquote ol {
+  display: block;
+  margin: 0.55rem 0 0;
+  padding-left: 1.4rem;
+  text-align: left;
+}
+
+.vp-doc p:has(> .katex-display) + blockquote li {
+  margin: 0.2rem 0;
+  color: var(--vp-c-text-2);
+  font-size: 0.95rem;
+  font-weight: 400;
+  line-height: 1.65;
+}
+
+.dark .vp-doc p:has(> .katex-display) + blockquote,
+.dark .vp-doc p:has(> .katex-display):has(+ blockquote) {
+  border-color: rgba(121, 134, 203, 0.2);
+  background: rgba(121, 134, 203, 0.065);
+}
+
+.dark .vp-doc p:has(> .katex-display) + blockquote p {
+  color: #aeb8ff;
+}
+
 /* ===================================================
    8. Custom Containers / Admonitions (Apple 风格：去背景、去阴影)
    =================================================== */
