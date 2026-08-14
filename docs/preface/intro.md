@@ -39,7 +39,7 @@ CartPole 是强化学习教学中的经典入门示例：一根杆子通过关�
 CartPole 是 1990 年代起的经典控制任务，代表了强化学习的过去；本书的主角是 LLM 时代的现代强化学习。下列四项工作分别对应书中各章节的核心议题。
 
 - **DPO 与大模型对齐**：用户要求模型协助编写恶意代码时，对齐前的模型照单全收，对齐后的模型能够识别风险并拒绝。[第 14 章 DPO 家族](../chapter17_dpo/dpo-theory-and-family)用约 200 行代码复现这一微调。
-- **GRPO 与推理涌现**：未经推理数据训练的基座模型，仅靠强化学习即可自发产生反思、验证、纠错的长思维链，对应 DeepSeek-R1 的核心范式。[第 15 章 GRPO 家族](../chapter18_grpo/grpo-practice-and-mechanism)讨论其实现机制，[第 16 章 Reasoning Models](../chapter19_reasoning/intro)展开 Test-time Scaling 的全景。
+- **GRPO 与推理涌现**：未经推理数据训练的基座模型，仅靠强化学习即可自发产生反思、验证、纠错的长思维链，对应 DeepSeek-R1 的核心范式。[第 15 章 GRPO 家族](../chapter18_grpo/grpo-practice-and-mechanism)讨论其实现机制，[第 16 章 Reasoning Models](../chapter19_reasoning/r1-zero-pure-rl-reasoning)展开 Test-time Scaling 的全景。
 - **Computer Use 与 GUI 智能体**：模型读取屏幕像素、点击按钮、填写表单，完成多步图形界面任务。[第 22 章 Computer Use 与 GUI Agent](../chapter25_computer_use/training)分析 UI-TARS-2、AutoGLM 等代表性工作的训练原理。
 - **SWE-Agent 与自主 Bug 修复**：智能体读取代码仓库、定位缺陷、修改代码、运行测试，通过 SWE-bench 评测。[第 20 章代码智能体强化学习](../chapter23_rl_based_swe/swe-bench-and-rlvr)基于 Meta 的 SWE-RL 算法、Code World Model 与 Self-play SSR 训练开源版本。
 
@@ -310,105 +310,63 @@ $$J(\theta) = \mathbb{E}_{\pi_\theta}\left[G_t\right], \quad \theta^* = \arg\max
 
 ### 内容和结构
 
-全书分为七个部分，在下图的核心脉络中用不同的颜色呈现：
+全书分为七个部分。下图给出了各部分的学习顺序，以及每一部分对应的章节。
 
 <div class="preface-structure-map" align="center" style="margin: 2.5rem 0;">
 
 ```mermaid
-graph TD
-    subgraph P1["Part I · 基础与经典强化学习（第 1-4 章）"]
-        Q["CartPole 入门<br/>问题定义与经典方法"]
-    end
+flowchart TD
+    P1["Part I · 基础与经典强化学习<br/>第 1 章 CartPole · 第 2 章问题定义<br/>第 3 章价值函数与贝尔曼方程 · 第 4 章经典方法"]
 
-    subgraph P2["Part II · 深度强化学习（第 5-9 章）"]
-        A["RL 的核心问题<br/>序列决策与长期回报"] --> B["Value-Based<br/>学习动作价值"]
-        A --> C["Policy-Based<br/>直接学策略"]
-        B --> D["Q-Learning → DQN<br/>（第 5 章）"]
-        C --> E["REINFORCE<br/>（第 6 章）"]
-        D --> F["Actor-Critic 汇合<br/>（第 7 章）"]
-        E --> F
-        F --> G["TRPO 与 PPO<br/>（第 8 章）"]
-        G --> H["连续控制与 Model-Based RL<br/>（第 9 章）"]
-    end
+    P2["Part II · 深度强化学习<br/>第 5 章 DQN · 第 6 章策略梯度 · 第 7 章 Actor-Critic<br/>第 8 章 TRPO 与 PPO · 第 9 章连续控制与基于模型的强化学习"]
 
-    subgraph P3["Part III · 高级强化学习方法（第 10-12 章）"]
-        I["离线强化学习"] --> J["模仿学习、逆强化学习与元强化学习"]
-        J --> K["探索、多智能体与分层强化学习"]
-    end
+    P3["Part III · 高级强化学习方法<br/>第 10 章离线强化学习 · 第 11 章模仿、逆强化与元强化学习<br/>第 12 章探索、多智能体与分层强化学习"]
 
-    subgraph P4["Part IV · 大语言模型对齐与后训练（第 13-18 章）"]
-        L["RLHF、RLAIF 与工业训练<br/>（第 13-14 章）"] --> M["DPO、GRPO 与 RLVR<br/>（第 15-16 章）"]
-        M --> N["推理模型与 PRM<br/>（第 17-18 章）"]
-    end
+    P4["Part IV · 大语言模型对齐与后训练<br/>第 13 章 RLHF · 第 14 章 DPO · 第 15 章 GRPO 与 RLVR<br/>第 16 章推理模型 · 第 17 章过程奖励 · 第 18 章工业实践"]
 
-    subgraph P5["Part V · Agentic 强化学习（第 19-22 章）"]
-        O["工具调用与多轮 RL"] --> P["代码、浏览器与 GUI Agent"]
-    end
+    P5["Part V · Agentic RL<br/>第 19 章 Agentic RL 系统 · 第 20 章代码智能体<br/>第 21 章 Deep Research · 第 22 章 Computer Use"]
 
-    subgraph P6["Part VI · 多模态强化学习（第 23-24 章）"]
-        R["视觉语言模型 RL<br/>（第 23 章）"] --> S["前沿多模态 RL<br/>（第 24 章）"]
-    end
+    P6["Part VI · 多模态强化学习<br/>第 23 章视觉语言模型 RL<br/>第 24 章音频、VLA 与视觉生成"]
 
-    subgraph P7["Part VII · 安全、评估与研究前沿（第 25-26 章）"]
-        T["奖励黑客与 RL 评估"] --> U["Self-Play、Scaling 与研究前沿"]
-    end
+    P7["Part VII · 安全、评测与研究前沿<br/>第 25 章奖励黑客与强化学习评测<br/>第 26 章自博弈、规模化与研究前沿"]
 
-    Q --> A
-    H --> I
-    K --> L
-    N --> O
-    P --> R
-    S --> T
+    P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7
 
-    style P1 fill:#f8f9fa,stroke:#616161,color:#000
-    style P2 fill:#eef6ff,stroke:#1976d2,color:#000
-    style P3 fill:#edf7ed,stroke:#2e7d32,color:#000
-    style P4 fill:#f5eef8,stroke:#7b1fa2,color:#000
-    style P5 fill:#fff8e1,stroke:#f9a825,color:#000
-    style P6 fill:#e0f7fa,stroke:#00838f,color:#000
-    style P7 fill:#fce4ec,stroke:#c2185b,color:#000
-    style Q fill:#f8f9fa,stroke:#616161,color:#000
-    style A fill:#eef6ff,stroke:#1976d2,color:#000
-    style B fill:#e3f2fd,stroke:#1976d2,color:#000
-    style D fill:#e3f2fd,stroke:#1976d2,color:#000
-    style C fill:#fff3e0,stroke:#f57c00,color:#000
-    style E fill:#fff3e0,stroke:#f57c00,color:#000
-    style F fill:#e8f5e9,stroke:#388e3c,color:#000
-    style G fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#000
-    style I fill:#edf7ed,stroke:#2e7d32,color:#000
-    style J fill:#edf7ed,stroke:#2e7d32,color:#000
-    style K fill:#edf7ed,stroke:#2e7d32,color:#000
-    style L fill:#f5eef8,stroke:#7b1fa2,color:#000
-    style M fill:#f5eef8,stroke:#7b1fa2,color:#000
-    style N fill:#f5eef8,stroke:#7b1fa2,color:#000
-    style O fill:#fff8e1,stroke:#f9a825,color:#000
-    style P fill:#fff8e1,stroke:#f9a825,color:#000
-    style R fill:#e0f7fa,stroke:#00838f,color:#000
-    style S fill:#e0f7fa,stroke:#00838f,color:#000
-    style T fill:#fce4ec,stroke:#c2185b,color:#000
-    style U fill:#fce4ec,stroke:#c2185b,color:#000
+    classDef part1 fill:#f5f5f5,stroke:#616161,stroke-width:1.5px,color:#111
+    classDef part2 fill:#eaf3ff,stroke:#1976d2,stroke-width:1.5px,color:#111
+    classDef part3 fill:#edf7ed,stroke:#2e7d32,stroke-width:1.5px,color:#111
+    classDef part4 fill:#f5eef8,stroke:#7b1fa2,stroke-width:1.5px,color:#111
+    classDef part5 fill:#fff7df,stroke:#e09a00,stroke-width:1.5px,color:#111
+    classDef part6 fill:#e6f7f9,stroke:#00838f,stroke-width:1.5px,color:#111
+    classDef part7 fill:#fbeaf0,stroke:#c2185b,stroke-width:1.5px,color:#111
+
+    class P1 part1
+    class P2 part2
+    class P3 part3
+    class P4 part4
+    class P5 part5
+    class P6 part6
+    class P7 part7
 
 ```
 
 </div>
 
-上图按七个部分串起全书。第 1 至 4 章建立经典强化学习的语言；第 5 至 9 章把价值方法和策略方法推进到深度强化学习，并在 Actor-Critic 与 PPO 处汇合。第 10 至 12 章补充离线学习、模仿学习和多智能体等高级方法。具备这些基础后，第 13 至 18 章进入大模型对齐与后训练，第 19 至 22 章转向可调用工具并持续行动的智能体，第 23 至 24 章扩展到视觉理解、音频、VLA 与视觉生成，最后在第 25 至 26 章讨论安全、评估和研究前沿。
+以下是七个部分的主要内容。
 
-以下是各章内容的详细介绍。
+**Part I（第 1 至 4 章）** 从 CartPole 开始，依次建立强化学习的问题定义、价值函数、贝尔曼方程和经典求解方法。
 
-**Part I（第 1 至 4 章）**从 CartPole 开始，依次建立 RL 问题定义、价值函数、贝尔曼方程和经典求解方法。
+**Part II（第 5 至 9 章）** 进入深度强化学习：DQN 学习动作价值，策略梯度直接优化策略，Actor-Critic 将两条路线结合，PPO 提供稳定的策略更新，连续控制与基于模型的强化学习再扩展问题边界。
 
-**Part II（第 5 至 9 章）**进入深度强化学习：DQN 学习动作价值，策略梯度直接优化策略，Actor-Critic 将两条路线结合，PPO 提供稳定的策略更新，连续控制与 Model-Based RL 再扩展问题边界。
+**Part III（第 10 至 12 章）** 讨论离线强化学习、模仿学习、逆强化学习、元强化学习、探索、多智能体强化学习与分层强化学习，为更复杂的数据和环境设定补齐方法工具。
 
-**Part III（第 10 至 12 章）**讨论离线强化学习、模仿学习、逆强化学习、元强化学习、探索、多智能体与分层强化学习，为更复杂的数据和环境设定补齐方法工具。
+**Part IV（第 13 至 18 章）** 覆盖 RLHF、RLAIF、DPO、GRPO、RLVR、推理模型、过程奖励模型和工业训练，形成完整的大模型后训练路线。
 
-**Part IV（第 13 至 18 章）**覆盖 RLHF、RLAIF、工业训练、DPO、GRPO、RLVR、推理模型和过程奖励模型，形成完整的大模型后训练路线。
+**Part V（第 19 至 22 章）** 把训练对象从一段回答扩展到完整轨迹，依次讨论多轮交互、工具调用、代码智能体、浏览器智能体与 GUI Agent。
 
-**Part V（第 19 至 22 章）**把训练对象从单段回答扩展到完整轨迹，依次讨论工具调用、多轮交互、代码智能体、浏览器智能体与 GUI Agent。
+**Part VI（第 23 至 24 章）** 先讨论视觉语言模型 RL，再把音频 Agent、VLA 与视觉生成收进“前沿多模态 RL”，形成从多模态理解到交互与生成的连续路线。
 
-**Part VI（第 23 至 24 章）**先讨论视觉语言模型 RL，再把音频、VLA 与视觉生成收进“前沿多模态 RL”，形成从多模态理解到交互与生成的连续路线。
-
-**Part VII（第 25 至 26 章）**集中讨论奖励黑客、对齐评估、Self-Play、Scaling Laws、多智能体协作和研究前沿。
+**Part VII（第 25 至 26 章）** 集中讨论奖励黑客、强化学习评测、Self-Play、Scaling Laws、多智能体协作和研究前沿。
 
 ### 目标读者
 

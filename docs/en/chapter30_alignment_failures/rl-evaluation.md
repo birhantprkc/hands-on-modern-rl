@@ -407,7 +407,7 @@ Have the model design a text-based RL task and train an agent to complete it:
 
 Have the model train a quadruped robot to walk in the MuJoCo physics simulation:
 
-- This is a classic continuous control task ([Chapter 9 on SAC](../chapter11_continuous_control/intro))
+- This is a classic continuous control task ([Chapter 9 on SAC](../chapter11_continuous_control/deterministic-policy-gradient-ddpg))
 - Requires understanding the environment, debugging the algorithm, and tuning hyperparameters
 - **Success Criterion**: The agent reaches baseline performance within 1M steps
 

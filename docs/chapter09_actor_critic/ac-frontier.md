@@ -1,4 +1,4 @@
-# 补充阅读：Actor-Critic 的前沿大规模应用
+# 7.7 加餐：Actor-Critic 的前沿大规模应用
 
 前面的实验都在 CartPole、LunarLander 这样的教学环境中完成——几十维状态、几维动作，CPU 上几分钟就能训完。但 Actor-Critic 架构的真正价值在于：**它可以从这些玩具任务扩展到工业级规模**。本节介绍三个里程碑式的大规模 Actor-Critic 应用，覆盖三个领域：游戏 AI、真实机器人、工业仿真平台。
 
@@ -250,7 +250,7 @@ Isaac Lab 内置了多种机器人模型，覆盖从机械臂到四足到双足�
 
 这三者的共同点是：**核心都是 Actor + Critic 的架构**。变化的是训练算法的细节（V-trace vs 熵正则化 vs 标准 PPO）、训练规模（单机 vs 数千 GPU 并行）和部署目标（游戏 vs 真实机器人）。Actor-Critic 架构之所以能从 CartPole 扩展到这些工业级应用，正是因为"一个网络做决策，一个网络做评估"这个分工会随规模增长而越来越有效。
 
-下一节，让我们亲手在 Pendulum 上跑一个 Actor-Critic 实验：[动手：Pendulum 摆杆平衡](./pendulum)。
+基础 Actor-Critic 在简单环境中工作得很好，但在复杂任务上会遇到训练不稳定的问题。下一章我们来学习 PPO——目前最常用的稳定 Actor-Critic 算法：[8. PPO：稳定的 Actor-Critic](../chapter10_ppo/intro)。
 
 ---
 

@@ -4,7 +4,7 @@ title: 18.2 The Complete Industrial Post-Training Workflow
 
 # 18.2 Industrial Post-Training Pipeline
 
-[Section 18.1](./intro) decomposed one RL training iteration into generation, reward computation, policy updates, and parameter synchronization. An industrial post-training system must also answer three broader questions: where its training tasks come from, how it measures whether a capability actually improved, and how failures become data for the next iteration.
+[Section 18.1](./single-machine-to-industrial) decomposed one RL training iteration into generation, reward computation, policy updates, and parameter synchronization. An industrial post-training system must also answer three broader questions: where its training tasks come from, how it measures whether a capability actually improved, and how failures become data for the next iteration.
 
 Consider a coding model. A team collects issues from real repositories and prepares a runnable environment and tests for each task. SFT first teaches the model to inspect a repository, call tools, and submit a patch. RL then lets the model try the task repeatedly, while the test suite scores each trajectory. After training, the team evaluates the model on new repositories, groups the failed tasks, adds data or stronger verification rules, and starts another iteration.
 

@@ -1,6 +1,6 @@
 # 11.1 Behavior Cloning and Interactive Imitation Learning
 
-[Chapter 10: Offline Reinforcement Learning](../chapter12_offline_rl/intro) improves a policy using fixed historical data, but the data still retain rewards. Imitation learning operates with less information: the data only tell us which action an expert took in a given state, without a ready-made reward function explaining why that action was good.
+[Chapter 10: Offline Reinforcement Learning](../chapter12_offline_rl/offline-data-distribution-shift) improves a policy using fixed historical data, but the data still retain rewards. Imitation learning operates with less information: the data only tell us which action an expert took in a given state, without a ready-made reward function explaining why that action was good.
 
 Chapter 11 proceeds in three steps. We first learn expert actions directly through behavior cloning and DAgger, then infer rewards from demonstrations with inverse reinforcement learning and GAIL, and finally study how policies adapt rapidly to new tasks through MAML, RL², PEARL, and in-context reinforcement learning. This section begins with four questions: how behavior cloning is trained, why its errors compound, how DAgger collects error states, and what data each approach requires.
 

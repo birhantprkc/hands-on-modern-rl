@@ -186,8 +186,8 @@ Qwen3 tech report 描述了复杂的 4 阶段后训练（含冷启动、RL、合
 ::: tip 入门档推荐任务
 
 - 用 GRPO 复现 R1-Zero 在 GSM8K 上的训练曲线（[第 15 章](../chapter18_grpo/grpo-practice-and-mechanism)）
-- 用 DPO 在 Anthropic HH-RLHF 数据上微调（[第 14 章](../chapter17_dpo/intro)）
-- 在 CartPole / MuJoCo 上跑 SAC/TD3（[第 9 章](../chapter11_continuous_control/intro)）
+- 用 DPO 在 Anthropic HH-RLHF 数据上微调（[第 14 章](../chapter17_dpo/dpo-objective-derivation)）
+- 在 CartPole / MuJoCo 上跑 SAC/TD3（[第 9 章](../chapter11_continuous_control/deterministic-policy-gradient-ddpg)）
   :::
 
 ### 多卡实验（7B–13B 模型）

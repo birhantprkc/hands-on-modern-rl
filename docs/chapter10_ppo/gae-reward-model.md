@@ -432,4 +432,21 @@ $\lambda=1$ 时 $\hat{A}_t = G_t - V(s_t)$。$V(s_t)$ 是噪声，但 $G_t$ 是�
 
 </details>
 
+## 本章核心内容小结
+
+到这里，PPO 的三个核心组件已经全部讲完：
+
+1. **[8.1 动手：PPO 控制 BipedalWalker](./ppo-bipedal-walker)**：先跑实验，看 PPO 在连续控制任务上的实际效果
+2. **[8.2 信任域约束与 PPO-Clip](./trust-region-clipping)**：裁剪目标约束策略更新幅度，解决训练不稳定问题
+3. **[8.3 GAE 优势估计](./gae-reward-model)**：在 TD 和 MC 之间做偏差-方差权衡，同时覆盖 LLM 对齐中的奖励模型
+
+PPO 的成功之处在于：它在 Actor-Critic 架构上只做了两个关键改动（裁剪目标 + GAE），就大幅提升了训练稳定性，同时保持了实现简洁。这也是为什么 PPO 成为了目前最常用的强化学习算法之一。
+
 **RM 是 PPO 在 LLM 对齐中最沉重的负担——训练它需要大量标注，维护它需要大量显存，信任它需要冒 reward hacking 的风险。能不能跳过这一步？** 到第 14 章，我们会看到 DPO 给出的答案——[DPO：绕过奖励模型](../chapter17_dpo/intro)。
+
+---
+
+**拓展阅读**：
+- 想深入理解 PPO 完整的数学推导（从 TRPO 到 PPO 的完整证明），可以看：[加餐：PPO 数学推导](./ppo-math)
+- 想找更多 PPO 的实践项目，可以看：[加餐：PPO 游戏项目实践导论](./ppo-game-benchmark)
+- 想了解 PPO 之外的长程任务解决方案，可以看：[加餐：长程任务中的 RL 探索](./rl-long-horizon-planning)

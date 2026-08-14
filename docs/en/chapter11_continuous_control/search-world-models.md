@@ -238,7 +238,7 @@ Continuous control and model-based RL are two major advanced directions in class
 2. **Dyna → PETS → MBPO** traces the model-based data-augmentation approach, in which the model acts as a data generator
 3. **AlphaZero → MuZero → Dreamer V3** traces the leading approach based on explicit search and learned models, representing the frontier of model-based RL
 
-The next chapter, [Chapter 10: Offline Reinforcement Learning](../chapter12_offline_rl/intro), turns to another question: **What can an agent do when it cannot interact with the environment and has access only to historical data?** This is a central problem in practical settings such as LLM post-training and recommender systems.
+The next chapter, [Chapter 10: Offline Reinforcement Learning](../chapter12_offline_rl/offline-data-distribution-shift), turns to another question: **What can an agent do when it cannot interact with the environment and has access only to historical data?** This is a central problem in practical settings such as LLM post-training and recommender systems.
 
 ## Further Reading
 

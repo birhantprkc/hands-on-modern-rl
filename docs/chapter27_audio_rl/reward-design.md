@@ -56,7 +56,7 @@ StepFun（阶跃星辰）是国内音频 LLM 的代表厂商。Step-Audio 系列
 
 #### Inverted scaling 反常现象
 
-文本和视觉推理模型普遍遵循 test-time compute scaling law——给模型更多推理 token，性能可预测地提升（见 [第 16 章推理模型](../chapter19_reasoning/intro)）。但音频域出现反常：
+文本和视觉推理模型普遍遵循 test-time compute scaling law——给模型更多推理 token，性能可预测地提升（见 [第 16 章推理模型](../chapter19_reasoning/r1-zero-pure-rl-reasoning)）。但音频域出现反常：
 
 ```mermaid
 graph LR

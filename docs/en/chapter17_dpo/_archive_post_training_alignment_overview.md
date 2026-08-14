@@ -5,7 +5,7 @@ title: 9. Post-Training Alignment (archived)
 ::: warning TODO: Archived during English restructure (2026-06-25)
 This was the combined intro for the old Chapter 9 "Post-Training Alignment", which merged DPO + GRPO + RLVR. The Chinese restructure split this into three separate chapters:
 
-- Chapter 14 (DPO) — `docs/chapter17_dpo/intro.md`
+- Chapter 14 (DPO) — `docs/chapter17_dpo/dpo-objective-derivation.md`
 - Chapter 15 (GRPO / RLVR) — `docs/chapter18_grpo/grpo-practice-and-mechanism.md`
 - Chapter 18 (LLM RL industrial) — `docs/chapter16_llm_rl_industrial/industrial-post-training.md`
 

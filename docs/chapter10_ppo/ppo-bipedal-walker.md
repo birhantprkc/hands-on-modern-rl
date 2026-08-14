@@ -1,8 +1,8 @@
-# 8.5 动手：PPO 控制 BipedalWalker
+# 8.1 动手：PPO 控制 BipedalWalker
 
 > **本节目标**：训练 PPO 控制二足机器人在随机地形上行走，理解连续动作空间下的策略学习与离散动作的本质区别。
 
-> **学习路径**：[8.1 TRPO 与信任域约束](./trust-region-clipping) → [8.2 PPO-Clip](./intro) → [8.3 GAE](./gae-reward-model) → **8.5 PPO 控制 BipedalWalker**
+> **学习路径**：**8.1 PPO 控制 BipedalWalker** → [8.2 信任域约束与 PPO-Clip](./trust-region-clipping) → [8.3 GAE 优势估计](./gae-reward-model)
 
 > **本节代码与资源**：[ppo_bipedal_walker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/ppo_bipedal_walker.py) · [render_bipedal_walker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/render_bipedal_walker.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter07_ppo/requirements.txt)
 
@@ -324,7 +324,7 @@ BipedalWalker 在教学上有几个关键优点：
 
 从 CartPole（第 1 章）到 BipedalWalker，实验的难度和真实性明显提升。但 PPO 的核心机制没有变：裁剪约束更新幅度，多轮复用同一批数据，Actor-Critic 同时优化策略和价值。复杂度的提升来自环境和任务，而不是算法本身。
 
-下一节将拆解 PPO 背后的数学推导——[PPO 数学推导](./ppo-math)。
+跑完实验后，你可能会好奇：为什么 PPO 比上一章的 A2C 稳定这么多？下一节我们来拆解 PPO 的核心机制——信任域约束与裁剪目标：[8.2 信任域约束与 PPO-Clip](./trust-region-clipping)。
 
 ## 本节小结
 

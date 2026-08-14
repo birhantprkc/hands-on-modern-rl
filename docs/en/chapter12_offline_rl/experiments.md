@@ -10,7 +10,7 @@ LLM preference data and offline-RL data share one key constraint: training can u
 
 ### 1.1 DPO as Implicit Q-Learning
 
-The DPO objective derived in [Chapter 14: DPO](../chapter17_dpo/intro) is
+The DPO objective derived in [Chapter 14: DPO](../chapter17_dpo/dpo-objective-derivation) is
 
 $$\mathcal{L}_{\text{DPO}} = -\mathbb{E}_{(x, y_w, y_l)}\left[\log \sigma\left(\beta \log \frac{\pi_\theta(y_w \mid x)}{\pi_{\text{ref}}(y_w \mid x)} - \beta \log \frac{\pi_\theta(y_l \mid x)}{\pi_{\text{ref}}(y_l \mid x)}\right)\right]$$
 
@@ -40,7 +40,7 @@ This correspondence also explains the role of $\beta$: it changes the scale of p
 
 ## 2. Viewing Preference Data as a Fixed Dataset
 
-Compare an LLM preference dataset with the D4RL offline dataset from [Chapter 9](../chapter11_continuous_control/intro):
+Compare an LLM preference dataset with the D4RL offline dataset from [Chapter 9](../chapter11_continuous_control/deterministic-policy-gradient-ddpg):
 
 | Dimension             | D4RL (MuJoCo)                             | LLM Preference Data                                        |
 | --------------------- | ----------------------------------------- | ---------------------------------------------------------- |

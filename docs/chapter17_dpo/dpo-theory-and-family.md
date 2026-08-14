@@ -332,7 +332,7 @@ $$
 \mathcal{L}_{\text{DPO}} = -\mathbb{E}_{(x, y_w, y_l)} \left[ \log \sigma\left(\beta \log \frac{\pi_\theta(y_w \mid x)}{\pi_{\text{ref}}(y_w \mid x)} - \beta \log \frac{\pi_\theta(y_l \mid x)}{\pi_{\text{ref}}(y_l \mid x)}\right) \right]
 $$
 
-这就是你在[第 14 章](../chapter17_dpo/intro)代码里调的那个 `DPOTrainer` 背后的真正面目：
+这就是你在[第 14 章](../chapter17_dpo/dpo-objective-derivation)代码里调的那个 `DPOTrainer` 背后的真正面目：
 
 <DpoCodeFocus focus="loss" />
 

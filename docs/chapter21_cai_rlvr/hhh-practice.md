@@ -160,7 +160,7 @@ $$
 它产出的不是分数，而是一段**文本批评**。这有两个好处：
 
 1. **可解释**：批评文本能直接被人读到，比黑盒标量分数透明得多。
-2. **Chain-of-Thought 效应**：让模型先写批评再写修正，相当于强迫它先"想清楚哪里错了"再"改"——这与 [CoT prompting](../chapter19_reasoning/intro) 是同一类机制。
+2. **Chain-of-Thought 效应**：让模型先写批评再写修正，相当于强迫它先"想清楚哪里错了"再"改"——这与 [CoT prompting](../chapter19_reasoning/r1-zero-pure-rl-reasoning) 是同一类机制。
 
 经验上，**先 critique 再 revise** 比直接让模型重写质量高 10-20%（Lee et al. 2023, "Star" 自我修正实验）。
 
@@ -424,7 +424,7 @@ $$
 4. **HHH** 将 Helpful、Harmless、Honest 组织成三个可优化目标，并通过多目标奖励处理它们之间的冲突。
 5. **层级化 Constitution** 用情境训练和原则归因取代简单的规则罗列，使模型能够处理新情境并支持审计。
 
-[第 15 章 RL Environments 与 Verifiers](../chapter18_grpo/rl-environments)继续讨论奖励信号的另一部分：如何用可执行环境和验证器判断数学答案、代码与工具调用是否正确，从而把软偏好与硬规则结合起来。
+[第 15 章 强化学习环境与验证器](../chapter18_grpo/rl-environments)继续讨论奖励信号的另一部分：如何用可执行环境和验证器判断数学答案、代码与工具调用是否正确，从而把软偏好与硬规则结合起来。
 
 ## 延伸阅读
 

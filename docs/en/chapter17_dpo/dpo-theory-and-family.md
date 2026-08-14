@@ -520,7 +520,7 @@ Substituting the preference probability above gives the full DPO loss:
 
 $$\mathcal{L}_{\text{DPO}} = -\mathbb{E}_{(x, y_w, y_l)} \left[ \log \sigma \left( \beta \log \frac{\pi_\theta(y_w\mid x)}{\pi_{\text{ref}}(y_w\mid x)} - \beta \log \frac{\pi_\theta(y_l\mid x)}{\pi_{\text{ref}}(y_l\mid x)} \right) \right]$$
 
-This is the true form behind the `DPOTrainer` you used in [Chapter 14](../chapter17_dpo/intro):
+This is the true form behind the `DPOTrainer` you used in [Chapter 14](../chapter17_dpo/dpo-objective-derivation):
 
 <DpoCodeFocus focus="loss" />
 

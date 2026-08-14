@@ -1,12 +1,12 @@
 # 24.5 Video RLHF and Physical Perception Generation
 
-[Section 24.4 on Visual Generation with RL](./intro) discussed the foundations of diffusion RL — algorithms such as DDPO and DPOK. That section took a **algorithmic perspective**: how to model diffusion training as an MDP, and how to use policy gradient optimization.
+[Section 24.4 on Visual Generation with RL](./visual-generation-dancegrpo) discussed the foundations of diffusion RL — algorithms such as DDPO and DPOK. That section took a **algorithmic perspective**: how to model diffusion training as an MDP, and how to use policy gradient optimization.
 
 This section takes a different perspective — the **industrial level**: how video generation models such as Seedance, LongCat-Video, Hailuo, Wan, and Kling were trained using RL in 2025–2026? These works represent the current state-of-the-art in video generation with RL.
 
 ## 24.5.1 From Images to Video and New Challenges of RL
 
-RL for image generation has matured ([DDPO](./intro), DPOK). However, video generation brings new challenges:
+RL for image generation has matured ([DDPO](./visual-generation-dancegrpo), DPOK). However, video generation brings new challenges:
 
 ### Long Sequences
 
@@ -350,7 +350,7 @@ Video generation with reinforcement learning has achieved major breakthroughs in
 
 The core challenges of video generation with reinforcement learning — long sequences, temporal consistency, and computational cost — are being gradually addressed by industrial practice. Future directions include 5–10 minute videos, audio-video joint generation, and interactive generation.
 
-This section, together with [24.4 Visual Generation with Reinforcement Learning](./intro), forms a complete system:
+This section, together with [24.4 Visual Generation with Reinforcement Learning](./visual-generation-dancegrpo), forms a complete system:
 
 - **24.4**: Algorithm foundations (DDPO, DPOK)
 - **24.5**: Industrial practice (DanceGRPO, Seedance, LongCat)

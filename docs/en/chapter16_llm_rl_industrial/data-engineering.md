@@ -1,7 +1,3 @@
----
-outline: false
----
-
 # 18.5 Large-Scale RL Data Engineering
 
 [18.2](./industrial-post-training) has already explained that industrial post-training continuously sends failure samples back to the next training round. Now, tracing back along a failure trajectory: how does the team find the original task, how do they recover the environment as it was running, how do they determine whether the model completed the task, and how do they decide whether this trajectory is worth training?

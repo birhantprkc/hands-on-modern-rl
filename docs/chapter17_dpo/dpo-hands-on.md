@@ -2,7 +2,7 @@
 
 > **本节目标**：用成对偏好数据训练一个小型语言模型减少讽刺表达，并通过训练指标和训练前后回答判断 DPO 是否产生了预期偏好。
 
-> **学习路径**：[14.1 DPO 目标函数](./intro) → [14.2 训练与评测指标](./metrics) → [14.3 DPO 改进方法](./dpo-theory-and-family) → **14.4 DPO 对齐实验**
+> **学习路径**：[14.1 DPO 目标函数](./dpo-objective-derivation) → [14.2 训练与评测指标](./metrics) → [14.3 DPO 改进方法](./dpo-theory-and-family) → **14.4 DPO 对齐实验**
 
 > **本节代码与资源**：[数据生成](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/1-generate_data.py) · [训练前测试](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/2-test_before.py) · [DPO 训练](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/3-train_dpo.py) · [训练后测试](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/4-test_after.py)
 
@@ -240,4 +240,4 @@ flowchart LR
 - `rewards/margins` 和 `rewards/accuracies` 反映训练集偏好是否被学到，独立提示上的生成结果检验能否泛化。
 - $\beta$ 控制模型偏离参考策略的幅度；训练数据过少时，即使训练指标很好，也可能只是记住了偏好对。
 
-训练指标说明偏好对上的概率关系是否发生变化。[DPO 目标与推导](./intro)进一步说明这种变化为何可以直接由偏好损失产生，而不需要单独训练奖励模型。
+训练指标说明偏好对上的概率关系是否发生变化。[DPO 目标与推导](./dpo-objective-derivation)进一步说明这种变化为何可以直接由偏好损失产生，而不需要单独训练奖励模型。

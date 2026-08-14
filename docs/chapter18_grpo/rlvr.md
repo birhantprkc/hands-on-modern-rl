@@ -2,7 +2,7 @@
 
 > **本节目标**：为数学推理实现一个可验证奖励函数，并把它接入最小 GRPO 训练循环，检查格式奖励、答案奖励和总奖励是否符合预期。
 
-> **学习路径**：[15.1 GRPO 训练机制](./grpo-practice-and-mechanism) → [15.2 R1-Zero 与 DAPO](./deepseek-dapo) → **15.3 构建 RLVR 奖励**
+> **学习路径**：[15.1 GRPO 训练机制](./grpo-practice-and-mechanism) → [15.2 DeepSeek-R1-Zero 与 DAPO](./deepseek-dapo) → **15.3 构建 RLVR 奖励**
 
 > **本节代码与资源**：[规则奖励](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/rule_based_reward.py) · [GRPO 数学推理](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/grpo_math_reasoning.py) · [依赖](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/requirements.txt)
 

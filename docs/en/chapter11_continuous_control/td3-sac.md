@@ -1,6 +1,6 @@
 # 9.2 TD3 and SAC
 
-> [9.1](./intro) explained Deterministic Policy Gradients (DPG) and DDPG, which transfer DQN's off-policy approach to continuous actions. DDPG, however, has three widely criticized weaknesses: Q-value overestimation, hyperparameter sensitivity, and unstable training. This section presents two complementary remedies: **TD3** stabilizes DDPG with engineering techniques, while **SAC** reformulates the objective through maximum-entropy RL.
+> [9.1](./deterministic-policy-gradient-ddpg) explained Deterministic Policy Gradients (DPG) and DDPG, which transfer DQN's off-policy approach to continuous actions. DDPG, however, has three widely criticized weaknesses: Q-value overestimation, hyperparameter sensitivity, and unstable training. This section presents two complementary remedies: **TD3** stabilizes DDPG with engineering techniques, while **SAC** reformulates the objective through maximum-entropy RL.
 
 ## Stability Improvements for DDPG
 

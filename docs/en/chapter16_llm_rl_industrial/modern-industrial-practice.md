@@ -1,7 +1,3 @@
----
-outline: false
----
-
 # 18.3 Training Stability
 
 [18.2](./industrial-post-training) introduces data preparation, sampling, reward calculation, and model updates. After the training process truly begins, the first thing to do is usually to look at the reward curve: if the reward keeps increasing, it seems to indicate that the model is making progress.
@@ -396,7 +392,7 @@ These cases illustrate how model architecture, reasoning training, and numerical
 
 Related Chapters:
 
-- [Chapter 16: Reasoning Models](../chapter19_reasoning/intro) — Detailed discussion of reasoning models
+- [Chapter 16: Reasoning Models](../chapter19_reasoning/r1-zero-pure-rl-reasoning) — Detailed discussion of reasoning models
 - [Chapter 17: PRM](../chapter20_prm_search/outcome-vs-process) — Industrial practice of process rewards
 - [Chapter 20: RL-based SWE](../chapter23_rl_based_swe/swe-bench-and-rlvr) — Training of code agents
 

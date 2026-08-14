@@ -683,7 +683,7 @@ The more likely path is hybridization: use model-free methods for stable optimiz
 | Policy gradients and actor-critic (Chapters 5-6)     | Dreamer trains actor and critic on imagined trajectories                                 |
 | Stable PPO training (Chapter 8)                      | Embodied RL often uses PPO first to obtain a strong simulation baseline                  |
 | Embodied intelligence (main article in this section) | MBRL addresses expensive real interaction and the need to predict the future             |
-| [Offline RL](../../../chapter12_offline_rl/intro)    | Offline data can be used to pretrain world models before planning or policy optimization |
+| [Offline RL](../../../chapter12_offline_rl/offline-data-distribution-shift)    | Offline data can be used to pretrain world models before planning or policy optimization |
 
 ## Common Questions
 

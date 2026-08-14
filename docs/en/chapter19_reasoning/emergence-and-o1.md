@@ -142,4 +142,4 @@ After splitting, the system can extract only the answer to be passed to the outc
 
 o1 makes "investing more reasoning computation" a callable product capability, while o3 and o4-mini further integrate tool feedback into the reasoning process. Competitions in programming experiments further demonstrate that end-to-end RL can reinforce behaviors such as candidate generation, execution validation, and error correction; the pre-trained model's existing knowledge and coverage range still limit what RL can reinforce.
 
-[16.2 R1-Zero Pure Reinforcement Learning Reasoning](./intro) will elaborate on rewards, intra-group comparisons, and behavioral changes, specifically explaining how these reasoning behaviors can be formed during training without going through SFT cold start.
+[16.2 R1-Zero Pure Reinforcement Learning Reasoning](./r1-zero-pure-rl-reasoning) will elaborate on rewards, intra-group comparisons, and behavioral changes, specifically explaining how these reasoning behaviors can be formed during training without going through SFT cold start.

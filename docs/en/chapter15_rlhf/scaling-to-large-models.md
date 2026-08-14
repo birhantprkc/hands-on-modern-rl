@@ -238,7 +238,7 @@ This table looks very engineering-heavy, but that is exactly where the risks of 
 
 The structure of classical RLHF is consistent across small and large models: base model -> SFT -> RM -> PPO -> evaluation gates. The difference is that large-scale training requires expanding this simple pipeline into a distributed system.
 
-At this point, Chapter 13 has completed the main thread of classical RLHF. Chapter 14 moves into [DPO](../chapter17_dpo/intro), which updates the model directly from preference pairs. Chapters 15–17 then cover GRPO/RLVR, reasoning models, and process rewards; Chapter 18 brings these methods together in an industrial training system.
+At this point, Chapter 13 has completed the main thread of classical RLHF. Chapter 14 moves into [DPO](../chapter17_dpo/dpo-objective-derivation), which updates the model directly from preference pairs. Chapters 15–17 then cover GRPO/RLVR, reasoning models, and process rewards; Chapter 18 brings these methods together in an industrial training system.
 
 If you want an additional hands-on exercise before moving to Chapter 9, see the extended practice: deliberately write a bad reward function, observe how reward hacking happens, and then fix it with data and evaluation — [Extended Practice: Reward Hacking and Data Flywheels](./extended-practice).
 

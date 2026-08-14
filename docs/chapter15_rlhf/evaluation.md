@@ -554,7 +554,7 @@ RLHF 的评估必须同时回答三个问题：
 
 如果只看 reward 曲线，就很容易把 reward hacking 当成模型进步。评估闭环 + reward hacking 受控实验 + 数据飞轮，三者一起构成 RLHF 的质量护栏。
 
-经典 RLHF 主线到这里就完整闭环了：base model 不是 assistant，SFT 给它行为起点，RM 给它偏好方向，PPO 让它按奖励练习，评估和数据飞轮负责防止它学歪。如果想继续做一个受控实验，可以进入[扩展实战](./extended-practice)；下一章进入[第 14 章 DPO](../chapter17_dpo/intro)，学习如何直接使用偏好对完成对齐。
+经典 RLHF 主线到这里就完整闭环了：base model 不是 assistant，SFT 给它行为起点，RM 给它偏好方向，PPO 让它按奖励练习，评估和数据飞轮负责防止它学歪。如果想继续做一个受控实验，可以进入[扩展实战](./extended-practice)；下一章进入[第 14 章 DPO](../chapter17_dpo/dpo-objective-derivation)，学习如何直接使用偏好对完成对齐。
 
 ## 练习
 

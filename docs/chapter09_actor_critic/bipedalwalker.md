@@ -239,4 +239,4 @@ model = A2C(
 
 但 BipedalWalker 的实验也暴露了 vanilla Actor-Critic 的核心问题：**训练不稳定**。没有对策略更新幅度的约束，A2C 在复杂任务上的奖励曲线剧烈波动，最终性能和一致性都不如 PPO。
 
-下一章，我们将解决 Actor-Critic 的这个问题——引出 PPO 算法：[第 8 章 PPO](../chapter10_ppo/intro)。
+在下一章解决这个稳定性问题之前，我们先来看一下 Actor-Critic 架构在实际大规模应用中的更多案例：[7.7 加餐：Actor-Critic 的前沿大规模应用](./ac-frontier)。

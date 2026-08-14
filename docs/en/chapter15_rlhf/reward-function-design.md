@@ -4,6 +4,8 @@ title: Reward Model Content Moved
 
 # Reward Model Content Moved
 
+## Where the Content Moved
+
 This page previously combined the Bradley–Terry model, reward-model training, evaluation, and reward hacking. Those topics now follow the main learning sequence:
 
 - [13.2 SFT Instruction Tuning](./imitation-learning-pipeline): how score differences turn preference pairs into a reward-model training signal.

@@ -1,7 +1,3 @@
----
-outline: false
----
-
 # 18.4 Distributed RL Training
 
 [18.3](./modern-industrial-practice) has already explained that the training system must ensure consistency in sampling strategies, model versions, and numerical computations. Now, let's consider distributing a training session across multiple GPUs and examine how data flows.

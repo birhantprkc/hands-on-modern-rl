@@ -507,7 +507,7 @@ Actor-Critic 不是终点，而是一个骨架。后续章节中你会看到它�
 | -------------------------------------------------------------- | ----------------- | ------------------------------------------------- |
 | [第 8 章 PPO](../chapter10_ppo/intro)                          | PPO-Clip          | 限制策略更新幅度，防止"步子迈太大"                |
 | [第 8 章 GAE](../chapter10_ppo/gae-reward-model)               | 广义优势估计      | 多步 TD Error 的指数加权和，精确控制偏差-方差权衡 |
-| [第 14 章 DPO](../chapter17_dpo/intro)                         | 隐式 Actor-Critic | 用偏好数据替代 Critic，去掉 on-policy 的限制      |
+| [第 14 章 DPO](../chapter17_dpo/dpo-objective-derivation)                         | 隐式 Actor-Critic | 用偏好数据替代 Critic，去掉 on-policy 的限制      |
 | [第 15 章 GRPO](../chapter18_grpo/grpo-practice-and-mechanism) | 去掉 Critic       | 用组内均值替代 $V(s)$，省掉一个网络               |
 
 所有的变体都共享同一个骨架：一个负责选择的网络 + 一个负责评估的信号。变化的只是"评估信号怎么来"和"选择网络怎么更新"。
@@ -530,7 +530,7 @@ Actor 的价值在于：它直接输出动作概率，天然适用于连续动�
 
 </details>
 
-现在让我们看看 Actor-Critic 架构在大规模应用中的表现——[Actor-Critic 的前沿大规模应用](./ac-frontier)。
+但 Critic 怎么训练才能准确估计 $V(s)$？下一节我们展开 Critic 训练的三种方法对比：[7.3 Critic 训练细节](./critic-training)。
 
 ---
 

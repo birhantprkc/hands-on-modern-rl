@@ -2,13 +2,13 @@
 
 Part II relied on agents continually interacting with an environment to collect experience. Many real systems can use only existing logs because new trial and error may be expensive, slow, or unsafe. Part III begins with offline reinforcement learning, then extends fixed-data learning to imitation learning, inverse reinforcement learning, meta-reinforcement learning, exploration, multi-agent learning, and hierarchical decision-making.
 
-DDPG, TD3, and SAC in [Chapter 9](../chapter11_continuous_control/intro) can reuse historical data through a replay buffer, and model-based reinforcement learning can reduce real interaction with an environment model. These methods still allow a new policy to collect samples and correct old experience. Offline reinforcement learning removes this feedback channel: training can use only one fixed dataset.
+DDPG, TD3, and SAC in [Chapter 9](../chapter11_continuous_control/deterministic-policy-gradient-ddpg) can reuse historical data through a replay buffer, and model-based reinforcement learning can reduce real interaction with an environment model. These methods still allow a new policy to collect samples and correct old experience. Offline reinforcement learning removes this feedback channel: training can use only one fixed dataset.
 
 This section follows three questions: why fixed data cause distribution shift, how BCQ, CQL, and IQL constrain estimation errors, and how AWAC and TD3+BC incorporate behavior cloning into policy updates. With this foundation, [Section 10.2](./sequence-modeling) will turn to Decision Transformer's sequence-modeling approach.
 
 ## 1. Why Fixed Data Cause Distribution Shift
 
-Both [Chapter 5: DQN](../chapter07_dqn/from-q-to-dqn) and [Chapter 9: SAC](../chapter11_continuous_control/intro) update the value of the current state using the estimated value of the next state. First write the one-step target:
+Both [Chapter 5: DQN](../chapter07_dqn/from-q-to-dqn) and [Chapter 9: SAC](../chapter11_continuous_control/deterministic-policy-gradient-ddpg) update the value of the current state using the estimated value of the next state. First write the one-step target:
 
 $$y = r + \gamma \cdot \mathbb{E}_{s' \sim P(\cdot \mid s, a)}\left[V(s')\right]$$
 

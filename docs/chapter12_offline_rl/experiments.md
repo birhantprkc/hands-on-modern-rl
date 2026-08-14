@@ -21,7 +21,7 @@ LLM 偏好数据和传统离线 RL 数据共享一个最关键的约束：训练
 
 ### 1.1 DPO 作为隐式 Q-Learning
 
-我们在[第 14 章 DPO](../chapter17_dpo/intro)中推导过 DPO 的目标函数，先写出来回顾一下：
+我们在[第 14 章 DPO](../chapter17_dpo/dpo-objective-derivation)中推导过 DPO 的目标函数，先写出来回顾一下：
 
 $$\mathcal{L}_{\text{DPO}} = -\mathbb{E}_{(x, y_w, y_l)}\left[\log \sigma\left(\beta \log \frac{\pi_\theta(y_w \mid x)}{\pi_{\text{ref}}(y_w \mid x)} - \beta \log \frac{\pi_\theta(y_l \mid x)}{\pi_{\text{ref}}(y_l \mid x)}\right)\right]$$
 
@@ -72,7 +72,7 @@ DPO 实际上是在使用回答对的相对顺序（好 vs 坏）来训练这个
 
 ## 2. 把偏好数据看作固定数据集
 
-为了让这个对应关系更清楚，我们把 LLM 偏好数据集和[第 9 章](../chapter11_continuous_control/intro)里大家熟悉的 D4RL 离线数据集（MuJoCo 机器人控制任务）逐项对比：
+为了让这个对应关系更清楚，我们把 LLM 偏好数据集和[第 9 章](../chapter11_continuous_control/deterministic-policy-gradient-ddpg)里大家熟悉的 D4RL 离线数据集（MuJoCo 机器人控制任务）逐项对比：
 
 | 维度             | D4RL (MuJoCo)                             | LLM Preference Data                                    |
 | ---------------- | ----------------------------------------- | ------------------------------------------------------ |

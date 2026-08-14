@@ -1,4 +1,4 @@
-# 15.2 R1-Zero 与 DAPO
+# 15.2 DeepSeek-R1-Zero 与 DAPO
 
 上一节我们理解了 GRPO 的组内归一化机制——用组内均值和标准差替代 Critic，巧妙地省掉了一个完整的模型。这一节我们把视野拉大，看看 2025 年 RL 领域最令人兴奋的两个突破：DeepSeek-R1-Zero 证明了纯 RL 可以不需要 SFT，DAPO 进一步优化了 GRPO 的工程效率。
 

@@ -624,4 +624,4 @@ SAC 的离线策略框架虽然样本效率更高，但它需要一个大的经�
 - **文档链接**：[宇树科技支持文档 (Developer Support)](https://support.unitree.com/home/zh/developer)
 - **学习建议**：在这里你可以找到从零开始配环境的保姆级教程（例如怎么装 PyTorch、Isaac Gym，怎么配置 `rsl_rl`）。对于想要亲手把强化学习算法部署到真实电机上的开发者，这是必读的实战手册。
 
-VLA 讨论的是多模态模型如何感知并改变物理世界。下一节 [24.4 视觉生成与 DanceGRPO](../../chapter29_visual_generation/intro) 转向另一类动作空间：策略通过完整的去噪轨迹生成图像，再用视觉质量、文本一致性和人类偏好构造奖励。
+VLA 讨论的是多模态模型如何感知并改变物理世界。下一节 [24.4 视觉生成与 DanceGRPO](../../chapter29_visual_generation/visual-generation-dancegrpo) 转向另一类动作空间：策略通过完整的去噪轨迹生成图像，再用视觉质量、文本一致性和人类偏好构造奖励。

@@ -511,7 +511,7 @@ Actor-Critic is not the destination; it is a skeleton. In later chapters you wil
 | ---------------------------------------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------ |
 | [Chapter 8 PPO](../chapter10_ppo/intro)                          | PPO-Clip                         | Limit the size of policy updates to avoid "taking steps that are too big"                        |
 | [Chapter 8 GAE](../chapter10_ppo/gae-reward-model)               | Generalized Advantage Estimation | Exponentially weighted sum of multi-step TD errors; precisely control the bias-variance tradeoff |
-| [Chapter 14 DPO](../chapter17_dpo/intro)                         | Implicit Actor-Critic            | Replace the Critic with preference data; remove the on-policy constraint                         |
+| [Chapter 14 DPO](../chapter17_dpo/dpo-objective-derivation)                         | Implicit Actor-Critic            | Replace the Critic with preference data; remove the on-policy constraint                         |
 | [Chapter 15 GRPO](../chapter18_grpo/grpo-practice-and-mechanism) | Remove the Critic                | Replace $V(s)$ with an in-group mean; save one network                                           |
 
 All variants share the same skeleton: one network responsible for choosing, plus one signal responsible for evaluating. What changes is only "where the evaluation signal comes from" and "how the selection network is updated."

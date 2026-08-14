@@ -1,6 +1,6 @@
-# 补充阅读：Critic 训练
+# 7.3 Critic 训练细节
 
-上一节定义了优势函数 $A(s,a) \approx \delta = r + \gamma V(s') - V(s)$，并引出了 Critic 网络作为 $V(s)$ 的估计器。本节展开第 4 章速览过的 [DP、MC、TD](../chapter03_mdp/dp-mc-td) 三种方法在 Critic 训练中的具体实现。
+上一节定义了优势函数 $A(s,a) \approx \delta = r + \gamma V(s') - V(s)$，并引出了 Critic 网络作为 $V(s)$ 的估计器。本节展开第 4 章讨论过的 [DP、MC、TD](../chapter03_mdp/dp-mc-td) 三种方法在 Critic 训练中的具体实现。
 
 ::: tip 本节会用到的前置知识
 
@@ -419,6 +419,8 @@ $\delta < 0$ 使得参数沿 $\nabla_\theta \log \pi(\text{右} \mid S)$ 的反�
 如果 $\delta > 0$，则表示这个动作比预期好，Actor 会增加该动作的概率。
 
 Critic 的参数 $\phi$ 沿着"让 $\delta^2$ 更小"的方向更新——预测越来越准。Actor 的参数 $\theta$ 沿着"让正 $\delta$ 的动作概率更高"的方向更新——选择越来越好。两者形成良性循环：Critic 的评分越准，Actor 的进步就越快；Actor 尝试的新动作越多，Critic 看到的数据就越丰富，评分也越准。
+
+理解了 Critic 的训练机制后，让我们亲手在连续控制任务上跑一个 Actor-Critic 实验：[7.4 动手：Pendulum 连续控制](./pendulum)。
 
 ## 参考文献
 

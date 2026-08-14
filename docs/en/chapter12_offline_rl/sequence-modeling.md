@@ -1,12 +1,12 @@
 # 10.2 Offline Reinforcement Learning through Sequence Modeling
 
-[Section 10.1](./intro) remains within the Bellman framework and estimates value while constraining the policy or value function to stay near the fixed dataset. Decision Transformer takes a different approach: it arranges states, actions, and returns into a sequence and directly learns which action to take for a specified target return.
+[Section 10.1](./offline-data-distribution-shift) remains within the Bellman framework and estimates value while constraining the policy or value function to stay near the fixed dataset. Decision Transformer takes a different approach: it arranges states, actions, and returns into a sequence and directly learns which action to take for a specified target return.
 
 This section proceeds in four steps. We first construct Decision Transformer using return-to-go, then explain how Trajectory Transformer searches complete trajectories, introduce Diffuser's conditional generation, and finally compare the tasks suited to each method.
 
 ## 1. Training Decision Transformer with a Target Return
 
-The methods in [Section 10.1](./intro) stabilize Bellman updates by constraining actions, lowering Q-values outside the dataset, or adding behavior-cloning regularization. Decision Transformer (Chen et al. 2021) does not learn a Q-function. Instead, it reformulates offline trajectories as a conditional sequence-generation problem.
+The methods in [Section 10.1](./offline-data-distribution-shift) stabilize Bellman updates by constraining actions, lowering Q-values outside the dataset, or adding behavior-cloning regularization. Decision Transformer (Chen et al. 2021) does not learn a Q-function. Instead, it reformulates offline trajectories as a conditional sequence-generation problem.
 
 ### 1.1 Using Return-to-Go as a Condition
 

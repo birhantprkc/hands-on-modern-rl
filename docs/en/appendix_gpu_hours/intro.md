@@ -185,8 +185,8 @@ Suitable for learning the full process of RLHF/RLVR/DPO, and can complete a full
 ::: tip Recommended Tasks for Beginners
 
 - Reproduce the training curves of R1-Zero on GSM8K using GRPO ([Chapter 18](../chapter18_grpo/grpo-practice-and-mechanism))
-- Fine-tune on Anthropic HH-RLHF data using DPO ([Chapter 14](../chapter17_dpo/intro))
-- Run SAC/TD3 on CartPole / MuJoCo ([Chapter 9](../chapter11_continuous_control/intro))
+- Fine-tune on Anthropic HH-RLHF data using DPO ([Chapter 14](../chapter17_dpo/dpo-objective-derivation))
+- Run SAC/TD3 on CartPole / MuJoCo ([Chapter 9](../chapter11_continuous_control/deterministic-policy-gradient-ddpg))
   :::
 
 ### Multi-GPU Experiments (7B–13B Models)

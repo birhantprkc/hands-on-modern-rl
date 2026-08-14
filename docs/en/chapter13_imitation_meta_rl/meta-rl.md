@@ -215,7 +215,7 @@ Both **adapt without updating parameters, using only the context**. Algorithm Di
 
 ### 4.4 Offline Imitation Learning and the DPO Family
 
-[Chapter 10: Offline RL](../chapter12_offline_rl/intro) now joins this chapter's perspective. Given only **expert demonstrations and suboptimal data**, offline imitation-learning methods such as DemoDICE, SMILe, and DWBC use conservative estimation to avoid overvaluing suboptimal actions. This shares a motivation with DPO's explicit regularization toward a reference policy.
+[Chapter 10: Offline RL](../chapter12_offline_rl/offline-data-distribution-shift) now joins this chapter's perspective. Given only **expert demonstrations and suboptimal data**, offline imitation-learning methods such as DemoDICE, SMILe, and DWBC use conservative estimation to avoid overvaluing suboptimal actions. This shares a motivation with DPO's explicit regularization toward a reference policy.
 
 ### 4.5 Limits of These Correspondences
 
@@ -237,7 +237,7 @@ Imitation learning, inverse RL, and meta-RL answer three questions: how to repro
 5. **In-Context RL / Algorithm Distillation** distills an entire RL algorithm into a Transformer's in-context capability, connecting it to few-shot learning in LLMs.
 6. **LLM post-training** can use the concepts of BC, inverse RL, and forward RL to interpret SFT, reward models, and PPO. DPO and GAIL both apply preference-discrimination signals directly to policy learning, but use different training objectives.
 
-The next chapter, [Chapter 12: Exploration, MARL, and Hierarchical RL](../chapter14_exploration_marl_hierarchical/intro), turns to three advanced topics: exploration under sparse rewards, training multiple interacting agents, and hierarchical planning over very long horizons.
+The next chapter, [Chapter 12: Exploration, MARL, and Hierarchical RL](../chapter14_exploration_marl_hierarchical/intrinsic-motivation-exploration), turns to three advanced topics: exploration under sparse rewards, training multiple interacting agents, and hierarchical planning over very long horizons.
 
 ## Further Reading
 

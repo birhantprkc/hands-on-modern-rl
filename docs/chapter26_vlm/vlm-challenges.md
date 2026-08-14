@@ -55,7 +55,7 @@ Part V 已经把策略扩展到多轮工具交互。多模态任务进一步把�
 | [23.3 动手：GRPO 训练 VLM](./vlm-grpo-hands-on)                       | 怎么用 GRPO 让 VLM 学会“看图再推理”？训练指标怎么看？ |
 | [23.1 视觉奖励与幻觉](./vlm-challenges)                               | 视觉 token 的奖励怎么分配？视觉幻觉怎么应对？         |
 | [VLM RL 框架与前沿](./vlm-frameworks)                                 | VisPlay、VISTA-Gym、多模态 Agent 等框架怎么工作？     |
-| [24.4 视觉生成模型的 RL 后训练](../chapter29_visual_generation/intro) | Diffusion/视频生成怎么用 RL 优化？Reward 怎么设计？   |
+| [24.4 视觉生成模型的 RL 后训练](../chapter29_visual_generation/visual-generation-dancegrpo) | Diffusion/视频生成怎么用 RL 优化？Reward 怎么设计？   |
 | [23.4 动手：用 EasyR1 训练 GeoQA](./easyr1-geoqa)                     | 工业框架 + 真实数据集，跑一次完整的 VLM GRPO 训练     |
 
 ## 学习目标

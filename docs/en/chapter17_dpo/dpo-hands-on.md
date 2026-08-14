@@ -2,7 +2,7 @@
 
 > **Section goal**: Train a small language model on paired preferences to reduce sarcastic responses, then use training metrics and before-and-after generations to check the learned preference.
 
-> **Learning path**: [14.1 The DPO Objective](./intro) → [14.2 Training and Evaluation Metrics](./metrics) → [14.3 The DPO Family](./dpo-theory-and-family) → **14.4 DPO Alignment Experiment**
+> **Learning path**: [14.1 The DPO Objective](./dpo-objective-derivation) → [14.2 Training and Evaluation Metrics](./metrics) → [14.3 The DPO Family](./dpo-theory-and-family) → **14.4 DPO Alignment Experiment**
 
 > **Code and resources**: [generate data](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/1-generate_data.py) · [test before training](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/2-test_before.py) · [train with DPO](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/3-train_dpo.py) · [test after training](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter17_dpo/4-test_after.py)
 

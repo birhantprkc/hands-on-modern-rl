@@ -331,7 +331,7 @@ LLM 的 few-shot in-context learning 可以看作"**RL² 的大规模版本**"�
 5. **In-Context RL / Algorithm Distillation** 把整个 RL 算法蒸馏进 transformer 的 in-context 能力，参数不更新就能通过上下文学习。
 6. **LLM 后训练**可以借助 BC、逆向 RL 与前向 RL 的概念理解：SFT=BC、RM=IRL、PPO=前向 RL、DPO=隐式 GAIL；LLM 的 few-shot learning 本质上就是大规模的 in-context meta-RL。
 
-下一章 [第 12 章 探索、MARL 与分层 RL](../chapter14_exploration_marl_hierarchical/intro) 转向另外三个进阶主题：当奖励稀疏时如何探索、当多个智能体互动时如何训练、当 horizon 极长时如何分层规划。
+下一章 [第 12 章 探索、MARL 与分层 RL](../chapter14_exploration_marl_hierarchical/intrinsic-motivation-exploration) 转向另外三个进阶主题：当奖励稀疏时如何探索、当多个智能体互动时如何训练、当 horizon 极长时如何分层规划。
 
 ## 延伸阅读
 

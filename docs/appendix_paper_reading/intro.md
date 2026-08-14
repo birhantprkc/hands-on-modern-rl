@@ -33,7 +33,7 @@
 | ★      | Mnih et al. _Human-level Control through Deep Reinforcement Learning_ (Nature, 2015)                                                      | DQN 完整版：经验回放 + 目标网络，49 个 Atari 游戏达到人类水平。                                                                        |
 | ★      | Mnih et al. _Asynchronous Methods for Deep Reinforcement Learning_ (A3C, arXiv:1602.01783, 2016)                                          | 异步 actor-critic：多线程并行采样消除相关性，无需经验回放；A2C 是其同步版本，至今仍是基线。                                            |
 | ★      | Schulman et al. _Proximal Policy Optimization Algorithms_ (arXiv:1707.06347, 2017)                                                        | PPO：clip 替代 TRPO 的二阶优化，工程友好、训练稳定。LLM 后训练 PPO 的直接原型。详见[第 8 章](../chapter10_ppo/intro)。                 |
-| ★      | Lillicrap et al. _Continuous Control with Deep Reinforcement Learning_ (DDPG, arXiv:1509.02971, 2015)                                     | 把 DPG 扩展到深度网络，确定性策略梯度 + 经验回放，连续控制的开山之作。详见[第 9 章](../chapter11_continuous_control/intro)。           |
+| ★      | Lillicrap et al. _Continuous Control with Deep Reinforcement Learning_ (DDPG, arXiv:1509.02971, 2015)                                     | 把 DPG 扩展到深度网络，确定性策略梯度 + 经验回放，连续控制的开山之作。详见[第 9 章](../chapter11_continuous_control/deterministic-policy-gradient-ddpg)。           |
 | ★      | Fujimoto et al. _Addressing Function Approximation Error in Actor-Critic Methods_ (TD3, arXiv:1802.09477, 2018)                           | 双 Q + 延迟更新 + 目标平滑，修复 DDPG 的 Q 值过估计与训练不稳定。                                                                      |
 | ★      | Haarnoja et al. _Soft Actor-Critic: Off-Policy Maximum Entropy Deep RL with a Stochastic Actor_ (arXiv:1801.01290, 2018)                  | 最大熵 RL + 自动温度调节，MuJoCo 长期霸榜，连续控制首选算法。                                                                          |
 | ★      | Hessel et al. _Rainbow: Combining Improvements in Deep RL_ (arXiv:1710.02298, 2017)                                                       | 把 Double DQN、Dueling、PER、NoisyNet、Multi-step、Distributional Q 这 6 个 DQN 改进组合，证明"组合优于单点改进"。消融实验是经典教材。 |
@@ -56,7 +56,7 @@ LLM RL 是 2022 年后 RL 的最大应用场景。这一批论文定义了 RLHF 
 | ------ | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ★      | Ouyang et al. _Training Language Models to Follow Instructions with Human Feedback_ (InstructGPT, arXiv:2203.02155, 2022) | RLHF 三阶段工程化（SFT + RM + PPO），第一次大规模证明 RLHF 比 SFT 显著更好。LLM 后训练范式的奠基论文。详见[第 13 章](../chapter15_rlhf/base-model-to-assistant)。                      |
 | ★      | Bai et al. _Constitutional AI: Harmlessness from AI Feedback_ (arXiv:2212.08073, 2022)                                    | Anthropic 的 RLAIF：用 AI 反馈替代人类标注，"宪法"驱动自我修正。同时是 RLHF 与对齐研究的桥梁。详见[第 19 章](../chapter21_cai_rlvr/hhh-practice)。                                     |
-| ★      | Rafailov et al. _Direct Preference Optimization: Your Language Model is Secretly a Reward Model_ (arXiv:2305.18290, 2023) | DPO：通过 Bradley-Terry 模型重新参数化，把 RLHF 转化为监督学习，**完全省去 RM 与 PPO**。LLM 后训练最优雅的数学推导之一。详见[第 14 章](../chapter17_dpo/intro)。                       |
+| ★      | Rafailov et al. _Direct Preference Optimization: Your Language Model is Secretly a Reward Model_ (arXiv:2305.18290, 2023) | DPO：通过 Bradley-Terry 模型重新参数化，把 RLHF 转化为监督学习，**完全省去 RM 与 PPO**。LLM 后训练最优雅的数学推导之一。详见[第 14 章](../chapter17_dpo/dpo-objective-derivation)。                       |
 | ★      | DeepSeek-AI. _DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via RL_ (arXiv:2501.12948, 2025)                    | R1：纯 RL（GRPO + 规则奖励）让 7B 模型数学推理接近 GPT-4o；R1-Zero 证明无需 SFT 即可触发长 CoT。RLVR 范式的标志性论文。详见[第 15 章](../chapter18_grpo/grpo-practice-and-mechanism)。 |
 | ★      | Shao et al. _DeepSeekMath: Pushing the Limits of Mathematical Reasoning in Open Language Models_ (arXiv:2402.03300, 2024) | GRPO 的原始论文：去掉 PPO 的 critic，用组内 normalize 估计 baseline。Group-Normalized Policy Gradient 的范式起点。                                                                     |
 | ★      | Yu et al. _DAPO: Decoupled Clip and Dynamic Sampling Policy Optimization_ (arXiv:2503.14476, 2025)                        | 修复 GRPO 的四个缺陷——长度偏置、熵坍缩、噪声优势、长短 horizon 冲突——提出 Clip-Higher、Dynamic Sampling、Token-Level Loss、Overlong Reward Shaping。Qwen 团队的工程化改进。            |
@@ -158,13 +158,13 @@ RLHF / RLVR 在让模型变强的同时打开了**奖励黑客、欺骗、对齐
 ::: details 论文与本书章节的对应关系
 本书每章末尾的"延伸阅读"已列出该章核心论文。本附录是更全的、跨章节的论文地图。建议把本附录与各章末尾清单交叉使用：
 
-- [第 14 章 DPO](../chapter17_dpo/intro) → C.1.3 Rafailov et al.
+- [第 14 章 DPO](../chapter17_dpo/dpo-objective-derivation) → C.1.3 Rafailov et al.
 - [第 8 章 PPO](../chapter10_ppo/intro) → C.1.1 Schulman PPO、C.1.2 A3C
 - [第 13 章 RLHF](../chapter15_rlhf/base-model-to-assistant) → C.1.3 InstructGPT
 - [第 15 章 GRPO/RLVR](../chapter18_grpo/grpo-practice-and-mechanism) → C.1.3 R1、Shao et al.
 - [第 9 章 连续控制](../chapter11_continuous_control/intro) → C.1.2 DDPG/TD3/SAC/Dreamer V3
 - [第 25 章 对齐失败](../chapter30_alignment_failures/classical-failures) → C.1.4 全部
-- [第 18 章 工业级 LLM RL](../chapter16_llm_rl_industrial/intro) → C.1.5.3 全部
+- [第 18 章 工业级 LLM RL](../chapter16_llm_rl_industrial/single-machine-to-industrial) → C.1.5.3 全部
   :::
 
 ## 本章总结

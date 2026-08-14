@@ -59,7 +59,7 @@ This chapter is organized as: run something minimal -> see the new problems -> u
 | [23.3 Hands-On: GRPO for a VLM](./vlm-grpo-hands-on)         | How do we train a VLM to "look then reason" under verifiable rewards?                     |
 | [23.1 Challenges](./vlm-challenges)                          | How do we assign reward across vision vs language? How do we reduce visual hallucination? |
 | [VLM RL Frameworks](./vlm-frameworks)                        | What systems bridge experiments to applications (tools, environments, self-play)?         |
-| [Visual Generation RL](../chapter29_visual_generation/intro) | How does RL apply to diffusion/video generation, and what does "policy" mean there?       |
+| [Visual Generation RL](../chapter29_visual_generation/visual-generation-dancegrpo) | How does RL apply to diffusion/video generation, and what does "policy" mean there?       |
 | [23.4 Hands-On: EasyR1 GeoQA](./easyr1-geoqa)                | How do we run an industrial-style VLM GRPO training loop on a real dataset?               |
 
 ## Learning Goals

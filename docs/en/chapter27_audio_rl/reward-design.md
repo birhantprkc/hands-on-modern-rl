@@ -62,7 +62,7 @@ The core contribution of [Step-Audio-R1](https://arxiv.org/abs/2511.15848): **th
 
 #### The Inverted Scaling Anomaly
 
-Text and visual reasoning models generally follow the test-time compute scaling law — giving a model more reasoning tokens leads to predictable performance improvements (see [Chapter 16 on Reasoning Models](../chapter19_reasoning/intro)). However, in the audio domain, an anomaly appears:
+Text and visual reasoning models generally follow the test-time compute scaling law — giving a model more reasoning tokens leads to predictable performance improvements (see [Chapter 16 on Reasoning Models](../chapter19_reasoning/r1-zero-pure-rl-reasoning)). However, in the audio domain, an anomaly appears:
 
 ```mermaid
 graph LR

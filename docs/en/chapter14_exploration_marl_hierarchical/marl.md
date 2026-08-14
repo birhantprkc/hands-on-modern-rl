@@ -1,6 +1,6 @@
 # 12.2 Multi-Agent Reinforcement Learning
 
-[Section 12.1](./intro) assumes a single agent whose challenge is to discover sparse rewards. When several agents learn simultaneously, another difficulty appears: from the perspective of any one agent, the policies of the other agents keep changing, so the consequences of the same action also change.
+[Section 12.1](./intrinsic-motivation-exploration) assumes a single agent whose challenge is to discover sparse rewards. When several agents learn simultaneously, another difficulty appears: from the perspective of any one agent, the policies of the other agents keep changing, so the consequences of the same action also change.
 
 This section first formalizes this nonstationarity, then introduces how CTDE separates training information from execution information, derives MADDPG's centralized critic, and finally examines how MAPPO stabilizes multiple policies with PPO's clipped update.
 

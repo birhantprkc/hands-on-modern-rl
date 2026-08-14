@@ -636,6 +636,8 @@ def env_to_string(board):
 3. **MCTS 模拟次数**：对比 10 次、50 次、200 次模拟对棋力的影响。更多模拟一定更好吗？
 4. **用 JGDB 做监督预训练**：下载 [JGDB 数据集](https://pjreddie.com/projects/jgdb/)，解析 SGF 格式棋谱，先让策略网络学会"模仿人类走法"，再用自我对弈强化——这就是完整的 AlphaGo pipeline。
 
+AlphaGo 展示了 Actor-Critic 架构在大规模离散动作空间中的威力。下一节我们回到连续控制，用 A2C 训练一个更具挑战性的机器人 locomotion 任务：[7.6 动手：BipedalWalker 双足行走](./bipedalwalker)。
+
 ## 参考文献
 
 [^1]: Silver, D., et al. (2016). Mastering the game of Go with deep neural networks and tree search. _Nature_, 529(7587), 484-489. [DOI](https://doi.org/10.1038/nature16961)

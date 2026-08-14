@@ -845,52 +845,72 @@ const zhSidebar = {
               link: '/chapter09_actor_critic/actor-critic'
             },
             {
-              text: '7.3 动手：Pendulum 连续控制',
+              text: '7.3 Critic 训练细节',
+              link: '/chapter09_actor_critic/critic-training'
+            },
+            {
+              text: '7.4 动手：Pendulum 连续控制',
               link: '/chapter09_actor_critic/pendulum'
             },
             {
-              text: '7.4 动手：AlphaGo 复现',
+              text: '7.5 动手：AlphaGo 复现',
               link: '/chapter09_actor_critic/alphago'
             },
             {
-              text: '7.5 动手：BipedalWalker 双足行走',
+              text: '7.6 动手：BipedalWalker 双足行走',
               link: '/chapter09_actor_critic/bipedalwalker'
+            },
+            {
+              text: '7.7 加餐：Actor-Critic 前沿应用',
+              link: '/chapter09_actor_critic/ac-frontier'
             }
           ]
         },
         {
-          text: '8. TRPO 与 PPO 信任域优化',
+          text: '8. PPO：稳定的 Actor-Critic',
           collapsed: false,
           items: [
             {
-              text: '8.1 TRPO 与信任域约束',
-              link: '/chapter10_ppo/trust-region-clipping'
+              text: '8. PPO：稳定的 Actor-Critic',
+              link: '/chapter10_ppo/intro'
             },
             {
-              text: '8.2 PPO-Clip 裁剪目标',
-              link: '/chapter10_ppo/intro'
+              text: '8.1 动手：PPO 控制 BipedalWalker',
+              link: '/chapter10_ppo/ppo-bipedal-walker'
+            },
+            {
+              text: '8.2 信任域约束与 PPO-Clip',
+              link: '/chapter10_ppo/trust-region-clipping'
             },
             {
               text: '8.3 GAE 优势估计',
               link: '/chapter10_ppo/gae-reward-model'
             },
             {
-              text: '8.4 长程任务与规划',
-              link: '/chapter10_ppo/rl-long-horizon-planning'
+              text: '加餐：PPO 数学推导',
+              link: '/chapter10_ppo/ppo-math'
             },
             {
-              text: '8.5 动手：PPO 控制 BipedalWalker',
-              link: '/chapter10_ppo/ppo-bipedal-walker'
+              text: '加餐：PPO 游戏项目',
+              link: '/chapter10_ppo/ppo-game-benchmark'
+            },
+            {
+              text: '加餐：长程任务与规划',
+              link: '/chapter10_ppo/rl-long-horizon-planning'
             }
           ]
         },
         {
-          text: '9. 连续控制与基于模型的强化学习',
+          text: '9. 样本效率：Off-Policy 连续控制与基于模型的 RL',
           collapsed: false,
           items: [
             {
-              text: '9.1 确定性策略梯度与 DDPG',
+              text: '9. 样本效率：Off-Policy 连续控制与基于模型的 RL',
               link: '/chapter11_continuous_control/intro'
+            },
+            {
+              text: '9.1 确定性策略梯度与 DDPG',
+              link: '/chapter11_continuous_control/ddpg'
             },
             {
               text: '9.2 TD3 与 SAC',
@@ -918,7 +938,7 @@ const zhSidebar = {
           items: [
             {
               text: '10.1 离线数据与分布偏移',
-              link: '/chapter12_offline_rl/intro'
+              link: '/chapter12_offline_rl/offline-data-distribution-shift'
             },
             {
               text: '10.2 基于序列建模的离线强化学习',
@@ -954,7 +974,7 @@ const zhSidebar = {
           items: [
             {
               text: '12.1 内在动机与探索',
-              link: '/chapter14_exploration_marl_hierarchical/intro'
+              link: '/chapter14_exploration_marl_hierarchical/intrinsic-motivation-exploration'
             },
             {
               text: '12.2 多智能体强化学习',
@@ -1012,7 +1032,7 @@ const zhSidebar = {
           items: [
             {
               text: '14.1 DPO 目标与推导',
-              link: '/chapter17_dpo/intro'
+              link: '/chapter17_dpo/dpo-objective-derivation'
             },
             {
               text: '14.2 DPO 训练与评测指标',
@@ -1037,7 +1057,7 @@ const zhSidebar = {
               link: '/chapter18_grpo/grpo-practice-and-mechanism'
             },
             {
-              text: '15.2 R1-Zero 与 DAPO',
+              text: '15.2 DeepSeek-R1-Zero 与 DAPO',
               link: '/chapter18_grpo/deepseek-dapo'
             },
             {
@@ -1049,7 +1069,7 @@ const zhSidebar = {
               link: '/chapter18_grpo/grpo-family'
             },
             {
-              text: '15.5 RL Environments 与 Verifier',
+              text: '15.5 强化学习环境与验证器',
               link: '/chapter18_grpo/rl-environments'
             },
             {
@@ -1057,7 +1077,7 @@ const zhSidebar = {
               link: '/chapter18_grpo/financial-tool-calling-grpo'
             },
             {
-              text: '15.7 On-Policy Distillation',
+              text: '15.7 在线策略蒸馏 OPD',
               link: '/chapter18_grpo/on-policy-distillation'
             },
             {
@@ -1076,7 +1096,7 @@ const zhSidebar = {
             },
             {
               text: '16.2 R1-Zero 纯强化学习推理',
-              link: '/chapter19_reasoning/intro'
+              link: '/chapter19_reasoning/r1-zero-pure-rl-reasoning'
             },
             {
               text: '16.3 Test-Time Scaling',
@@ -1132,7 +1152,7 @@ const zhSidebar = {
           items: [
             {
               text: '18.1 从单机实验到工业训练',
-              link: '/chapter16_llm_rl_industrial/intro'
+              link: '/chapter16_llm_rl_industrial/single-machine-to-industrial'
             },
             {
               text: '18.2 工业后训练流水线',
@@ -1296,7 +1316,7 @@ const zhSidebar = {
             },
             {
               text: '24.4 视觉生成与 DanceGRPO',
-              link: '/chapter29_visual_generation/intro'
+              link: '/chapter29_visual_generation/visual-generation-dancegrpo'
             },
             {
               text: '24.5 视频 RLHF 与物理感知生成',
@@ -1943,7 +1963,7 @@ const enSidebar = {
               link: '/en/chapter18_grpo/grpo-practice-and-mechanism'
             },
             {
-              text: '15.2 R1-Zero and DAPO',
+              text: '15.2 DeepSeek-R1-Zero and DAPO',
               link: '/en/chapter18_grpo/deepseek-dapo'
             },
             {

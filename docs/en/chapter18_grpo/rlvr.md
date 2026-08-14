@@ -6,7 +6,7 @@ title: '15.3 RLVR: Verifiable Rewards'
 
 > **Section goal**: Implement a verifiable reward for mathematical reasoning, connect it to a minimal GRPO loop, and test whether format, answer, and total rewards behave as intended.
 
-> **Learning path**: [15.1 How GRPO Training Works](./grpo-practice-and-mechanism) → [15.2 R1-Zero and DAPO](./deepseek-dapo) → **15.3 Building RLVR Rewards**
+> **Learning path**: [15.1 How GRPO Training Works](./grpo-practice-and-mechanism) → [15.2 DeepSeek-R1-Zero and DAPO](./deepseek-dapo) → **15.3 Building RLVR Rewards**
 
 > **Code and resources**: [rule-based reward](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/rule_based_reward.py) · [GRPO math reasoning](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/grpo_math_reasoning.py) · [dependencies](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter09_grpo_rlvr/requirements.txt)
 

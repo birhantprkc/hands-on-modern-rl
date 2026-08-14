@@ -44,7 +44,7 @@ For now, the goal is only to observe a policy improving through interaction. The
 CartPole represents the classical control side of reinforcement learning. The later parts of the book carry the same ideas into modern language-model and agent training:
 
 - **DPO and model alignment**: [Chapter 14](../chapter17_dpo/dpo-theory-and-family) shows how preference pairs change a model's responses without running an online PPO loop.
-- **GRPO and reasoning**: [Chapter 15](../chapter18_grpo/grpo-practice-and-mechanism) develops group-relative policy updates, and [Chapter 16](../chapter19_reasoning/intro) studies reasoning budgets and test-time scaling.
+- **GRPO and reasoning**: [Chapter 15](../chapter18_grpo/grpo-practice-and-mechanism) develops group-relative policy updates, and [Chapter 16](../chapter19_reasoning/r1-zero-pure-rl-reasoning) studies reasoning budgets and test-time scaling.
 - **Computer use and GUI agents**: [Chapter 22](../chapter25_computer_use/training) examines policies that read screens, call tools, and complete multi-step interface tasks.
 - **Software-engineering agents**: [Chapter 20](../chapter23_rl_based_swe/swe-bench-and-rlvr) follows repository-level tasks from executable verification to RL training.
 

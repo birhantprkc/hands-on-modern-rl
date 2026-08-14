@@ -1,8 +1,8 @@
 ---
-title: 15.2 The R1-Zero Paradigm
+title: 15.2 DeepSeek-R1-Zero and DAPO
 ---
 
-# 15.2 R1-Zero and DAPO
+# 15.2 DeepSeek-R1-Zero and DAPO
 
 In the previous section, we saw how GRPO replaces the Critic with within-group normalization. This section zooms out to two breakthroughs that reshaped RL for LLMs in 2025: DeepSeek-R1-Zero showed that pure RL can work without any SFT, and DAPO pushed GRPO's engineering efficiency further with four targeted improvements.
 

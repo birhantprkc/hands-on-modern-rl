@@ -412,4 +412,4 @@ This is why RM training must carefully control capacity and regularization — b
 
 </details>
 
-**The RM is the heaviest burden in PPO-for-LLM alignment — heavy to label, heavy to host, and risky to trust. Can we skip it?** Chapter 14 later gives DPO's answer: [DPO — Bypassing the Reward Model](../chapter17_dpo/intro).
+**The RM is the heaviest burden in PPO-for-LLM alignment — heavy to label, heavy to host, and risky to trust. Can we skip it?** Chapter 14 later gives DPO's answer: [DPO — Bypassing the Reward Model](../chapter17_dpo/dpo-objective-derivation).

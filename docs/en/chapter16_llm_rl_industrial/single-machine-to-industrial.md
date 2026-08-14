@@ -1,10 +1,6 @@
----
-outline: false
----
-
 # 18.1 From Single-Machine Experiments to Industrial Training
 
-[Chapter 13: RLHF](../chapter15_rlhf/base-model-to-assistant) establishes the classic alignment pipeline; [Chapter 14: DPO](../chapter17_dpo/intro) and [Chapter 15: GRPO, RLVR](../chapter18_grpo/grpo-practice-and-mechanism) present different model update and reward methods; [Chapter 16: Reasoning Models](../chapter19_reasoning/intro) and [Chapter 17: PRM](../chapter20_prm_search/outcome-vs-process) continue to expand the capabilities of training and reasoning stages. Now, putting these methods into the same industrial system, we observe how they share data, computing power, evaluation, and training infrastructure.
+[Chapter 13: RLHF](../chapter15_rlhf/base-model-to-assistant) establishes the classic alignment pipeline; [Chapter 14: DPO](../chapter17_dpo/dpo-objective-derivation) and [Chapter 15: GRPO, RLVR](../chapter18_grpo/grpo-practice-and-mechanism) present different model update and reward methods; [Chapter 16: Reasoning Models](../chapter19_reasoning/r1-zero-pure-rl-reasoning) and [Chapter 17: PRM](../chapter20_prm_search/outcome-vs-process) continue to expand the capabilities of training and reasoning stages. Now, putting these methods into the same industrial system, we observe how they share data, computing power, evaluation, and training infrastructure.
 
 Chapter 18 gradually unfolds an industrial training task: this section first explains why single-machine experiments need to be scaled; [18.2](./industrial-post-training) connects data, training, evaluation, and data feedback into a complete flow; [18.3](./modern-industrial-practice) explains why training can become unstable; [18.4](./distributed-sync) describes how multiple GPUs can collaboratively execute this flow; [18.5](./data-engineering) then organizes tasks, environments, trajectories, and validation results into sustainable data assets.
 
@@ -443,7 +439,7 @@ $$\mathcal{L}_{\text{DPO}} = -\mathbb{E}\left[\log \sigma\left(\beta \log \frac{
 
 The expression inside the parentheses compares the "degree to which the current model improves the good response relative to the reference model" and the "degree to which the current model improves the bad response relative to the reference model." The larger the former and the smaller the latter, the closer the preference probability is to 1, and the lower the loss.
 
-See detailed derivation in [Chapter 14: DPO Derivation](../chapter17_dpo/intro).
+See detailed derivation in [Chapter 14: DPO Derivation](../chapter17_dpo/dpo-objective-derivation).
 
 #### Comparison of DPO Family Methods
 

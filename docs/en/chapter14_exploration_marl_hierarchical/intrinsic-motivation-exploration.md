@@ -1,6 +1,6 @@
 # 12.1 Intrinsic Motivation and Exploration
 
-[Chapter 9: Continuous Control](../chapter11_continuous_control/intro) studies how a single agent can learn stably, while [Chapter 10: Offline RL](../chapter12_offline_rl/intro) studies how to use fixed data when further interaction is impossible. Chapter 12 relaxes the classical setting further: rewards may take a long time to appear, other agents may change the environment simultaneously, and a task may be too long for a single-level policy to receive useful training signals.
+[Chapter 9: Continuous Control](../chapter11_continuous_control/deterministic-policy-gradient-ddpg) studies how a single agent can learn stably, while [Chapter 10: Offline RL](../chapter12_offline_rl/offline-data-distribution-shift) studies how to use fixed data when further interaction is impossible. Chapter 12 relaxes the classical setting further: rewards may take a long time to appear, other agents may change the environment simultaneously, and a task may be too long for a single-level policy to receive useful training signals.
 
 This section begins with sparse rewards. We first explain why random exploration fails, then construct intrinsic rewards from ICM prediction error, use RND to estimate state novelty, and finally examine how NGU and Agent57 manage short- and long-term exploration together.
 
