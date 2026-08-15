@@ -2,13 +2,13 @@
 
 > **本节代码**：[SB3 版本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/1-ppo_cartpole.py) · [纯 PyTorch 版本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py)
 
-本节用 CartPole 完成第一个实验：先跑通一次 PPO 训练，再逐个解释观测、动作、奖励和训练流程。
+本节我们完成第一个实验：先跑通一次 CartPole 的 PPO 训练，再依次说明观测、动作、奖励和训练流程。
 
 ## 第一次训练
 
-CartPole 是强化学习入门的经典任务：一根杆子通过关节连在小车上，控制器每步只能选择向左或向右推小车，目标是让杆子尽可能长时间保持竖直。
+CartPole 是强化学习入门的经典任务。一根杆子通过关节连在小车上，控制器每步只能选择向左或向右推小车，目标是让杆子尽可能长时间保持竖直。
 
-训练它不需要任何特殊设备：普通笔记本 CPU 约 30 秒就能完成，全程可以看到智能体从乱晃到立杆的变化。
+训练它不需要任何特殊设备，普通笔记本 CPU 约 30 秒就能完成。
 
 ![CartPole 倒立摆环境：小车通过左右移动保持杆子竖直平衡](./images/cartpole.gif)
 
