@@ -12,16 +12,12 @@ title: Course Overview
   :::
 
 ::: warning 📣 Announcement
-We sincerely thank everyone for your support of this tutorial! This round of updates is now live: Chapters 8–9 have been restructured, Chapter 18 (industrial LLM training) has been streamlined, and Chapter 1 and the preface have been polished. More chapters are still being organized and refined — suggestions and feedback are always welcome!
-:::
+We sincerely thank everyone for your support of this tutorial! A new version is coming soon. Many sections are still being organized and refined, so we appreciate your patience. Suggestions and feedback are always welcome!
 
-::: info Note
 We hope this open-source tutorial gives more people the courage to push toward the frontier of intelligence, tackling ever more problems on the path to AGI.
 
 This course is under rapid iteration. We recommend starting with chapters not marked 🚧. Chapters under construction likely contain errors; corrections and suggestions are very welcome. If you find it useful, please give the [GitHub repository](https://github.com/walkinglabs/hands-on-modern-rl) a Star 🌟 to help speed up updates.
-:::
 
-::: tip Looking for Support
 Because compute resources are limited, we are looking for GPU sponsorship. If you can offer GPU access, please contact us at [physicoada@gmail.com](mailto:physicoada@gmail.com).
 :::
 
