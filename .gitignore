@@ -5,6 +5,9 @@ docs/.vitepress/cache
 .DS_Store
 __pycache__/
 *.pyc
+.venv-modelscope-games/
+.venv-test-*/
+_vizdoom.ini
 
 # Agents
 AGENTS.md
