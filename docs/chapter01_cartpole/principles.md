@@ -2,7 +2,7 @@
 
 > **本节代码**：[SB3 版本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/1-ppo_cartpole.py) · [纯 PyTorch 版本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py)
 
-本节用 CartPole 完成第一个实验：跑通一次 PPO 训练，再拆开看观测、动作、奖励和训练流程各是什么。
+本节用 CartPole 完成第一个实验：先跑通一次 PPO 训练，再逐个解释观测、动作、奖励和训练流程。
 
 ## 先跑一次训练
 
