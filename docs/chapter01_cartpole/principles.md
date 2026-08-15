@@ -25,24 +25,6 @@
 PPO 的训练循环可以概括为三步：用当前策略收集一段轨迹，用 Critic 和 GAE 估计每一步的优势，最后通过裁剪目标更新策略。优势为正的动作会被强化，优势为负的动作会被抑制，裁剪则限制每次更新的幅度。
 :::
 
-**核心公式**
-
-$$
-\pi(a\mid s)=P(A_t=a\mid S_t=s) \quad \text{（策略：在状态 $s$ 下选择动作 $a$ 的概率）}
-$$
-
-$$
-\delta_t=r_t+\gamma V(s_{t+1})-V(s_t) \quad \text{（TD 误差：一步目标与当前估计的差值）}
-$$
-
-$$
-A_t=\delta_t+\gamma\lambda\delta_{t+1}+(\gamma\lambda)^2\delta_{t+2}+\cdots \quad \text{（GAE 优势：多步 TD 误差的加权和）}
-$$
-
-$$
-r_t(\theta)=\frac{\pi_\theta(a_t\mid s_t)}{\pi_{\theta_{\mathrm{old}}}(a_t\mid s_t)} \quad \text{（概率比：新旧策略对同一动作的似然之比）}
-$$
-
 ## 先跑一次训练
 
 先亲手跑一次训练，看到智能体从乱晃到立杆的全过程。CartPole 是强化学习入门的经典任务：一根杆子通过关节连在小车上，控制器只能选择向左或向右推小车，目标是让杆子尽可能长时间保持竖直。这个任务对计算资源要求极低，普通笔记本 CPU 约 30 秒就能完成训练，不需要 GPU。
