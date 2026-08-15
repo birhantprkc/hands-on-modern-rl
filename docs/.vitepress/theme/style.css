@@ -1546,11 +1546,17 @@ aside.VPSidebar {
   max-height: none;
 }
 
-.vp-doc .image-caption {
+.vp-doc .image-caption,
+.vp-doc .figure-caption {
   color: #86868b;
   font-size: 0.875em;
+  font-style: italic;
   margin-top: -0.75rem;
   text-align: center;
+}
+
+.vp-doc .figure-caption a {
+  color: inherit;
 }
 
 /* ===================================================
