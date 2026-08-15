@@ -252,7 +252,7 @@ $$
 
 The positive value says that pushing right is $10$ return units better than the policy's average choice. Pushing left has advantage $70-100=-30$, so it is $30$ below average. Advantage measures relative quality, which is why positive and negative values can appear in the same state.
 
-The advantage function is central to policy-gradient methods ([Chapter 6](../chapter08_policy_gradient/policy-gradient)) and Actor-Critic methods ([Chapter 7](../chapter09_actor_critic/actor-critic)).
+The advantage function is central to policy-gradient methods ([Chapter 6](../chapter08_policy_gradient/reinforce)) and Actor-Critic methods ([Chapter 7](../chapter09_actor_critic/actor-critic)).
 
 ## A Preview of the Bellman Equation
 

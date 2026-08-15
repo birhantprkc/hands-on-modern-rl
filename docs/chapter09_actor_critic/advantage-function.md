@@ -13,7 +13,7 @@
 - [动作价值 $Q(s,a)$](../chapter03_mdp/value-q)——$Q$ 与 $V$ 的差值就是优势函数
 - [DP/MC/TD 三种价值估计方法](../chapter03_mdp/dp-mc-td)——训练 Critic 的三种策略
 - [TD Error $\delta = r + \gamma V(s') - V(s)$](../chapter03_mdp/dp-mc-td)——Critic 的核心训练信号
-- [策略目标 $J(\theta)$ 与策略梯度](../chapter08_policy_gradient/policy-gradient)——Actor 的优化目标
+- [策略目标 $J(\theta)$ 与策略梯度](../chapter08_policy_gradient/reinforce)——Actor 的优化目标
 - [REINFORCE 与基线](../chapter08_policy_gradient/pg-improvements)——为什么需要 $V(s)$ 作为基线
   :::
 

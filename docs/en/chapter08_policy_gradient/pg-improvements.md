@@ -1,8 +1,8 @@
 ---
-title: 6.3 Variance Reduction and Baselines
+title: 6.2 Variance Reduction and Baselines
 ---
 
-# 6.3 Policy Gradient Improvements
+# 6.2 Policy Gradient Improvements
 In the previous section, we ran REINFORCE on CartPole and saw the most direct symptom of high variance: the learning curve shakes violently, and the policy gets dragged around by luck. This section answers a key question:
 
 **Can we reduce the variance of $G_t$ without changing the direction of the gradient in expectation?**

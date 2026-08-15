@@ -1,10 +1,32 @@
 ---
-title: 6.2 The Policy Gradient Theorem and REINFORCE
+title: 6.1 The Policy Gradient Theorem and REINFORCE
 ---
 
-# 6.2 REINFORCE and Value Baselines
+# 6.1 Policy Gradient and REINFORCE
 
-The previous section explained why we need policy-based methods: DQN's $\arg\max$ does not work in continuous action spaces, so learning the policy $\pi_\theta(a|s)$ directly is the more natural approach. This section answers two questions: what metric should we use to measure "how good" a policy is, and how do we optimize that metric?
+Chapter 3 followed one route: learn $Q(s,a)$, use it to score each action, and choose the action with the highest score. This route works well for CartPole and Atari because their action sets are finite. A robotic arm is different: its shoulder, elbow, and wrist can each apply a continuous torque, giving infinitely many possible action combinations. A language model also makes a sequence of decisions while preserving the ability to sample rather than always selecting the single most likely token.
+
+These tasks suggest a second route: skip the intermediate $Q$ values and learn a **policy** $\pi_\theta(a\mid s)$ directly. This is the idea behind the [policy objective $J(\theta)$](../chapter03_mdp/policy-value) from Chapter 3 — define a score for the policy as a whole, then adjust its parameters $\theta$ to increase that score. The differences between the two routes can be summarized as:
+
+| Property           | Value-based methods                     | Policy-based methods                   |
+| ------------------ | --------------------------------------- | -------------------------------------- |
+| Learned object     | $Q(s,a)$, a score per action            | $\pi_\theta(a\mid s)$, action probabilities |
+| Action selection   | $\arg\max_a Q(s,a)$                    | sample from $\pi_\theta(\cdot\mid s)$  |
+| Action space       | finite discrete actions in standard DQN | discrete or continuous                 |
+| Exploration        | added by a separate rule                | represented by the policy distribution |
+| Data reuse         | off-policy replay is common             | vanilla REINFORCE is on-policy         |
+
+The two routes can be combined: Actor-Critic methods (Chapter 7) use a policy network to choose actions and a value network to reduce variance. Before that, we need the policy-gradient calculation that makes the actor trainable. A step-by-step comparison is available as supplementary reading: [Why Policy Gradients?](./pg-necessity).
+
+::: tip Prerequisites
+Three earlier ideas will be used throughout the chapter:
+
+- [Policy $\pi_\theta$ and objective $J(\theta)$](../chapter03_mdp/policy-value): how a parameterized policy is represented and evaluated
+- [Monte Carlo methods](../chapter03_mdp/dp-mc-td): finish an episode, then compute its return
+- [State value $V(s)$](../chapter03_mdp/value-bellman): the expected return from a state and the source of a useful baseline
+:::
+
+This section answers two questions: what metric should we use to measure "how good" a policy is, and how do we optimize that metric?
 
 ## The Policy Objective
 
@@ -436,7 +458,7 @@ This difference leads to two key consequences: Q-Learning is off-policy (it can 
 
 </details>
 
-REINFORCE can work, but its high variance makes it nearly unusable in practice. Fortunately, the policy gradient theorem has a remarkable property: we can subtract a baseline that does not depend on the action from the gradient estimator, without changing the expected direction of the gradient, while significantly reducing variance. We will develop this in Section 6.3. In the next section, we will first run vanilla REINFORCE on CartPole: [Hands-on: CartPole](./cartpole).
+REINFORCE can work, but its high variance makes it nearly unusable in practice. Fortunately, the policy gradient theorem has a remarkable property: we can subtract a baseline that does not depend on the action from the gradient estimator, without changing the expected direction of the gradient, while significantly reducing variance. We will develop this in [6.2 Policy Gradient Improvements](./pg-improvements). For hands-on practice, first run the [Dice-Game Bandit](./dice-game), then apply REINFORCE to [CartPole](./cartpole).
 
 ---
 

@@ -415,7 +415,7 @@ $\varepsilon$-贪婪策略带来一个重要性质：**实际走的策略和 Q �
 
 所以，Q-Learning 的核心更新思想没有过时——用 TD 目标迭代逼近贝尔曼最优方程——过时的是"每个状态-动作对都单独存一行"这件事。第 5 章要解决的正是这个问题：如果表格装不下，能不能用一个神经网络来"近似"整张 Q 表？答案就是深度 Q 网络（DQN）。
 
-上一节：[DP、MC 与 TD](./dp-mc-td) | 下一节：[从价值到策略](../chapter08_policy_gradient/policy-gradient)
+上一节：[DP、MC 与 TD](./dp-mc-td) | 下一节：[从价值到策略](../chapter08_policy_gradient/reinforce)
 
 **小结**
 

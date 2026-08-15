@@ -282,7 +282,7 @@ $$
 
 这个正数表示向右推比当前策略的平均选择高 $10$ 分。向左推的优势是 $70-100=-30$，负数表示它比平均选择低 $30$ 分。优势比较的是相对好坏，因此同一状态下会同时出现正优势和负优势。
 
-优势函数在策略梯度（[第 6 章](../chapter08_policy_gradient/policy-gradient)）和 Actor-Critic（[第 7 章](../chapter09_actor_critic/actor-critic)）中是核心概念。
+优势函数在策略梯度（[第 6 章](../chapter08_policy_gradient/reinforce)）和 Actor-Critic（[第 7 章](../chapter09_actor_critic/actor-critic)）中是核心概念。
 
 ## 贝尔曼方程的预告
 

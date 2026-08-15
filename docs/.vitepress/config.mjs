@@ -803,31 +803,27 @@ const zhSidebar = {
           collapsed: false,
           items: [
             {
-              text: '6.1 策略梯度定理',
-              link: '/chapter08_policy_gradient/policy-gradient'
-            },
-            {
-              text: '6.2 REINFORCE 与价值基线',
+              text: '6.1 策略梯度与 REINFORCE',
               link: '/chapter08_policy_gradient/reinforce'
             },
             {
-              text: '6.3 策略梯度改进方法',
+              text: '6.2 策略梯度改进方法',
               link: '/chapter08_policy_gradient/pg-improvements'
             },
             {
-              text: '6.4 动手：摇骰子赌博机',
+              text: '6.3 动手：摇骰子赌博机',
               link: '/chapter08_policy_gradient/dice-game'
             },
             {
-              text: '6.5 动手：REINFORCE 控制 CartPole',
+              text: '6.4 动手：REINFORCE 控制 CartPole',
               link: '/chapter08_policy_gradient/cartpole'
             },
             {
-              text: '6.6 动手：价值基线控制 CartPole',
+              text: '6.5 动手：价值基线控制 CartPole',
               link: '/chapter08_policy_gradient/baseline-experiment'
             },
             {
-              text: '6.7 动手：带价值基线的策略梯度',
+              text: '6.6 动手：带价值基线的策略梯度',
               link: '/chapter08_policy_gradient/cartpole-baseline'
             }
           ]
@@ -1717,31 +1713,27 @@ const enSidebar = {
           collapsed: false,
           items: [
             {
-              text: '6.1 Policy Gradient Theorem',
-              link: '/en/chapter08_policy_gradient/policy-gradient'
-            },
-            {
-              text: '6.2 REINFORCE and Value Baselines',
+              text: '6.1 Policy Gradient and REINFORCE',
               link: '/en/chapter08_policy_gradient/reinforce'
             },
             {
-              text: '6.3 Policy Gradient Improvements',
+              text: '6.2 Policy Gradient Improvements',
               link: '/en/chapter08_policy_gradient/pg-improvements'
             },
             {
-              text: '6.4 Hands-on: Two-Armed Dice-Game Bandit',
+              text: '6.3 Hands-on: Two-Armed Dice-Game Bandit',
               link: '/en/chapter08_policy_gradient/dice-game'
             },
             {
-              text: '6.5 Hands-on: REINFORCE on CartPole',
+              text: '6.4 Hands-on: REINFORCE on CartPole',
               link: '/en/chapter08_policy_gradient/cartpole'
             },
             {
-              text: '6.6 Hands-on: Value Baseline on CartPole',
+              text: '6.5 Hands-on: Value Baseline on CartPole',
               link: '/en/chapter08_policy_gradient/baseline-experiment'
             },
             {
-              text: '6.7 Hands-on: Policy Gradient with a Value Baseline',
+              text: '6.6 Hands-on: Policy Gradient with a Value Baseline',
               link: '/en/chapter08_policy_gradient/cartpole-baseline'
             }
           ]

@@ -642,7 +642,7 @@ MineDojo 进一步把 Minecraft 组织成开放式任务平台，包含物品收
 - 宝可梦提醒我们：DQN 可以训练真实模拟器里的神经网络 Q 策略，但完整通关需要分任务、奖励工程和更长时记忆。
 - Minecraft 提醒我们：开放世界任务不仅奖励稀疏，还包含层级目标、背包状态、合成链和更复杂的动作空间。
 
-到这里，第 5 章完成了从表格 Q-Learning 到深度 Q 网络，再到像素游戏实验的过渡。下一章将转向另一条路线：不再先学习动作价值表，而是直接优化策略本身。[策略梯度与 REINFORCE](../chapter08_policy_gradient/policy-gradient)
+到这里，第 5 章完成了从表格 Q-Learning 到深度 Q 网络，再到像素游戏实验的过渡。下一章将转向另一条路线：不再先学习动作价值表，而是直接优化策略本身。[策略梯度与 REINFORCE](../chapter08_policy_gradient/reinforce)
 
 ## 参考文献
 

@@ -1,16 +1,16 @@
 ---
-title: '6.4 Hands-on: A Two-Armed Bandit (Dice-Game Slot Machine)'
+title: '6.3 Hands-on: A Two-Armed Bandit (Dice-Game Slot Machine)'
 ---
 
-# 6.4 Hands-on: Two-Armed Dice-Game Bandit
+# 6.3 Hands-on: Two-Armed Dice-Game Bandit
 
 > **Section goal**: Implement the smallest policy-gradient experiment with a two-armed bandit and observe how rewards change action probabilities.
 
-> **Learning path**: [2.1 Exploration and Exploitation](../chapter03_mdp/bandit) → [6.1 The Policy Gradient Theorem](./policy-gradient) → **6.4 Dice-Game Bandit**
+> **Learning path**: [2.1 Exploration and Exploitation](../chapter03_mdp/bandit) → [6.1 Policy Gradient and REINFORCE](./reinforce) → **6.3 Dice-Game Bandit**
 
 > **Code and resources**: This page contains the complete environment, policy network, and training loop. Run the code blocks in order.
 
-Save the complete code in Section 6.4.2 as `policy_gradient_bandit.py`, then run:
+Save the complete code in Section 6.3.2 as `policy_gradient_bandit.py`, then run:
 
 ```bash
 python policy_gradient_bandit.py
@@ -30,7 +30,7 @@ This is the experimental playground for this section: an extremely minimal bandi
 
 This differs from the coin-guessing game in Chapter 2. There we wrote a [deterministic policy](../chapter03_mdp/mdp), “always guess heads,” by hand. Here the model learns a [parameterized policy](../chapter03_mdp/policy-value) $\pi_\theta(a|s)$.
 
-## 6.4.1 Two-Armed Bandit Environment
+## 6.3.1 Two-Armed Bandit Environment
 
 ```
 ┌──────────────────────────────────┐
@@ -48,7 +48,7 @@ This differs from the coin-guessing game in Chapter 2. There we wrote a [determi
 └──────────────────────────────────┘
 ```
 
-## 6.4.2 Implementing A Policy Network In PyTorch
+## 6.3.2 Implementing A Policy Network In PyTorch
 
 Our policy network is extremely simple: it is essentially a single Softmax layer. The input is a constant (because there is no state), and the output is a probability over the two actions:
 
@@ -123,7 +123,7 @@ This formula is the single-step case of the policy-gradient estimator introduced
 $\nabla_\theta J(\theta) \propto \mathbb{E}[\nabla_\theta \log \pi_\theta(a|s) \cdot G_t]$.
 In the next section we will derive it carefully.
 
-## 6.4.3 What You Observe During Training
+## 6.3.3 What You Observe During Training
 
 After you run the code, the evolution of the policy typically looks like this:
 
@@ -152,7 +152,7 @@ But you probably also noticed the curve does not rise smoothly. It is jagged, wi
 
 **high variance.**
 
-## 6.4.4 Gradient Noise And Training Oscillations
+## 6.3.4 Gradient Noise And Training Oscillations
 
 Policy-gradient updates are driven by samples. At each update, the network only sees the single outcome it happened to sample in that round:
 
@@ -163,7 +163,7 @@ These "bad-luck" samples make the gradient estimator noisy, and the policy can w
 
 If you change the learning rate from `0.01` to `0.1`, you may see the policy swing dramatically between A and B: one lucky win on A pushes the policy heavily toward A; the next lucky win on B pushes it back. The policy fails to settle. This is like steering a car with an overly sensitive wheel: every correction overshoots, and you keep swaying around the target.
 
-## 6.4.5 The Exploration-Exploitation Tradeoff
+## 6.3.5 The Exploration-Exploitation Tradeoff
 
 The oscillations also reveal the central tension in reinforcement learning: exploration vs exploitation.
 

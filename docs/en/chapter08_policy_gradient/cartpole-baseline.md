@@ -1,18 +1,18 @@
 ---
-title: '6.7 Hands-On: Policy Gradient with Baseline'
+title: '6.6 Hands-On: Policy Gradient with Baseline'
 ---
 
-# 6.7 Hands-on: Policy Gradient with a Value Baseline
+# 6.6 Hands-on: Policy Gradient with a Value Baseline
 
 > **Section goal**: Compare vanilla REINFORCE with REINFORCE plus a value baseline on `CartPole-v1`, and observe how $V(s)$ makes policy-gradient training faster and more stable.
 
-> **Learning path**: [6.5 REINFORCE on CartPole](./cartpole) → [6.6 Value Baseline Experiment](./baseline-experiment) → **6.7 Policy Gradient with a Value Baseline**
+> **Learning path**: [6.4 REINFORCE on CartPole](./cartpole) → [6.5 Value Baseline Experiment](./baseline-experiment) → **6.6 Policy Gradient with a Value Baseline**
 
 > **Code and resources**: [reinforce_with_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_with_baseline.py) · [render_cartpole_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/render_cartpole_baseline.py) · [reinforce_cartpole.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_cartpole.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/requirements.txt)
 
 In the previous two sections, we (1) ran vanilla REINFORCE end-to-end, and (2) derived, mathematically, why introducing a baseline reduces variance. In this section, we put them side by side and look at the practical effect of replacing $G_t$ with $G_t - V(s_t)$.
 
-## 6.7.1 Run The Comparison Experiment
+## 6.6.1 Run The Comparison Experiment
 
 ```bash
 pip install -r code/chapter05_policy_gradient/requirements.txt
@@ -46,7 +46,7 @@ python code/chapter05_policy_gradient/render_cartpole_baseline.py \
   --seed 0
 ```
 
-## 6.7.2 Read The Reward Curve
+## 6.6.2 Read The Reward Curve
 
 ![Reward-curve comparison on CartPole between vanilla REINFORCE and REINFORCE + Value Baseline. With the value baseline, the agent approaches the 500-step cap earlier; vanilla REINFORCE learns more slowly and fluctuates more.](../../chapter08_policy_gradient/images/reinforce-baseline-cartpole-reward.png)
 
@@ -56,7 +56,7 @@ In this run, vanilla REINFORCE achieved an average return of about `95.1` over t
 
 This gap is the key message: the value baseline is not a decorative mathematical term. On the same task, it can move the policy more quickly into the regime where it can “basically keep the pole upright”, and it reduces the chance that performance suddenly collapses late in training.
 
-## 6.7.3 Watch The Replays
+## 6.6.3 Watch The Replays
 
 The reward curve tells you the average trend; replays tell you what the policy is actually doing.
 
@@ -70,7 +70,7 @@ In this rendering, the return is `355`. The corrective actions are visibly more 
 
 ![CartPole replay after training with REINFORCE + Value Baseline: the policy corrects the pole angle more stably.](../../chapter08_policy_gradient/images/cartpole-reinforce-baseline.gif)
 
-## 6.7.4 Read The Variance Curve
+## 6.6.4 Read The Variance Curve
 
 The reward curve answers “does the policy get better?” The variance curve answers another question: why does the value baseline make training more stable?
 
@@ -80,7 +80,7 @@ This figure plots the variance of the gradient estimator within a sliding window
 
 In this run, the gradient-estimator variance is about `100.41` for vanilla REINFORCE and about `38.27` for the Value Baseline version. That is roughly `38.1%` of the original. This matches what we saw in the reward curve: when the update signal is steadier, the policy can keep moving in the direction of “keeping the pole upright”.
 
-## 6.7.5 What Exactly Changed In The Code
+## 6.6.5 What Exactly Changed In The Code
 
 The core update in vanilla REINFORCE is:
 
@@ -113,7 +113,7 @@ If `advantages` is positive, the outcome following this step is better than expe
 
 Because the value baseline does not depend on the current action, it does not change the expected direction of the policy gradient. What it changes is the amount of noise in the estimator. That is what “variance reduction” means here.
 
-## 6.7.6 Re-Interpret It Back In The Scene
+## 6.6.6 Re-Interpret It Back In The Scene
 
 Suppose the cart has already brought the pole close to vertical. If, from that state, the agent can typically last for a long time, then lasting a few more steps does not mean the last action was magically correct. It is simply the natural result of being in a good state. In such a situation, $V(s_t)$ is large, and subtracting it prevents the advantage from being exaggerated.
 
@@ -121,7 +121,7 @@ Conversely, if the pole is already leaning substantially, but the cart executes 
 
 The baseline makes learning “finer-grained” than looking only at the total score. Getting 100 points in a dangerous state and getting 100 points in an easy state do not mean the same thing.
 
-## 6.7.7 Common Misreadings
+## 6.6.7 Common Misreadings
 
 **Misreading 1: A value baseline makes the reward larger.**
 The value baseline does not alter environment rewards. In CartPole, each step still gives `+1`. What changes is how training interprets and uses these rewards.

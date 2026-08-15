@@ -1,8 +1,8 @@
-# 6.6 动手：价值基线控制 CartPole
+# 6.5 动手：价值基线控制 CartPole
 
 > **本节目标**：用 `CartPole-v1` 对比原始 REINFORCE 和带价值基线（Value Baseline, VB）的 REINFORCE，观察 $V(s)$ 如何让策略梯度训练更快、更稳。
 
-> **学习路径**：[6.4 摇骰子赌博机](./dice-game) → [6.5 REINFORCE 控制 CartPole](./cartpole) → **6.6 价值基线控制 CartPole**
+> **学习路径**：[6.3 摇骰子赌博机](./dice-game) → [6.4 REINFORCE 控制 CartPole](./cartpole) → **6.5 价值基线控制 CartPole**
 
 > **本节代码与资源**：[reinforce_with_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_with_baseline.py) · [render_cartpole_baseline.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/render_cartpole_baseline.py) · [reinforce_cartpole.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/reinforce_cartpole.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter05_policy_gradient/requirements.txt)
 
@@ -10,7 +10,7 @@
 
 本节保持 CartPole 环境、策略网络和训练预算不变，只增加一个估计 $V(s)$ 的价值网络。这样可以把性能差异归因于基线，并通过奖励曲线、梯度方差和回放共同判断它是否有效。
 
-## 6.6.1 Value Baseline 从哪里来
+## 6.5.1 Value Baseline 从哪里来
 
 先把名字说清楚。
 **baseline** 不是一个单独的强化学习算法，
@@ -71,7 +71,7 @@ GAE 则是在 bias 和 variance 之间进一步折中。
 它比常数基线更懂状态，
 但还没有进入完整 Actor-Critic 的在线 TD 更新。
 
-## 6.6.2 为什么 CartPole 更适合看 Value Baseline
+## 6.5.2 为什么 CartPole 更适合看 Value Baseline
 
 CartPole 的状态有 4 个数字：
 小车位置、小车速度、杆子角度和杆子角速度。
@@ -117,7 +117,7 @@ $$
 不是让小车多一个动作，
 而是让它少被偶然的好坏回合误导。
 
-## 6.6.3 运行对比实验
+## 6.5.3 运行对比实验
 
 先安装依赖：
 
@@ -166,7 +166,7 @@ python code/chapter05_policy_gradient/render_cartpole_baseline.py \
 然后用确定性动作渲染各自的 CartPole 回放，
 并把 GIF 写入 `docs/chapter08_policy_gradient/images/`。
 
-## 6.6.4 看奖励曲线
+## 6.5.4 看奖励曲线
 
 先看最直接的结果：小车能立住多久。
 
@@ -195,7 +195,7 @@ python code/chapter05_policy_gradient/render_cartpole_baseline.py \
 它能让策略更快进入“基本能立住杆子”的区域，
 并减少训练后期突然退步的概率。
 
-## 6.6.5 看回放
+## 6.5.5 看回放
 
 曲线说明平均趋势，
 回放则说明策略到底在做什么。
@@ -226,7 +226,7 @@ python code/chapter05_policy_gradient/render_cartpole_baseline.py \
 Value Baseline 版本通过 $G_t - V(s_t)$ 过滤掉一部分“这个状态本来就容易/本来就危险”的影响，
 更容易把学习集中在动作本身带来的增益上。
 
-## 6.6.6 看方差曲线
+## 6.5.6 看方差曲线
 
 奖励曲线回答“策略表现是否变好”。
 方差曲线回答另一个问题：
@@ -249,7 +249,7 @@ Value Baseline 把方差降到了原来的约 `38.1%`。
 更新信号更稳，
 策略就更容易持续朝着“让杆子站住”的方向移动。
 
-## 6.6.7 代码里到底改了什么
+## 6.5.7 代码里到底改了什么
 
 原始 REINFORCE 的核心更新是：
 
@@ -301,7 +301,7 @@ policy_loss = -(log_probs * advantages).mean()
 这也是为什么它叫“降方差”，
 而不是“改目标”。
 
-## 6.6.8 回到画面中理解
+## 6.5.8 回到画面中理解
 
 想象小车已经把杆子扶到接近竖直的位置。
 如果它本来就能从这个状态继续坚持很久，
@@ -325,7 +325,7 @@ policy_loss = -(log_probs * advantages).mean()
 和在容易状态下拿到 100 分，
 含义并不一样。
 
-## 6.6.9 常见误读
+## 6.5.9 常见误读
 
 **误读一：价值基线会让奖励变大。**
 价值基线不改环境奖励。
