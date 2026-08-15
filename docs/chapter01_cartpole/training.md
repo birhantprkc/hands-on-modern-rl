@@ -6,7 +6,7 @@
 
 > **本节代码与资源**：[训练脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py) · [绘图脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/plot_curves.py) · [环境帧脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/capture_frames.py) · [原始 CSV](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/output/training_metrics_seed42.csv)
 
-1.2 节我们讲清了原理，也看了别人保存好的训练记录。这一节我们从头操作一遍：自己运行训练脚本，保存原始指标，从 CSV 生成曲线，再用训练好的模型捕获环境画面。
+1.2 节讲清了原理，也带我们读过仓库中保存好的训练记录。这一节从头操作一遍：自己运行训练脚本，保存原始指标，从 CSV 生成曲线，再用训练好的模型捕获环境画面。
 
 完成后，图上的每一个点都能追溯到 CSV，CSV 能追溯到训练日志，环境帧能追溯到保存的模型——整条证据链自己走通。
 
@@ -57,7 +57,7 @@ swanlab watch swanlog
 
 ## 1.3.3 训练循环中的三个步骤
 
-训练跑通之后，我们来对照 1.2 节的原理，看看脚本每轮到底做了什么。脚本每轮收集 2048 步，然后计算 GAE，最后对同一批数据执行 PPO 更新——正好对应原理里的三个环节。
+训练跑通之后，我们来对照 1.2 节的原理，看看脚本每轮到底做了什么。
 
 ```mermaid
 flowchart LR
@@ -185,9 +185,10 @@ python capture_frames.py \
 
 ## 本节小结
 
-- 从安装、训练、绘图到捕获画面，整条证据链可以自己复现：图上的点追溯到 CSV，CSV 追溯到训练日志，环境帧追溯到保存的模型。
+- 训练脚本保存模型参数和未经平滑的 CSV 指标；绘图脚本只读取 CSV，图上的每个点都能回到原始记录。
 - 三个步骤对应 1.2 节的原理：收集轨迹、计算 GAE 优势、执行 PPO 裁剪更新。
 - `terminated`、`truncated` 和 rollout 边界在价值计算中具有不同含义，归一化优势用于 Actor、未归一化 returns 用于 Critic，两者不能互换。
+- 环境帧由保存的模型在 Gymnasium 中实际运行得到。
 - 参数比较需要统一实验条件，并使用多个随机种子。
 
 下一章从多臂老虎机开始，把本章已经运行过的状态、动作、奖励和策略写成更正式的强化学习问题。
