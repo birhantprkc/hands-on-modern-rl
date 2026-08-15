@@ -1,4 +1,4 @@
-# 9. 样本效率：Off-Policy 连续控制与基于模型的 RL
+# 9. Off-Policy 与 Model-Based RL
 
 上一章我们学了 PPO——它通过裁剪目标函数解决了 Actor-Critic 的训练不稳定问题，成为了目前最常用的强化学习算法之一。在 BipedalWalker 实验中，我们看到 PPO 可以成功训练二足机器人行走。但 PPO 有一个明显的短板：**它是 on-policy 的，样本效率很低**。
 

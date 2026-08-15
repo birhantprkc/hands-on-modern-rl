@@ -12,7 +12,7 @@ title: Course Overview
   :::
 
 ::: warning 📣 Announcement
-We sincerely thank everyone for your support of this tutorial! A new version is coming soon. Many sections are still being organized and refined, so we appreciate your patience. Suggestions and feedback are always welcome!
+We sincerely thank everyone for your support of this tutorial! This round of updates is now live: Chapters 8–9 have been restructured, Chapter 18 (industrial LLM training) has been streamlined, and Chapter 1 and the preface have been polished. More chapters are still being organized and refined — suggestions and feedback are always welcome!
 :::
 
 ::: info Note

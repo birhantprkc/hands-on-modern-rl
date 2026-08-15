@@ -871,7 +871,7 @@ const zhSidebar = {
           collapsed: false,
           items: [
             {
-              text: '8.1 PPO 算法概述',
+              text: '8.1 动手：PPO 控制 BipedalWalker',
               link: '/chapter10_ppo/ppo-bipedal-walker'
             },
             {
@@ -883,45 +883,37 @@ const zhSidebar = {
               link: '/chapter10_ppo/gae-reward-model'
             },
             {
-              text: '8.4 动手：PPO 控制 BipedalWalker',
-              link: '/chapter10_ppo/ppo-bipedal-walker'
-            },
-            {
-              text: '8.5 动手：PPO 数学推导',
+              text: '8.4 动手：PPO 数学推导',
               link: '/chapter10_ppo/ppo-math'
             },
             {
-              text: '8.6 动手：PPO 游戏项目',
+              text: '8.5 动手：PPO 游戏项目',
               link: '/chapter10_ppo/ppo-game-benchmark'
             },
             {
-              text: '8.7 动手：长程任务与规划',
+              text: '8.6 动手：长程任务与规划',
               link: '/chapter10_ppo/rl-long-horizon-planning'
             }
           ]
         },
         {
-          text: '9. 样本效率：Off-Policy 连续控制与基于模型的 RL',
+          text: '9. Off-Policy 与 Model-Based RL',
           collapsed: false,
           items: [
             {
-              text: '9.1 Off-Policy 连续控制概述',
+              text: '9.1 确定性策略梯度与 DDPG',
               link: '/chapter11_continuous_control/ddpg'
             },
             {
-              text: '9.2 确定性策略梯度与 DDPG',
-              link: '/chapter11_continuous_control/ddpg'
-            },
-            {
-              text: '9.3 TD3 与 SAC',
+              text: '9.2 TD3 与 SAC',
               link: '/chapter11_continuous_control/td3-sac'
             },
             {
-              text: '9.4 基于模型的强化学习',
+              text: '9.3 基于模型的强化学习',
               link: '/chapter11_continuous_control/model-based'
             },
             {
-              text: '9.5 搜索与世界模型',
+              text: '9.4 搜索与世界模型',
               link: '/chapter11_continuous_control/search-world-models'
             }
           ]
