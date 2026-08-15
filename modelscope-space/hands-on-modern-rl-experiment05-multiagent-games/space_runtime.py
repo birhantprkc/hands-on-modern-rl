@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import imageio.v2 as imageio
@@ -7,6 +8,16 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parent
+
+# Pygame's RGB-array renderer does not need a display server.  Explicit headless
+# settings keep SDL from probing XDG/Wayland on the ModelScope CPU container.
+RUNTIME_DIR = Path("/tmp/hands-on-modern-rl-runtime")
+RUNTIME_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+RUNTIME_DIR.chmod(0o700)
+os.environ.setdefault("XDG_RUNTIME_DIR", str(RUNTIME_DIR))
+os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
+os.environ.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
 
 SPACE = {
     "title": {"en": "Multi-Agent CPU Game Arena", "zh": "多智能体 CPU 游戏训练场"},

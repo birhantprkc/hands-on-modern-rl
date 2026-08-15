@@ -100,9 +100,17 @@ def train_sb3(
             target_update_interval=max(250, min(2_000, budget // 8)),
         )
     elif algorithm_name in {"PPO", "A2C"}:
-        kwargs.update(n_steps=max(64, min(512, budget // 8)), ent_coef=max(0.0, epsilon * .01))
+        rollout_steps = max(64, min(512, budget // 8))
+        kwargs.update(n_steps=rollout_steps, ent_coef=max(0.0, epsilon * .01))
         if algorithm_name == "PPO":
-            kwargs.update(batch_size=64, n_epochs=4)
+            # Choose a true divisor of the rollout buffer. This avoids a short
+            # final mini-batch and the warning it emits on every learn() call.
+            batch_size = next(
+                candidate
+                for candidate in (64, 50, 40, 32, 25, 20, 16, 10, 8, 5, 4, 2, 1)
+                if rollout_steps % candidate == 0
+            )
+            kwargs.update(batch_size=batch_size, n_epochs=4)
 
     callback = MetricsCallback()
     model = algorithm_cls(policy, train_env, **kwargs)

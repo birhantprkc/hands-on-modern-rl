@@ -261,6 +261,10 @@ def learning_figure(x: list[float], y: list[float], title: str, ylabel: str = "E
     ax.set_ylabel(ylabel)
     ax.grid(alpha=0.2)
     fig.tight_layout()
+    # Gradio serializes the Figure object after this function returns.  Closing
+    # it only unregisters the pyplot manager, so repeated checkpoints do not
+    # retain every historical chart in the long-running Studio process.
+    plt.close(fig)
     return fig
 
 
