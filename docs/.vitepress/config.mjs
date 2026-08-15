@@ -727,10 +727,6 @@ const zhSidebar = {
             {
               text: '2.3 策略、价值与回报',
               link: '/chapter03_mdp/policy-value'
-            },
-            {
-              text: '2.4 折扣、轨迹与 POMDP',
-              link: '/chapter03_mdp/panorama'
             }
           ]
         },
@@ -1645,10 +1641,6 @@ const enSidebar = {
             {
               text: '2.3 Policy, Value and Return',
               link: '/en/chapter03_mdp/policy-value'
-            },
-            {
-              text: '2.4 Discounting, Trajectories and POMDPs',
-              link: '/en/chapter03_mdp/panorama'
             }
           ]
         },

@@ -61,7 +61,6 @@ This chapter serves as the **theoretical foundation** for the entire book. Chapt
 | [Policy, Value, and Return](./policy-value)                 | Define the objective function from the perspective of directly optimizing the policy          |
 | [Where Does Data Come From](./algorithm-taxonomy)           | Discuss On-policy vs. Off-policy, Online vs. Offline                                          |
 | [Reward Function Design](./reward-design)                   | Discuss how rewards express task objectives and the problems that incorrect rewards can cause |
-| [Chapter Summary](./panorama)                               | Summarize core formulas, algorithmic routes, and connections to subsequent chapters           |
 
 ## Learning Objectives
 

@@ -517,9 +517,9 @@ This section discussed how reward functions determine the objective in reinforce
 5. Goodhart’s law captures the fundamental difficulty of reward design: proxy reward $R$ is almost never equal to true intent $R^*$, and optimization amplifies the gap. Wrong weights, wrong ontology, and wrong scope are common misspecification types.
 6. When hand-written rewards fail, we can learn reward models from human preferences. But reward models are still proxy rewards, and overoptimization can reduce true preference. Process reward models and GRPO are newer methods that try to mitigate the issue from different directions.
 
-The next section places MDPs, returns, value functions, Bellman equations, algorithm families, and reward design on the same map. The concepts that seemed scattered throughout this chapter are all organized around one question: how do we formulate a sequential decision-making problem in a way that is learnable, optimizable, and as faithful as possible to true intent?
+Tabular methods require states and actions that can be enumerated one by one. Once the state space becomes continuous or high-dimensional, a Q table can no longer store it. The next chapter starts from this limitation, approximates the Q function with a neural network, and moves into deep reinforcement learning.
 
-← Previous: [Where Does the Data Come From?](./algorithm-taxonomy) | Next: [Chapter Summary](./panorama)
+← Previous: [Where Does the Data Come From?](./algorithm-taxonomy) | Next: [5.1 From Q-Learning to DQN](../chapter07_dqn/from-q-to-dqn)
 
 ## References
 
