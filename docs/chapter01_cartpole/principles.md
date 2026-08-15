@@ -1,18 +1,5 @@
 # 1.1 CartPole 控制原理
 
-## 本节导读
-
-**核心内容**
-
-- **先跑通一次 CartPole 训练**：无需安装环境或 GPU，浏览器、在线 Notebook 或本地脚本都能观察智能体从乱晃到立杆的完整过程。
-- **CartPole 的观测、动作与奖励**：环境每步返回四维观测，控制器在"向左"和"向右"中选一个，每存活一步得 $+1$。
-- **策略（Actor）与价值网络（Critic）**：策略把观测变成动作概率，Critic 估计当前局面的长期价值，二者构成 PPO 的 Actor-Critic 结构。
-- **GAE 优势**：用当前和后续若干步的 TD 误差合成优势，判断某一步的动作比 Critic 的预期好多少。
-- **裁剪目标**：限制新旧策略的概率比，使同一批数据不会推动策略发生过大的单次变化。
-- **终止、截断与 rollout 边界**：自然结束、时间上限和采样边界在价值计算中需要分别处理。
-
-> **学习路径**：**1.1 CartPole 控制原理** → [1.2 奖励与训练指标](./metrics) → [1.3 PPO 训练可视化](./training)
-
 > **本节代码**：[SB3 版本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/1-ppo_cartpole.py) · [纯 PyTorch 版本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py)
 
 强化学习要解决的基本问题是：一个智能体怎样通过与环境的反复交互，学会在每一步做出更好的选择。本书从一个最简单的控制任务开始——CartPole。它足够小，几十行代码就能跑通；也足够完整，包含了观测、动作、奖励、策略和价值估计这些强化学习的核心要素。
