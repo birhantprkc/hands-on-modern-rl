@@ -5,7 +5,7 @@ outline: [2, 3]
 
 # 1.2 CartPole Principles
 
-> **Evidence used in this section**: [pure PyTorch PPO](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py) · [raw metrics CSV](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/output/training_metrics_seed42.csv) · [plotting script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/plot_curves.py)
+> **Code and data used in this section**: [pure PyTorch PPO](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py) · [raw metrics CSV](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/output/training_metrics_seed42.csv) · [plotting script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/plot_curves.py)
 
 In the previous section we ran CartPole end to end and watched an agent improve from random actions to stable balancing. This section first unpacks the principles behind that result — what the environment tells the agent, how the agent chooses actions, and how PPO uses a batch of interaction data to improve the policy — then walks through a real training record to learn how to read episode return and four PPO diagnostic metrics.
 

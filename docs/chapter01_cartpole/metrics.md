@@ -8,7 +8,7 @@ outline: [2, 3]
 
 > **学习路径**：[1.1 跑通 CartPole](./principles) → **1.2 CartPole 原理** → [1.3 PPO 训练可视化](./training)
 
-> **本节证据**：[纯 PyTorch PPO](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py) · [原始训练指标 CSV](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/output/training_metrics_seed42.csv) · [绘图脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/plot_curves.py)
+> **本节代码与数据**：[纯 PyTorch PPO](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py) · [原始训练指标 CSV](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/output/training_metrics_seed42.csv) · [绘图脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/plot_curves.py)
 
 上一节我们跑通了第一次 CartPole 训练，看到奖励曲线从 20 分涨到 500 分。这一节先拆解它背后的原理——环境给智能体什么信息、智能体怎么做决策、PPO 怎样用一段交互数据改进策略；然后回到训练记录本身，学会阅读回合奖励和四个 PPO 辅助指标。
 
