@@ -7,6 +7,10 @@ outline: [2, 3]
 
 > **Code and data used in this section**: [pure PyTorch PPO](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py) · [raw metrics CSV](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/output/training_metrics_seed42.csv) · [plotting script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/plot_curves.py)
 
+::: tip Optional reading
+This section is optional. If you already have some Python, PyTorch, or deep learning background, you can read it straight through. If not, jump ahead to [1.3 Hands-on: PPO Training Visualization](./training) and come back here when you want to understand what the training loop actually does.
+:::
+
 In the previous section we ran CartPole end to end and watched an agent improve from random actions to stable balancing. This section first unpacks the principles behind that result — what the environment tells the agent, how the agent chooses actions, and how PPO uses a batch of interaction data to improve the policy — then walks through a real training record to learn how to read episode return and four PPO diagnostic metrics.
 
 Running code is not the same as understanding reinforcement learning.
