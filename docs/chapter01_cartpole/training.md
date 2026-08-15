@@ -6,13 +6,13 @@
 
 > **本节代码与资源**：[训练脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py) · [绘图脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/plot_curves.py) · [环境帧脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/capture_frames.py) · [原始 CSV](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/output/training_metrics_seed42.csv)
 
-1.2 节已经给出了本次运行的奖励曲线和评估结果。现在从空的输出目录开始，依次生成模型、原始指标、曲线和环境帧。
+1.2 节我们讲清了原理，也看了别人保存好的训练记录。这一节我们从头操作一遍：自己运行训练脚本，保存原始指标，从 CSV 生成曲线，再用训练好的模型捕获环境画面。
 
-完成这四步后，图上的点可以追溯到 CSV，CSV 可以追溯到训练日志，环境帧可以追溯到保存的模型。
+完成后，图上的每一个点都能追溯到 CSV，CSV 能追溯到训练日志，环境帧能追溯到保存的模型——整条证据链自己走通。
 
 ## 1.3.1 安装依赖
 
-进入第一章代码目录，并安装 `requirements.txt` 中的依赖：
+运行训练之前，先把环境搭好。进入第一章代码目录，安装 `requirements.txt` 中的依赖：
 
 ```bash
 cd code/chapter01_cartpole
@@ -23,7 +23,7 @@ CartPole 的网络很小，默认使用 CPU 训练，不要求独立显卡。
 
 ## 1.3.2 运行一次固定配置的训练
 
-为了让运行条件可以核对，我们固定随机种子、训练轮数和每轮采样步数：
+依赖装好之后，开始训练。为了让运行条件可以核对，我们固定随机种子、训练轮数和每轮采样步数：
 
 ```bash
 python 2-pytorch_ppo.py \
@@ -57,7 +57,7 @@ swanlab watch swanlog
 
 ## 1.3.3 训练循环中的三个步骤
 
-脚本每轮收集 2048 步，然后计算 GAE，最后对同一批数据执行 PPO 更新。
+训练跑通之后，我们来对照 1.2 节的原理，看看脚本每轮到底做了什么。脚本每轮收集 2048 步，然后计算 GAE，最后对同一批数据执行 PPO 更新——正好对应原理里的三个环节。
 
 ```mermaid
 flowchart LR
@@ -68,7 +68,7 @@ flowchart LR
 
 ### 收集轨迹
 
-环境的 `step` 方法返回新观测、奖励和两个结束标记：
+第一个环节是收集轨迹。环境的 `step` 方法返回新观测、奖励和两个结束标记：
 
 ```python
 next_obs, reward, terminated, truncated, _ = env.step(action.item())
@@ -89,7 +89,7 @@ with torch.no_grad():
 
 ### 计算 GAE
 
-每一步先计算 TD 误差：
+第二个环节是计算优势。每一步先计算 TD 误差：
 
 $$
 \delta_t=r_t+\gamma V(s_{t+1})-V(s_t).
@@ -118,7 +118,7 @@ advantages = (raw_advantages - raw_advantages.mean()) / (
 
 ### 执行 PPO 更新
 
-PPO 比较新旧策略对已采样动作给出的概率：
+第三个环节是更新策略。PPO 比较新旧策略对已采样动作给出的概率：
 
 $$
 r_t(\theta)=\frac{\pi_\theta(a_t\mid s_t)}
@@ -138,7 +138,7 @@ policy_loss = -torch.min(surr1, surr2).mean()
 
 ## 1.3.4 从原始 CSV 生成曲线
 
-训练脚本已经把每一轮指标写入 CSV。现在运行绘图脚本：
+三个环节跑完，训练脚本已经把每一轮指标写入 CSV。现在我们把这些数字变成曲线。运行绘图脚本：
 
 ```bash
 python plot_curves.py \
@@ -158,7 +158,7 @@ python plot_curves.py \
 
 ## 1.3.5 从模型捕获环境画面
 
-曲线说明得分怎样变化，我们还可以加载保存的模型，观察它在环境中的实际动作。运行：
+曲线说明了得分怎样变化，但它终究是抽象的数字。我们还可以加载保存的模型，观察它在环境里的实际动作。运行：
 
 ```bash
 python capture_frames.py \
@@ -177,7 +177,7 @@ python capture_frames.py \
 
 ## 1.3.6 改参数后怎样比较
 
-完成基准运行后，可以改变学习率、裁剪范围或 GAE 参数。每次只改变一个设置，其他条件保持一致，结果才容易解释。
+基准跑通之后，自然会想试试改了参数会怎样。可以改变学习率、裁剪范围或 GAE 参数。每次只改变一个设置，其他条件保持一致，结果才容易解释。
 
 例如，可以比较 `lr=1e-4` 和 `lr=3e-4` 达到相同评估分数所需的环境步数。两组实验需要使用相同的环境版本、网络结构、训练量、随机种子集合和评估回合数。
 
@@ -185,10 +185,9 @@ python capture_frames.py \
 
 ## 本节小结
 
-- 训练脚本保存模型参数和未经平滑的 CSV 指标。
-- 绘图脚本只读取 CSV，因此图上的每个点都能回到原始记录。
-- `terminated`、`truncated` 和 rollout 边界在价值计算中具有不同含义。
-- 环境帧由保存的模型在 Gymnasium 中实际运行得到。
+- 从安装、训练、绘图到捕获画面，整条证据链可以自己复现：图上的点追溯到 CSV，CSV 追溯到训练日志，环境帧追溯到保存的模型。
+- 三个步骤对应 1.2 节的原理：收集轨迹、计算 GAE 优势、执行 PPO 裁剪更新。
+- `terminated`、`truncated` 和 rollout 边界在价值计算中具有不同含义，归一化优势用于 Actor、未归一化 returns 用于 Critic，两者不能互换。
 - 参数比较需要统一实验条件，并使用多个随机种子。
 
 下一章从多臂老虎机开始，把本章已经运行过的状态、动作、奖励和策略写成更正式的强化学习问题。
