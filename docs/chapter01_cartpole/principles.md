@@ -16,11 +16,13 @@ CartPole 是强化学习入门的经典任务。一根杆子通过关节连在�
 
 <div class="figure-caption">图 1-1：CartPole-v1 环境。智能体控制小车左右移动，使杆子保持竖直。图源：<a href="https://gymnasium.farama.org/environments/classic_control/cart_pole/" target="_blank" rel="noopener noreferrer">Gymnasium</a></div>
 
-开始第一次训练，三种方式按门槛从低到高排列：
+下面三种方式都能完成训练，按门槛从低到高排列：
 
-- **[ModelScope 创空间：浏览器一键训练](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment01-cartpole)**：无需安装环境，点击"开始训练"即可在浏览器中直接观察奖励曲线和策略动画。
-- **[魔搭 Notebook：在线开发环境](https://modelscope.cn/my/mynotebook)**：启动 CPU 环境，拉取课程仓库后打开 `notebooks/cartpole-ppo.ipynb`，逐单元运行即可。
-- **[训练脚本：本地或云端终端](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment01-cartpole/file/view/master/train.py)**：在 ModelScope Notebook 或本地终端执行 `python train.py --timesteps 30000`。本地环境安装和运行的完整流程见 [1.3 节](./training)。
+<NavGrid>
+  <NavCard href="https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment01-cartpole" title="浏览器一键训练" description="无需安装环境，点击「开始训练」即可在浏览器中观察奖励曲线和策略动画。" />
+  <NavCard href="https://modelscope.cn/my/mynotebook" title="在线开发环境" description="启动 CPU 环境，拉取课程仓库后打开 notebooks/cartpole-ppo.ipynb，逐单元运行。" />
+  <NavCard href="https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment01-cartpole/file/view/master/train.py" title="本地或云端终端" description="执行 python train.py --timesteps 30000。本地环境安装和运行流程见 1.3 节。" />
+</NavGrid>
 
 训练开始时，程序里的策略还是一张"白纸"：它向左推和向右推的概率几乎各占一半，杆子平均撑 20 步左右就倒下了，奖励曲线在 20 分附近震荡。
 
