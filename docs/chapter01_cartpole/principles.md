@@ -1,10 +1,28 @@
 # 1.1 CartPole 控制原理
 
-> **本节目标**：看懂 CartPole 的观测、动作和奖励，并理解 PPO 怎样利用一段交互数据改进策略。
+> **本节目标**：先跑通一次 CartPole 训练，建立对学习过程的直观感受；再看懂 CartPole 的观测、动作和奖励，理解 PPO 怎样利用一段交互数据改进策略。
 
 > **学习路径**：**1.1 CartPole 控制原理** → [1.2 奖励与训练指标](./metrics) → [1.3 PPO 训练可视化](./training)
 
 > **本节代码**：[SB3 版本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/1-ppo_cartpole.py) · [纯 PyTorch 版本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py)
+
+## 先训练一次 CartPole
+
+在拆解原理之前，先跑一次训练，亲眼看到智能体从乱晃到立杆的过程。CartPole 是强化学习入门的经典任务：一根杆子通过关节连在小车上，控制器只能选择向左或向右推小车，目标是让杆子尽可能长时间保持竖直。该任务对计算资源要求极低，普通笔记本 CPU 即可在约 30 秒内完成训练，无需 GPU。
+
+![CartPole 倒立摆环境：小车通过左右移动保持杆子竖直平衡](./images/cartpole.gif)
+
+<div class="figure-caption">图：CartPole-v1 环境。智能体控制小车左右移动，使杆子保持竖直。图源：<a href="https://gymnasium.farama.org/environments/classic_control/cart_pole/" target="_blank" rel="noopener noreferrer">Gymnasium</a></div>
+
+你有三种方式完成第一次训练，按门槛从低到高排列：
+
+- **[ModelScope 创空间：浏览器一键训练](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment01-cartpole)**：无需安装环境，点击"开始训练"即可在浏览器中直接观察奖励曲线和策略动画。
+- **[魔搭 Notebook：在线开发环境](https://modelscope.cn/my/mynotebook)**：启动 CPU 环境，拉取课程仓库后打开 `notebooks/cartpole-ppo.ipynb`，逐单元运行即可。
+- **[训练脚本：本地或云端终端](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment01-cartpole/file/view/master/train.py)**：在 ModelScope Notebook 或本地终端执行 `python train.py --timesteps 30000`。本地环境安装和运行的完整流程见 [1.3 节](./training)。
+
+训练初期，奖励在 20 分附近震荡——杆子很快倒下，小车还没学会怎么推。随着训练推进，奖励会逐步攀升至接近 500 分，意味着小车可持续平衡到回合上限。当你能看到"小车左右移动、杆子稳稳竖直"的行为时，就完成了这一步的目标：跑通训练，观察学习现象。
+
+本节余下部分将逐步拆解这个过程背后的机制：环境给智能体什么信息、智能体怎么做决策、PPO 怎样用一段交互数据改进策略。
 
 ## 1.1.1 先看控制任务
 

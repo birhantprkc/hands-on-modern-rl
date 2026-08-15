@@ -1,11 +1,5 @@
 # 强化学习导论
 
-::: tip 先训练一次 CartPole
-- **[ModelScope 创空间：浏览器一键训练](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment01-cartpole)**：无需安装环境，点击“开始训练”后直接观察奖励曲线和策略动画。
-- **[魔搭 Notebook：打开在线开发环境](https://modelscope.cn/my/mynotebook)**：启动 CPU 环境，拉取课程仓库后打开 `notebooks/cartpole-ppo.ipynb`，按顺序运行代码单元。
-- **[ModelScope：直接查看训练脚本](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment01-cartpole/file/view/master/train.py)**：在 ModelScope Notebook 或本地终端运行 `python train.py --timesteps 30000`。
-:::
-
 ::: warning 📣 公告
 感谢大家对教程的支持！近期将会有版本更新，目前很多内容还在整理和完善中，请大家多点耐心。也欢迎大家多提建议。
 :::
@@ -19,20 +13,6 @@
 ::: tip 寻求帮助
 由于资源稀缺问题，我们正在寻求显卡支持，如果您有显卡使用方式愿意支持非常欢迎联系 [physicoada@gmail.com](mailto:physicoada@gmail.com)。
 :::
-
-## 从 CartPole 开始
-
-CartPole 是强化学习教学中的经典入门示例：一根杆子通过关节连在小车上，智能体控制小车左右移动，使杆子保持竖直平衡。该任务对计算资源的要求很低，普通笔记本的 CPU 即可在 30 秒内训练出能稳定立杆的策略，无需 GPU；涉及的数学原理将在后续章节逐步展开，此处无需先行掌握。
-
-![CartPole 倒立摆环境：小车通过左右移动来保持杆子竖直平衡](./images/cartpole.gif)
-
-<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>图：CartPole 倒立摆环境。小车通过左右移动来保持杆子竖直平衡。图源：<a href="https://gymnasium.farama.org/environments/classic_control/cart_pole/" target="_blank" rel="noopener noreferrer">Gymnasium</a></em>
-</div>
-
-在进入正文之前，建议先使用页面开头的任一在线入口完成一次训练。本地流程（含 `pip install`、运行脚本、看板查看方法）见 [第 1 章 · CartPole 入门](../chapter01_cartpole/principles)。训练初期奖励通常在 20 附近震荡，训练后会逐步接近 500 分；上图中的“小车左右移动 → 杆子保持竖直”就是策略要学会的行为。
-
-本节的目标仅在于跑通训练、观察学习现象；具体的代码实现与算法原理将在第 1 章中展开。
 
 ## 本书内容概览
 
