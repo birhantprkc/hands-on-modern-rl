@@ -699,11 +699,11 @@ const zhSidebar = {
           collapsed: false,
           items: [
             {
-              text: '1.1 CartPole 控制原理',
+              text: '1.1 跑通 CartPole',
               link: '/chapter01_cartpole/principles'
             },
             {
-              text: '1.2 奖励与训练指标',
+              text: '1.2 CartPole 原理',
               link: '/chapter01_cartpole/metrics'
             },
             {
@@ -1613,11 +1613,11 @@ const enSidebar = {
           collapsed: false,
           items: [
             {
-              text: '1.1 CartPole Control Principles',
+              text: '1.1 Run CartPole',
               link: '/en/chapter01_cartpole/principles'
             },
             {
-              text: '1.2 Rewards and Training Metrics',
+              text: '1.2 CartPole Principles',
               link: '/en/chapter01_cartpole/metrics'
             },
             {
