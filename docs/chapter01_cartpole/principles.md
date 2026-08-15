@@ -304,6 +304,15 @@ for iteration in range(40):
 
 到这里，我们看懂了 CartPole 的环境规则和 PPO 的训练流程，但还没有检查训练过程中实际发生了什么。下一节 [奖励与训练指标](./metrics) 将使用一次真实训练保存的 CSV，检查奖励曲线和四个辅助指标分别说明什么。
 
+## 本书内容概览
+
+CartPole 是 1990 年代起的经典控制任务，代表了强化学习的过去；本书的主角是 LLM 时代的现代强化学习。下列四项工作分别对应书中各章节的核心议题。
+
+- **DPO 与大模型对齐**：用户要求模型协助编写恶意代码时，对齐前的模型照单全收，对齐后的模型能够识别风险并拒绝。[第 14 章 DPO 家族](../chapter17_dpo/dpo-theory-and-family)用约 200 行代码复现这一微调。
+- **GRPO 与推理涌现**：未经推理数据训练的基座模型，仅靠强化学习即可自发产生反思、验证、纠错的长思维链，对应 DeepSeek-R1 的核心范式。[第 15 章 GRPO 家族](../chapter18_grpo/grpo-practice-and-mechanism)讨论其实现机制，[第 16 章 Reasoning Models](../chapter19_reasoning/r1-zero-pure-rl-reasoning)展开 Test-time Scaling 的全景。
+- **Computer Use 与 GUI 智能体**：模型读取屏幕像素、点击按钮、填写表单，完成多步图形界面任务。[第 22 章 Computer Use 与 GUI Agent](../chapter25_computer_use/training)分析 UI-TARS-2、AutoGLM 等代表性工作的训练原理。
+- **SWE-Agent 与自主 Bug 修复**：智能体读取代码仓库、定位缺陷、修改代码、运行测试，通过 SWE-bench 评测。[第 20 章代码智能体强化学习](../chapter23_rl_based_swe/swe-bench-and-rlvr)基于 Meta 的 SWE-RL 算法、Code World Model 与 Self-play SSR 训练开源版本。
+
 ## 参考文献
 
 [^1]: Schulman, J., Moritz, P., Levine, S., Jordan, M., & Abbeel, P. (2016). High-Dimensional Continuous Control Using Generalized Advantage Estimation. _ICLR 2016_.
