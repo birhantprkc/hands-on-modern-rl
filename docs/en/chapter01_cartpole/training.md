@@ -10,6 +10,10 @@ title: 1.3 Hands-On PPO Training Visualization
 
 > **Code and resources**: [training script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/2-pytorch_ppo.py) · [plotting script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/plot_curves.py) · [frame capture script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/capture_frames.py) · [raw CSV](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter01_cartpole/output/training_metrics_seed42.csv)
 
+::: tip Use AI when you get stuck
+This section runs scripts on your own machine, where environment issues are common. When an install fails, versions conflict, or a run breaks, paste the full error into an AI coding assistant — it is the fastest way to get a diagnosis, a fix, or a runnable command.
+:::
+
 The previous sections established the evidence we need: returns must be computed from complete episodes, and the final policy needs an independent evaluation. We now run that full chain.
 
 ## 1.3.1 Install and run
