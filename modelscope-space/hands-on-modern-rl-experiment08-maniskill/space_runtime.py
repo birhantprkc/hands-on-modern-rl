@@ -293,49 +293,97 @@ def _evaluate(
         del raw
 
 
-def _telemetry_frame(
+def _position(value: Any) -> np.ndarray:
+    """Convert the first vectorized ManiSkill pose to a three-value NumPy position."""
+    if hasattr(value, "detach"):
+        value = value.detach().cpu().numpy()
+    return np.asarray(value, dtype=np.float32).reshape(-1, 3)[0].copy()
+
+
+def _task_state(raw: Any, task: dict[str, Any]) -> dict[str, np.ndarray]:
+    """Read actual task-space state without invoking the Vulkan renderer."""
+    base = raw.unwrapped
+    tcp_pose = getattr(base.agent, "tcp_pose", None)
+    if tcp_pose is None:
+        tcp_pose = base.agent.tcp.pose
+    state: dict[str, np.ndarray] = {"tcp": _position(tcp_pose.p)}
+    if task["key"] == "push-cube":
+        state.update(object=_position(base.obj.pose.p), target=_position(base.goal_region.pose.p))
+    elif task["key"] == "pick-cube":
+        state.update(object=_position(base.cube.pose.p), target=_position(base.goal_site.pose.p))
+    elif task["key"] == "stack-cube":
+        state.update(object=_position(base.cubeA.pose.p), support=_position(base.cubeB.pose.p))
+    else:
+        state.update(object=_position(base.peg.pose.p), target=_position(base.box_hole_pose.p))
+    return state
+
+
+def _task_state_frame(
     task: dict[str, Any],
     step: int,
+    states: list[dict[str, np.ndarray]],
     rewards: list[float],
     action_norms: list[float],
     width: int = 720,
     height: int = 420,
 ) -> np.ndarray:
-    """Render a real policy rollout as a lightweight GIF without Vulkan."""
+    """Draw a camera-free replay from the policy's real simulator poses."""
     image = Image.new("RGB", (width, height), "#f5f7ff")
     draw = ImageDraw.Draw(image)
     font = ImageFont.load_default()
     draw.rounded_rectangle((18, 18, width - 18, height - 18), radius=24, fill="#ffffff", outline="#d9def4", width=2)
-    draw.text((42, 38), "LEARNED POLICY TELEMETRY REPLAY", fill="#5661e9", font=font)
-    draw.text((42, 70), f"{task['environment']}  ·  GPU PPO", fill="#151a38", font=font)
-    draw.text((42, 96), f"Policy step {step + 1:03d} / 200", fill="#59617a", font=font)
+    draw.text((42, 36), "ACTUAL MANISKILL STATE · CAMERA-FREE REPLAY", fill="#5661e9", font=font)
+    draw.text((42, 63), f"{task['environment']}  ·  learned GPU PPO policy", fill="#151a38", font=font)
+    draw.text((42, 86), f"Simulator step {step + 1:03d} / {len(states):03d}", fill="#59617a", font=font)
+    draw.text((width - 270, 86), "Schematic projection of real poses", fill="#8a91a8", font=font)
 
-    left, top, right, bottom = 56, 145, width - 42, height - 66
-    draw.rounded_rectangle((left, top, right, bottom), radius=12, fill="#f7f8fc", outline="#e0e4f2")
-    for fraction in (0.25, 0.5, 0.75):
-        y = int(top + (bottom - top) * fraction)
-        draw.line((left, y, right, y), fill="#e5e8f3", width=1)
-    values = rewards[: step + 1]
-    if values:
-        low, high = min(values), max(values)
-        span = max(1e-6, high - low)
-        points = []
-        for index, value in enumerate(values):
-            x = left + int((right - left) * index / 199)
-            y = bottom - int((bottom - top) * (value - low) / span)
-            points.append((x, y))
-        if len(points) > 1:
-            draw.line(points, fill="#5661e9", width=4)
-        draw.ellipse((points[-1][0] - 5, points[-1][1] - 5, points[-1][0] + 5, points[-1][1] + 5), fill="#16a673")
-    cumulative = float(np.sum(values)) if values else 0.0
-    action_norm = action_norms[step] if step < len(action_norms) else 0.0
-    draw.text((56, height - 48), f"Cumulative dense reward  {cumulative:8.2f}", fill="#252b45", font=font)
-    draw.text((width - 250, height - 48), f"Action norm  {action_norm:6.3f}", fill="#252b45", font=font)
+    draw.rounded_rectangle((42, 116, width - 42, 340), radius=16, fill="#f8f9fd", outline="#e0e4f2")
+    draw.rectangle((58, 292, width - 58, 320), fill="#dce1ef")
+    draw.line((58, 292, width - 58, 292), fill="#aab3ca", width=3)
+
+    def project(position: np.ndarray) -> tuple[int, int]:
+        x, y, z = (float(value) for value in position)
+        return int(360 + (x + 0.15) * 350 + y * 120), int(292 - z * 520 + y * 42)
+
+    state = states[step]
+    base_point = project(np.asarray([-0.615, 0.0, 0.02], dtype=np.float32))
+    tcp_point = project(state["tcp"])
+    elbow = ((base_point[0] + tcp_point[0]) // 2 - 12, min(base_point[1], tcp_point[1]) - 75)
+    draw.line((base_point, elbow, tcp_point), fill="#505b79", width=13, joint="curve")
+    for point in (base_point, elbow):
+        draw.ellipse((point[0] - 12, point[1] - 12, point[0] + 12, point[1] + 12), fill="#ffffff", outline="#505b79", width=4)
+    draw.line((tcp_point[0] - 15, tcp_point[1] - 7, tcp_point[0] + 15, tcp_point[1] - 7), fill="#151a38", width=5)
+    draw.line((tcp_point[0] - 13, tcp_point[1] - 7, tcp_point[0] - 13, tcp_point[1] + 10), fill="#151a38", width=4)
+    draw.line((tcp_point[0] + 13, tcp_point[1] - 7, tcp_point[0] + 13, tcp_point[1] + 10), fill="#151a38", width=4)
+
+    object_point = project(state["object"])
+    if task["key"] == "stack-cube":
+        support_point = project(state["support"])
+        draw.rectangle((support_point[0] - 15, support_point[1] - 15, support_point[0] + 15, support_point[1] + 15), fill="#e9a13b", outline="#9b5b0c", width=3)
+        draw.rectangle((object_point[0] - 15, object_point[1] - 15, object_point[0] + 15, object_point[1] + 15), fill="#5661e9", outline="#30399b", width=3)
+        draw.text((support_point[0] - 11, support_point[1] + 21), "B", fill="#6f440d", font=font)
+        draw.text((object_point[0] - 11, object_point[1] - 32), "A", fill="#30399b", font=font)
+    elif task["key"] == "peg-insertion":
+        target_point = project(state["target"])
+        draw.rounded_rectangle((target_point[0] - 22, target_point[1] - 27, target_point[0] + 22, target_point[1] + 27), radius=7, fill="#e7eaf4", outline="#6c7693", width=4)
+        draw.ellipse((target_point[0] - 8, target_point[1] - 8, target_point[0] + 8, target_point[1] + 8), fill="#f8f9fd", outline="#343b54", width=3)
+        draw.rounded_rectangle((object_point[0] - 28, object_point[1] - 8, object_point[0] + 28, object_point[1] + 8), radius=5, fill="#5661e9", outline="#30399b", width=3)
+    else:
+        target_point = project(state["target"])
+        draw.ellipse((target_point[0] - 24, target_point[1] - 10, target_point[0] + 24, target_point[1] + 10), fill="#fff4f1", outline="#e35b45", width=4)
+        draw.ellipse((target_point[0] - 8, target_point[1] - 4, target_point[0] + 8, target_point[1] + 4), fill="#e35b45")
+        draw.rectangle((object_point[0] - 15, object_point[1] - 15, object_point[0] + 15, object_point[1] + 15), fill="#5661e9", outline="#30399b", width=3)
+
+    cumulative = float(np.sum(rewards[: step + 1]))
+    action_norm = action_norms[step]
+    draw.text((48, 362), f"Cumulative dense reward  {cumulative:8.2f}", fill="#252b45", font=font)
+    draw.text((width - 245, 362), f"Action norm  {action_norm:6.3f}", fill="#252b45", font=font)
     return np.asarray(image)
 
 
-def _record_telemetry(model: Any, task: dict[str, Any], seed: int) -> str:
+def _record_task_state(model: Any, task: dict[str, Any], seed: int) -> str:
     raw, env = _make_vec_env(task, 1)
+    states: list[dict[str, np.ndarray]] = []
     rewards: list[float] = []
     action_norms: list[float] = []
     try:
@@ -343,14 +391,15 @@ def _record_telemetry(model: Any, task: dict[str, Any], seed: int) -> str:
         for _ in range(200):
             actions, _ = model.predict(observation, deterministic=True)
             observation, reward, dones, infos = env.step(actions)
+            states.append(_task_state(raw, task))
             rewards.append(float(np.asarray(reward).reshape(-1)[0]))
             action_norms.append(float(np.linalg.norm(np.asarray(actions).reshape(-1))))
     finally:
         env.close()
         del raw
     frames = [
-        _telemetry_frame(task, index, rewards, action_norms)
-        for index in range(0, len(rewards), 4)
+        _task_state_frame(task, index, states, rewards, action_norms)
+        for index in range(0, len(states), 4)
     ]
     return save_gif(frames, ROOT / "artifacts" / f"{task['key']}-learned-policy.gif", fps=12)
 
@@ -377,8 +426,11 @@ def _record(model: Any, task: dict[str, Any], seed: int) -> tuple[str, str]:
             env.close()
             env = None
         raw = None
-        preview = _record_telemetry(model, task, seed)
-        return preview, f"CPU Vulkan replay unavailable ({type(exc).__name__}); generated a real policy telemetry GIF"
+        preview = _record_task_state(model, task, seed)
+        return preview, (
+            f"CPU Vulkan camera replay unavailable ({type(exc).__name__}); "
+            "generated a camera-free GIF from the learned policy's real TCP, object, and goal poses"
+        )
     finally:
         if env is not None:
             env.close()
