@@ -223,7 +223,7 @@ def _make_vec_env(task: dict[str, Any], num_envs: int, render_mode: str | None =
         obs_mode="state",
         reward_mode="dense",
         render_mode=render_mode,
-        render_backend=None if render_mode is None else "cpu",
+        render_backend="none" if render_mode is None else "cpu",
         sim_backend="physx_cuda" if num_envs > 1 else "physx_cpu",
         reconfiguration_freq=1,
     )
