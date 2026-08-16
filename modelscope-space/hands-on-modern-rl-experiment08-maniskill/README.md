@@ -21,3 +21,5 @@ license: apache-2.0
 - Training source: <https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment08-maniskill/file/view/master/space_runtime.py>
 
 The live Studio may bundle the official SAPIEN `linux-so.zip` GPU PhysX runtime to avoid a slow first-run GitHub download. The binary remains under NVIDIA's BSD-3-Clause terms; the required notice is included at `assets/physx-BSD-3-Clause.txt`.
+
+State-based training keeps ManiSkill's renderer disabled, so GPU PhysX training does not depend on the container's host Vulkan ICD. The final replay uses Mesa's CPU Vulkan driver when available and otherwise generates a GIF from the real learned-policy rollout telemetry.

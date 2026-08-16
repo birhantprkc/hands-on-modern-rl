@@ -11,6 +11,7 @@ from typing import Any, Iterator
 from zipfile import ZipFile
 
 import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 from sb3_tools import save_gif
 
@@ -143,7 +144,7 @@ def _warmup_runtime() -> None:
         target.mkdir(parents=True, exist_ok=True)
         dll = target / "libPhysXGpu_64.so"
         if not dll.exists():
-            if BUNDLED_PHYSX.exists():
+            if BUNDLED_PHYSX.exists() and BUNDLED_PHYSX.stat().st_size > 1_000_000:
                 _set_warmup_state("extracting", "Loading the bundled BSD-licensed GPU PhysX runtime", 0.96)
                 with ZipFile(BUNDLED_PHYSX) as bundle:
                     bundle.extractall(target)
@@ -212,8 +213,20 @@ def _make_vec_env(task: dict[str, Any], num_envs: int, render_mode: str | None =
     import mani_skill.envs  # noqa: F401
     from mani_skill.vector.wrappers.sb3 import ManiSkillSB3VectorEnv
 
-    raw = gym.make(task["environment"], num_envs=num_envs, obs_mode="state", reward_mode="dense",
-                   render_mode=render_mode, reconfiguration_freq=1)
+    # ModelScope xGPU images expose CUDA/PhysX but do not always expose the
+    # host NVIDIA Vulkan ICD. State-based training does not need rendering, so
+    # keep the renderer disabled there. A single CPU renderer is requested only
+    # while producing the final replay.
+    raw = gym.make(
+        task["environment"],
+        num_envs=num_envs,
+        obs_mode="state",
+        reward_mode="dense",
+        render_mode=render_mode,
+        render_backend=None if render_mode is None else "cpu",
+        sim_backend="physx_cuda" if num_envs > 1 else "physx_cpu",
+        reconfiguration_freq=1,
+    )
     return raw, ManiSkillSB3VectorEnv(raw)
 
 
@@ -232,10 +245,74 @@ def _evaluate(model: Any, task: dict[str, Any], seed: int, episodes: int = 16) -
         del raw
 
 
-def _record(model: Any, task: dict[str, Any], seed: int) -> str:
-    raw, env = _make_vec_env(task, 1, render_mode="rgb_array")
-    frames: list[np.ndarray] = []
+def _telemetry_frame(
+    task: dict[str, Any],
+    step: int,
+    rewards: list[float],
+    action_norms: list[float],
+    width: int = 720,
+    height: int = 420,
+) -> np.ndarray:
+    """Render a real policy rollout as a lightweight GIF without Vulkan."""
+    image = Image.new("RGB", (width, height), "#f5f7ff")
+    draw = ImageDraw.Draw(image)
+    font = ImageFont.load_default()
+    draw.rounded_rectangle((18, 18, width - 18, height - 18), radius=24, fill="#ffffff", outline="#d9def4", width=2)
+    draw.text((42, 38), "LEARNED POLICY TELEMETRY REPLAY", fill="#5661e9", font=font)
+    draw.text((42, 70), f"{task['environment']}  ·  GPU PPO", fill="#151a38", font=font)
+    draw.text((42, 96), f"Policy step {step + 1:03d} / 200", fill="#59617a", font=font)
+
+    left, top, right, bottom = 56, 145, width - 42, height - 66
+    draw.rounded_rectangle((left, top, right, bottom), radius=12, fill="#f7f8fc", outline="#e0e4f2")
+    for fraction in (0.25, 0.5, 0.75):
+        y = int(top + (bottom - top) * fraction)
+        draw.line((left, y, right, y), fill="#e5e8f3", width=1)
+    values = rewards[: step + 1]
+    if values:
+        low, high = min(values), max(values)
+        span = max(1e-6, high - low)
+        points = []
+        for index, value in enumerate(values):
+            x = left + int((right - left) * index / 199)
+            y = bottom - int((bottom - top) * (value - low) / span)
+            points.append((x, y))
+        if len(points) > 1:
+            draw.line(points, fill="#5661e9", width=4)
+        draw.ellipse((points[-1][0] - 5, points[-1][1] - 5, points[-1][0] + 5, points[-1][1] + 5), fill="#16a673")
+    cumulative = float(np.sum(values)) if values else 0.0
+    action_norm = action_norms[step] if step < len(action_norms) else 0.0
+    draw.text((56, height - 48), f"Cumulative dense reward  {cumulative:8.2f}", fill="#252b45", font=font)
+    draw.text((width - 250, height - 48), f"Action norm  {action_norm:6.3f}", fill="#252b45", font=font)
+    return np.asarray(image)
+
+
+def _record_telemetry(model: Any, task: dict[str, Any], seed: int) -> str:
+    raw, env = _make_vec_env(task, 1)
+    rewards: list[float] = []
+    action_norms: list[float] = []
     try:
+        observation = env.reset()
+        for _ in range(200):
+            actions, _ = model.predict(observation, deterministic=True)
+            observation, reward, dones, infos = env.step(actions)
+            rewards.append(float(np.asarray(reward).reshape(-1)[0]))
+            action_norms.append(float(np.linalg.norm(np.asarray(actions).reshape(-1))))
+    finally:
+        env.close()
+        del raw
+    frames = [
+        _telemetry_frame(task, index, rewards, action_norms)
+        for index in range(0, len(rewards), 4)
+    ]
+    return save_gif(frames, ROOT / "artifacts" / f"{task['key']}-learned-policy.gif", fps=12)
+
+
+def _record(model: Any, task: dict[str, Any], seed: int) -> tuple[str, str]:
+    raw = None
+    env = None
+    try:
+        raw, env = _make_vec_env(task, 1, render_mode="rgb_array")
+        frames: list[np.ndarray] = []
         observation = env.reset()
         for index in range(200):
             if index % 2 == 0:
@@ -245,10 +322,19 @@ def _record(model: Any, task: dict[str, Any], seed: int) -> str:
                 frames.append(np.asarray(frame))
             actions, _ = model.predict(observation, deterministic=True)
             observation, rewards, dones, infos = env.step(actions)
+        preview = save_gif(frames, ROOT / "artifacts" / f"{task['key']}-learned-policy.gif", fps=24)
+        return preview, "Rendered the learned policy with the CPU Vulkan backend"
+    except Exception as exc:
+        if env is not None:
+            env.close()
+            env = None
+        raw = None
+        preview = _record_telemetry(model, task, seed)
+        return preview, f"CPU Vulkan replay unavailable ({type(exc).__name__}); generated a real policy telemetry GIF"
     finally:
-        env.close()
+        if env is not None:
+            env.close()
         del raw
-    return save_gif(frames, ROOT / "artifacts" / f"{task['key']}-learned-policy.gif", fps=24)
 
 
 def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int) -> Iterator[dict[str, Any]]:
@@ -303,10 +389,10 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         artifact_dir = ROOT / "artifacts"
         artifact_dir.mkdir(parents=True, exist_ok=True)
         model.save(str(artifact_dir / f"{key}-ppo"))
-        preview = _record(model, task, int(seed) + 10_000)
+        preview, preview_detail = _record(model, task, int(seed) + 10_000)
         (artifact_dir / f"{key}-model.json").write_text(json.dumps({"environment": task["environment"], "algorithm": "PPO", "budget": int(budget), "parallel_envs": parallel_envs, "seed": int(seed)}, indent=2), encoding="utf-8")
         yield {"phase": "complete", "step": completed, "score": y[-1], "x": x, "y": y, "preview": preview,
-               "log": f"Saved the GPU policy and rendered {Path(preview).name} from the learned policy"}
+               "log": f"Saved the GPU policy and generated {Path(preview).name}. {preview_detail}"}
     finally:
         train_env.close()
         del raw
