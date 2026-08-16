@@ -24,6 +24,26 @@ ROOT = Path(__file__).resolve().parent
 THOR_CACHE = Path("/mnt/workspace/hands-on-modern-rl/ai2thor")
 os.environ.setdefault("DISPLAY", ":99")
 
+
+def _configure_software_vulkan() -> str | None:
+    """Select Mesa Vulkan before AI2-THOR starts its Unity player."""
+    candidates = sorted(
+        list(Path("/usr/share/vulkan/icd.d").glob("lvp_icd*.json"))
+        + list(Path("/usr/local/share/vulkan/icd.d").glob("lvp_icd*.json"))
+    )
+    if not candidates:
+        return None
+    icd = str(candidates[0])
+    os.environ["VK_ICD_FILENAMES"] = icd
+    os.environ["VK_DRIVER_FILES"] = icd
+    os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
+    os.environ["MESA_LOADER_DRIVER_OVERRIDE"] = "llvmpipe"
+    os.environ["GALLIUM_DRIVER"] = "llvmpipe"
+    return icd
+
+
+SOFTWARE_VULKAN_ICD = _configure_software_vulkan()
+
 SPACE = {
     "title": {"en": "AI2-THOR xGPU Embodied Home", "zh": "AI2-THOR xGPU 具身家庭环境"},
     "description": {
@@ -31,7 +51,7 @@ SPACE = {
         "zh": "在 AI2-THOR 渲染的可交互厨房、客厅和卧室中训练视觉目标导航策略。",
     },
     "badge": "EXPERIMENT 12 · AI2-THOR",
-    "device": "xGPU · Vulkan rendering",
+    "device": "xGPU · CUDA PPO + Mesa Vulkan",
     "organization_url": "https://modelscope.cn/organization/walkinglab",
     "project_url": "https://github.com/walkinglabs/hands-on-modern-rl",
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/",
@@ -65,7 +85,8 @@ def runtime_status() -> str:
         import ai2thor
         import torch
         device = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "waiting for xGPU"
-        return f"AI2-THOR {getattr(ai2thor, '__version__', '5.0.0')} · {device} · CLOUD RENDERING"
+        renderer = "Mesa software Vulkan" if SOFTWARE_VULKAN_ICD else "Vulkan device pending"
+        return f"AI2-THOR {getattr(ai2thor, '__version__', '5.0.0')} · {device} · {renderer}"
     except Exception as exc:
         return f"installing AI2-THOR runtime · {type(exc).__name__}"
 
@@ -197,9 +218,21 @@ class ThorObjectNavEnv(gym.Env):
         from ai2thor.platform import CloudRendering
 
         self.task, self.seed, self.max_steps, self.steps = task, seed, max_steps, 0
-        self.controller = Controller(scene=task["scene"], platform=CloudRendering, gpu_device=0,
-                                     width=320, height=240, fieldOfView=90, quality="Low",
-                                     gridSize=0.25, rotateStepDegrees=30, visibilityDistance=1.5)
+        # ModelScope xGPU exposes CUDA compute but not the matching NVIDIA
+        # Vulkan device. AI2-THOR maps CUDA UUIDs to Vulkan whenever either
+        # gpu_device or CUDA_VISIBLE_DEVICES is set. Hide the latter only while
+        # launching Unity so it selects Mesa Lavapipe; restore it immediately
+        # for the already initialized Torch CUDA policy.
+        cuda_visible_devices = os.environ.pop("CUDA_VISIBLE_DEVICES", None)
+        try:
+            self.controller = Controller(
+                scene=task["scene"], platform=CloudRendering,
+                width=320, height=240, fieldOfView=90, quality="Low",
+                gridSize=0.25, rotateStepDegrees=30, visibilityDistance=1.5,
+            )
+        finally:
+            if cuda_visible_devices is not None:
+                os.environ["CUDA_VISIBLE_DEVICES"] = cuda_visible_devices
         self.action_space = gym.spaces.Discrete(len(self.ACTIONS))
         self.observation_space = gym.spaces.Box(0, 255, shape=(84, 84, 3), dtype=np.uint8)
         self.target_id = ""

@@ -3,6 +3,7 @@ ffmpeg
 aria2
 libvulkan1
 vulkan-tools
+mesa-vulkan-drivers
 libgl1
 libglib2.0-0
 libx11-6
