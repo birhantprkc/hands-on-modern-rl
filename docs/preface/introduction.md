@@ -275,43 +275,83 @@ $$J(\theta) = \mathbb{E}_{\pi_\theta}\left[G_t\right], \quad \theta^* = \arg\max
 
 ### 内容和结构
 
-全书分为七个部分。下图给出了各部分的学习顺序，以及每一部分对应的章节。
+全书分为七个部分，在下图的核心脉络中用不同的颜色呈现：
 
 <div class="preface-structure-map" align="center" style="margin: 2.5rem 0;">
 
 ```mermaid
-flowchart TD
-    P1["Part I · 基础与经典强化学习<br/>第 1 章 CartPole · 第 2 章问题定义<br/>第 3 章价值函数与贝尔曼方程 · 第 4 章经典方法"]
+graph TD
+    subgraph P1["Part I · 基础与经典强化学习（第 1-4 章）"]
+        Q["CartPole 入门<br/>问题定义与经典方法"]
+    end
 
-    P2["Part II · 深度强化学习<br/>第 5 章 DQN · 第 6 章策略梯度 · 第 7 章 Actor-Critic<br/>第 8 章 TRPO 与 PPO · 第 9 章 Off-Policy 与 Model-Based RL"]
+    subgraph P2["Part II · 深度强化学习（第 5-9 章）"]
+        A["RL 的核心问题<br/>序列决策与长期回报"] --> B["Value-Based<br/>学习动作价值"]
+        A --> C["Policy-Based<br/>直接学策略"]
+        B --> D["Q-Learning → DQN<br/>（第 5 章）"]
+        C --> E["REINFORCE<br/>（第 6 章）"]
+        D --> F["Actor-Critic 汇合<br/>（第 7 章）"]
+        E --> F
+        F --> G["TRPO 与 PPO<br/>（第 8 章）"]
+        G --> H["连续控制与 Model-Based RL<br/>（第 9 章）"]
+    end
 
-    P3["Part III · 高级强化学习方法<br/>第 10 章离线强化学习 · 第 11 章模仿、逆强化与元强化学习<br/>第 12 章探索、多智能体与分层强化学习"]
+    subgraph P3["Part III · 高级强化学习方法（第 10-12 章）"]
+        I["离线强化学习"] --> J["模仿学习、逆强化学习与元强化学习"]
+        J --> K["探索、多智能体与分层强化学习"]
+    end
 
-    P4["Part IV · 大语言模型对齐与后训练<br/>第 13 章 RLHF · 第 14 章 DPO · 第 15 章 GRPO 与 RLVR<br/>第 16 章推理模型 · 第 17 章过程奖励 · 第 18 章工业实践"]
+    subgraph P4["Part IV · 大语言模型对齐与后训练（第 13-18 章）"]
+        L["RLHF、RLAIF 与工业训练<br/>（第 13-14 章）"] --> M["DPO、GRPO 与 RLVR<br/>（第 15-16 章）"]
+        M --> N["推理模型与 PRM<br/>（第 17-18 章）"]
+    end
 
-    P5["Part V · Agentic RL<br/>第 19 章 Agentic RL 系统 · 第 20 章代码智能体<br/>第 21 章 Deep Research · 第 22 章 Computer Use"]
+    subgraph P5["Part V · Agentic 强化学习（第 19-22 章）"]
+        O["工具调用与多轮 RL"] --> P["代码、浏览器与 GUI Agent"]
+    end
 
-    P6["Part VI · 多模态强化学习<br/>第 23 章视觉语言模型 RL<br/>第 24 章音频、VLA 与视觉生成"]
+    subgraph P6["Part VI · 多模态强化学习（第 23-24 章）"]
+        R["视觉语言模型 RL<br/>（第 23 章）"] --> S["前沿多模态 RL<br/>（第 24 章）"]
+    end
 
-    P7["Part VII · 安全、评测与研究前沿<br/>第 25 章奖励黑客与强化学习评测<br/>第 26 章自博弈、规模化与研究前沿"]
+    subgraph P7["Part VII · 安全、评估与研究前沿（第 25-26 章）"]
+        T["奖励黑客与 RL 评估"] --> U["Self-Play、Scaling 与研究前沿"]
+    end
 
-    P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7
+    Q --> A
+    H --> I
+    K --> L
+    N --> O
+    P --> R
+    S --> T
 
-    classDef part1 fill:#f5f5f5,stroke:#616161,stroke-width:1.5px,color:#111
-    classDef part2 fill:#eaf3ff,stroke:#1976d2,stroke-width:1.5px,color:#111
-    classDef part3 fill:#edf7ed,stroke:#2e7d32,stroke-width:1.5px,color:#111
-    classDef part4 fill:#f5eef8,stroke:#7b1fa2,stroke-width:1.5px,color:#111
-    classDef part5 fill:#fff7df,stroke:#e09a00,stroke-width:1.5px,color:#111
-    classDef part6 fill:#e6f7f9,stroke:#00838f,stroke-width:1.5px,color:#111
-    classDef part7 fill:#fbeaf0,stroke:#c2185b,stroke-width:1.5px,color:#111
-
-    class P1 part1
-    class P2 part2
-    class P3 part3
-    class P4 part4
-    class P5 part5
-    class P6 part6
-    class P7 part7
+    style P1 fill:#f8f9fa,stroke:#616161,color:#000
+    style P2 fill:#eef6ff,stroke:#1976d2,color:#000
+    style P3 fill:#edf7ed,stroke:#2e7d32,color:#000
+    style P4 fill:#f5eef8,stroke:#7b1fa2,color:#000
+    style P5 fill:#fff8e1,stroke:#f9a825,color:#000
+    style P6 fill:#e0f7fa,stroke:#00838f,color:#000
+    style P7 fill:#fce4ec,stroke:#c2185b,color:#000
+    style Q fill:#f8f9fa,stroke:#616161,color:#000
+    style A fill:#eef6ff,stroke:#1976d2,color:#000
+    style B fill:#e3f2fd,stroke:#1976d2,color:#000
+    style D fill:#e3f2fd,stroke:#1976d2,color:#000
+    style C fill:#fff3e0,stroke:#f57c00,color:#000
+    style E fill:#fff3e0,stroke:#f57c00,color:#000
+    style F fill:#e8f5e9,stroke:#388e3c,color:#000
+    style G fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#000
+    style I fill:#edf7ed,stroke:#2e7d32,color:#000
+    style J fill:#edf7ed,stroke:#2e7d32,color:#000
+    style K fill:#edf7ed,stroke:#2e7d32,color:#000
+    style L fill:#f5eef8,stroke:#7b1fa2,color:#000
+    style M fill:#f5eef8,stroke:#7b1fa2,color:#000
+    style N fill:#f5eef8,stroke:#7b1fa2,color:#000
+    style O fill:#fff8e1,stroke:#f9a825,color:#000
+    style P fill:#fff8e1,stroke:#f9a825,color:#000
+    style R fill:#e0f7fa,stroke:#00838f,color:#000
+    style S fill:#e0f7fa,stroke:#00838f,color:#000
+    style T fill:#fce4ec,stroke:#c2185b,color:#000
+    style U fill:#fce4ec,stroke:#c2185b,color:#000
 
 ```
 
