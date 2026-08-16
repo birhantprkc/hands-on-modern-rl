@@ -12,7 +12,7 @@ license: apache-2.0
 
 # WalkingLab × Hands-On Modern RL · ManiSkill xGPU Robot Lab
 
-**WalkingLab** 与开源课程 **Hands-On Modern RL（《动手学现代强化学习》）** 的实验 08。它使用 ManiSkill 3 的 GPU PhysX 并行环境训练机器人 PPO 策略，并从本次学习到的策略生成 GIF 回放。
+**WalkingLab** 与开源课程 **Hands-On Modern RL（《动手学现代强化学习》）** 的实验 08。它使用 ManiSkill 3 的 PhysX 环境与 CUDA PPO 训练机器人策略，并从本次学习到的策略生成 GIF 回放。
 
 - Project: <https://github.com/walkinglabs/hands-on-modern-rl>
 - WalkingLab: <https://modelscope.cn/organization/walkinglab>
@@ -22,4 +22,4 @@ license: apache-2.0
 
 The live Studio may bundle the official SAPIEN `linux-so.zip` GPU PhysX runtime to avoid a slow first-run GitHub download. The binary remains under NVIDIA's BSD-3-Clause terms; the required notice is included at `assets/physx-BSD-3-Clause.txt`.
 
-State-based training keeps ManiSkill's renderer disabled. The Studio first attempts parallel GPU PhysX; ModelScope images that cannot enumerate a Vulkan device automatically use the official CPU PhysX state backend while keeping PPO on CUDA. The run log and downloaded metadata record the backend actually used. The final replay uses Mesa's CPU Vulkan driver when available and otherwise generates a GIF from the real learned-policy rollout telemetry.
+The Studio selects Mesa Lavapipe before SAPIEN starts because ModelScope xGPU exposes CUDA compute without the host NVIDIA Vulkan graphics capability. It first attempts parallel GPU PhysX and automatically uses the official CPU PhysX state backend when GPU simulation is unavailable; PPO remains on CUDA in both cases. The run log and downloaded metadata record the backend actually used. The final replay uses Mesa's CPU Vulkan driver when available and otherwise generates a GIF from the real learned-policy rollout telemetry.

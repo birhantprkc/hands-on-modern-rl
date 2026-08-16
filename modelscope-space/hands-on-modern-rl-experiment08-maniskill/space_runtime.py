@@ -21,6 +21,35 @@ BUNDLED_PHYSX = ROOT / "assets" / "physx-105.1-physx-5.3.1.patch0-linux-so.zip"
 PERSISTENT_CACHE = Path(
     os.environ.get("HOMRL_PERSISTENT_CACHE", "/mnt/workspace/hands-on-modern-rl")
 ) / "maniskill"
+
+
+def _configure_software_vulkan() -> str | None:
+    """Select Mesa's CPU Vulkan ICD before SAPIEN is imported.
+
+    ModelScope xGPU exposes CUDA compute, but its container runtime does not
+    expose the host NVIDIA graphics/Vulkan capability. SAPIEN still creates a
+    render system while building several ManiSkill tasks, including state-only
+    tasks. Lavapipe gives that system a real Vulkan device while the PPO policy
+    continues to run on CUDA.
+    """
+    candidates = sorted(
+        list(Path("/usr/share/vulkan/icd.d").glob("lvp_icd*.json"))
+        + list(Path("/usr/local/share/vulkan/icd.d").glob("lvp_icd*.json"))
+    )
+    if not candidates:
+        return None
+    icd = str(candidates[0])
+    # Assign rather than setdefault: some base images publish an unusable host
+    # ICD path, which must not take precedence over the bundled Mesa driver.
+    os.environ["VK_ICD_FILENAMES"] = icd
+    os.environ["VK_DRIVER_FILES"] = icd
+    os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
+    os.environ["MESA_LOADER_DRIVER_OVERRIDE"] = "llvmpipe"
+    os.environ["GALLIUM_DRIVER"] = "llvmpipe"
+    return icd
+
+
+SOFTWARE_VULKAN_ICD = _configure_software_vulkan()
 _WARMUP_LOCK = threading.Lock()
 _WARMUP_DONE = threading.Event()
 _WARMUP_THREAD: threading.Thread | None = None
@@ -33,11 +62,11 @@ _WARMUP_STATE: dict[str, Any] = {
 SPACE = {
     "title": {"en": "ManiSkill xGPU Robot Lab", "zh": "ManiSkill xGPU 机器人训练场"},
     "description": {
-        "en": "Run dozens of robot simulations in parallel on the GPU, train PPO from state observations, and render the learned policy.",
-        "zh": "在 GPU 上并行运行数十个机器人仿真环境，用状态观察训练 PPO，并渲染学习后的策略。",
+        "en": "Train ManiSkill robot policies with CUDA PPO and a verified PhysX/Vulkan runtime, then replay the learned policy.",
+        "zh": "使用 CUDA PPO 与经过验证的 PhysX/Vulkan 运行时训练 ManiSkill 机器人策略，并回放学习结果。",
     },
     "badge": "EXPERIMENT 08 · MANISKILL",
-    "device": "xGPU · CUDA + Vulkan",
+    "device": "xGPU · CUDA PPO + PhysX",
     "organization_url": "https://modelscope.cn/organization/walkinglab",
     "project_url": "https://github.com/walkinglabs/hands-on-modern-rl",
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/",
@@ -201,7 +230,8 @@ def runtime_status() -> str:
         warmup = _warmup_snapshot()
         if torch.cuda.is_available():
             if warmup["phase"] == "ready":
-                return f"ManiSkill {mani_skill.__version__} · {torch.cuda.get_device_name(0)} · GPU PHYSX READY"
+                renderer = "Mesa software Vulkan" if SOFTWARE_VULKAN_ICD else "Vulkan device pending"
+                return f"ManiSkill {mani_skill.__version__} · {torch.cuda.get_device_name(0)} · {renderer}"
             return f"ManiSkill {mani_skill.__version__} · {torch.cuda.get_device_name(0)} · {warmup['detail']}"
         return f"ManiSkill {mani_skill.__version__} · waiting for xGPU"
     except Exception as exc:
@@ -218,10 +248,9 @@ def _make_vec_env(
     import mani_skill.envs  # noqa: F401
     from mani_skill.vector.wrappers.sb3 import ManiSkillSB3VectorEnv
 
-    # ModelScope xGPU images expose CUDA/PhysX but do not always expose the
-    # host NVIDIA Vulkan ICD. State-based training does not need rendering, so
-    # keep the renderer disabled there. A single CPU renderer is requested only
-    # while producing the final replay.
+    # ModelScope xGPU exposes CUDA compute but not the host NVIDIA Vulkan ICD.
+    # Lavapipe is selected before SAPIEN import so even state-only tasks can
+    # finish scene construction. Rendering stays disabled during training.
     raw = gym.make(
         task["environment"],
         num_envs=num_envs,
