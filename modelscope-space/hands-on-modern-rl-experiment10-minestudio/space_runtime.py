@@ -80,9 +80,10 @@ def _ensure_java8() -> Path:
         archive, partial = JAVA_CACHE / "temurin8.tar.gz", JAVA_CACHE / "temurin8.tar.gz.part"
         subprocess.run(
             [
-                "curl", "--fail", "--location", "--show-error", "--silent",
-                "--retry", "3", "--retry-delay", "2", "--continue-at", "-",
-                "--output", str(partial), JAVA_URL,
+                "aria2c", "--allow-overwrite=true", "--auto-file-renaming=false", "--continue=true",
+                "--file-allocation=none", "--max-connection-per-server=16", "--split=16",
+                "--min-split-size=1M", "--console-log-level=warn",
+                "--dir", str(partial.parent), "--out", partial.name, JAVA_URL,
             ],
             check=True,
             timeout=900,
