@@ -261,7 +261,11 @@ def _make_vec_env(
         sim_backend="physx_cuda" if gpu_sim and num_envs > 1 else "physx_cpu",
         reconfiguration_freq=1,
     )
-    return raw, ManiSkillSB3VectorEnv(raw)
+    # Gymnasium 1.0 no longer forwards arbitrary attributes through wrappers.
+    # ManiSkillSB3VectorEnv needs num_envs/single_*_space from the BaseEnv, so
+    # give it the unwrapped vector environment while retaining ``raw`` for
+    # rendering and lifecycle ownership.
+    return raw, ManiSkillSB3VectorEnv(raw.unwrapped)
 
 
 def _evaluate(
