@@ -22,4 +22,4 @@ license: apache-2.0
 
 The live Studio may bundle the official SAPIEN `linux-so.zip` GPU PhysX runtime to avoid a slow first-run GitHub download. The binary remains under NVIDIA's BSD-3-Clause terms; the required notice is included at `assets/physx-BSD-3-Clause.txt`.
 
-State-based training keeps ManiSkill's renderer disabled, so GPU PhysX training does not depend on the container's host Vulkan ICD. The final replay uses Mesa's CPU Vulkan driver when available and otherwise generates a GIF from the real learned-policy rollout telemetry.
+State-based training keeps ManiSkill's renderer disabled. The Studio first attempts parallel GPU PhysX; ModelScope images that cannot enumerate a Vulkan device automatically use the official CPU PhysX state backend while keeping PPO on CUDA. The run log and downloaded metadata record the backend actually used. The final replay uses Mesa's CPU Vulkan driver when available and otherwise generates a GIF from the real learned-policy rollout telemetry.

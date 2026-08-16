@@ -208,7 +208,12 @@ def runtime_status() -> str:
         return f"installing ManiSkill runtime · {type(exc).__name__}"
 
 
-def _make_vec_env(task: dict[str, Any], num_envs: int, render_mode: str | None = None):
+def _make_vec_env(
+    task: dict[str, Any],
+    num_envs: int,
+    render_mode: str | None = None,
+    gpu_sim: bool = True,
+):
     import gymnasium as gym
     import mani_skill.envs  # noqa: F401
     from mani_skill.vector.wrappers.sb3 import ManiSkillSB3VectorEnv
@@ -224,21 +229,28 @@ def _make_vec_env(task: dict[str, Any], num_envs: int, render_mode: str | None =
         reward_mode="dense",
         render_mode=render_mode,
         render_backend="none" if render_mode is None else "cpu",
-        sim_backend="physx_cuda" if num_envs > 1 else "physx_cpu",
+        sim_backend="physx_cuda" if gpu_sim and num_envs > 1 else "physx_cpu",
         reconfiguration_freq=1,
     )
     return raw, ManiSkillSB3VectorEnv(raw)
 
 
-def _evaluate(model: Any, task: dict[str, Any], seed: int, episodes: int = 16) -> tuple[float, float]:
-    raw, env = _make_vec_env(task, episodes)
+def _evaluate(
+    model: Any,
+    task: dict[str, Any],
+    seed: int,
+    episodes: int = 16,
+    gpu_sim: bool = True,
+) -> tuple[float, float]:
+    environment_count = episodes if gpu_sim else 1
+    raw, env = _make_vec_env(task, environment_count, gpu_sim=gpu_sim)
     try:
         observation = env.reset()
-        returns = np.zeros(episodes, dtype=np.float64)
+        returns = np.zeros(environment_count, dtype=np.float64)
         for _ in range(200):
             actions, _ = model.predict(observation, deterministic=True)
             observation, rewards, dones, infos = env.step(actions)
-            returns += np.asarray(rewards, dtype=np.float64).reshape(-1)[:episodes]
+            returns += np.asarray(rewards, dtype=np.float64).reshape(-1)[:environment_count]
         return float(returns.mean()), float(returns.std())
     finally:
         env.close()
@@ -349,7 +361,24 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
     task = next(item for item in TASKS if item["key"] == key)
     parallel_envs = max(16, min(128, int(budget) // 1_000))
     yield {"phase": "initializing", "step": 0, "log": f"Creating {parallel_envs} parallel {task['environment']} simulations on {torch.cuda.get_device_name(0)}"}
-    raw, train_env = _make_vec_env(task, parallel_envs)
+    gpu_sim = True
+    try:
+        raw, train_env = _make_vec_env(task, parallel_envs)
+    except RuntimeError as exc:
+        message = str(exc).lower()
+        if not any(marker in message for marker in ("rendering device", "vulkan", "vk::")):
+            raise
+        gpu_sim = False
+        parallel_envs = 1
+        yield {
+            "phase": "initializing",
+            "step": 0,
+            "log": (
+                f"GPU PhysX cannot enumerate a Vulkan device ({type(exc).__name__}).\n"
+                "Falling back to one official ManiSkill CPU PhysX state environment; the PPO policy remains on CUDA."
+            ),
+        }
+        raw, train_env = _make_vec_env(task, parallel_envs, gpu_sim=False)
 
     class MetricsCallback(BaseCallback):
         latest: dict[str, Any]
@@ -375,11 +404,12 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
             current = min(chunk, int(budget) - completed)
             model.learn(total_timesteps=current, reset_num_timesteps=False, callback=callback, progress_bar=False)
             completed += current
-            score, spread = _evaluate(model, task, int(seed) + completed)
+            score, spread = _evaluate(model, task, int(seed) + completed, gpu_sim=gpu_sim)
             x.append(float(completed)); y.append(score)
             metrics = callback.latest
+            simulation_backend = "GPU PhysX" if gpu_sim else "CPU PhysX fallback"
             log = (f"PPO update · step={completed:,}\n"
-                   f"parallel_envs={parallel_envs}  rollout={rollout}  device={model.device}\n"
+                   f"parallel_envs={parallel_envs}  rollout={rollout}  policy_device={model.device}  simulation={simulation_backend}\n"
                    f"policy_loss={float(metrics.get('train/policy_gradient_loss') or float('nan')):.6g}  "
                    f"value_loss={float(metrics.get('train/value_loss') or float('nan')):.6g}\n"
                    f"EVAL mean_dense_return={score:.3f} std={spread:.3f}")
@@ -390,7 +420,7 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         artifact_dir.mkdir(parents=True, exist_ok=True)
         model.save(str(artifact_dir / f"{key}-ppo"))
         preview, preview_detail = _record(model, task, int(seed) + 10_000)
-        (artifact_dir / f"{key}-model.json").write_text(json.dumps({"environment": task["environment"], "algorithm": "PPO", "budget": int(budget), "parallel_envs": parallel_envs, "seed": int(seed)}, indent=2), encoding="utf-8")
+        (artifact_dir / f"{key}-model.json").write_text(json.dumps({"environment": task["environment"], "algorithm": "PPO", "budget": int(budget), "parallel_envs": parallel_envs, "simulation_backend": "gpu_physx" if gpu_sim else "cpu_physx_fallback", "policy_device": str(model.device), "seed": int(seed)}, indent=2), encoding="utf-8")
         yield {"phase": "complete", "step": completed, "score": y[-1], "x": x, "y": y, "preview": preview,
                "log": f"Saved the GPU policy and generated {Path(preview).name}. {preview_detail}"}
     finally:
