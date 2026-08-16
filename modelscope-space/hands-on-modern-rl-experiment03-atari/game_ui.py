@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import base64
 import html
+import io
 import json
 import math
-import mimetypes
 import os
 import time
 import traceback
@@ -18,6 +18,7 @@ from typing import Any, Iterable
 import gradio as gr
 import matplotlib
 import numpy as np
+from PIL import Image
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -162,11 +163,20 @@ def preview_path(root: Path, task: Any) -> str:
 
 @lru_cache(maxsize=128)
 def embedded_image(path_value: str) -> str:
-    """Return a proxy-independent data URL for task-detail HTML images."""
+    """Return a compact, proxy-independent task-detail image data URL."""
     path = Path(path_value)
-    mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
-    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-    return f"data:{mime_type};base64,{encoded}"
+    with Image.open(path) as source:
+        source.seek(0)
+        has_alpha = "A" in source.getbands() or "transparency" in source.info
+        frame = source.convert("RGBA" if has_alpha else "RGB")
+        frame.thumbnail((960, 640), Image.Resampling.LANCZOS)
+    lossy = io.BytesIO()
+    frame.save(lossy, format="WEBP", quality=88, method=4)
+    lossless = io.BytesIO()
+    frame.save(lossless, format="WEBP", lossless=True, method=4)
+    payload = min(lossy.getvalue(), lossless.getvalue(), key=len)
+    encoded = base64.b64encode(payload).decode("ascii")
+    return f"data:image/webp;base64,{encoded}"
 
 
 def hero_html(space: dict[str, Any], tasks: list[Any], task: Any, language: str, runtime_status: str) -> str:
