@@ -482,6 +482,8 @@ def build_demo(space_module: Any):
                     if not message.lstrip().startswith(tuple("0123456789")):
                         message = f"{time.perf_counter() - started:7.1f}s  TRAIN   {message}"
                     logs.extend(message.splitlines())
+                    if len(logs) > 1_200:
+                        logs = logs[:2] + ["... older log lines omitted from the live view ..."] + logs[-1_197:]
                 x = event_value(event, "x", last_x)
                 y = event_value(event, "y", last_y)
                 if x is not None and y is not None:

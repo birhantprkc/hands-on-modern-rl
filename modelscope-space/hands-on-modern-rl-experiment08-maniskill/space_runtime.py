@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Any, Iterator
 from zipfile import ZipFile
@@ -103,6 +104,7 @@ def _download_physx(url: str, archive: Path, target: Path, dll: Path) -> None:
             "aria2c", "--allow-overwrite=true", "--auto-file-renaming=false", "--continue=true",
             "--file-allocation=none", "--max-connection-per-server=16", "--split=16",
             "--min-split-size=1M", "--summary-interval=2", "--console-log-level=notice",
+            "--enable-color=false",
             "--dir", str(archive.parent), "--out", archive.name, url,
         ],
         stdout=subprocess.PIPE,
@@ -112,10 +114,13 @@ def _download_physx(url: str, archive: Path, target: Path, dll: Path) -> None:
         start_new_session=True,
     )
     assert process.stdout is not None
+    last_update = 0.0
     for line in process.stdout:
         clean = line.strip()
-        if clean and ("[#" in clean or "Download complete" in clean):
+        now = time.monotonic()
+        if clean and ("Download complete" in clean or ("[#" in clean and now - last_update >= 4.0)):
             _set_warmup_state("downloading", f"GPU PhysX · {clean}", 0.5)
+            last_update = now
     if process.wait() != 0:
         raise RuntimeError(f"GPU PhysX parallel download exited with code {process.returncode}")
     _set_warmup_state("extracting", "Extracting the GPU PhysX runtime into persistent storage", 0.98)

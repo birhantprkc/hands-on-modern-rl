@@ -82,7 +82,7 @@ def _ensure_java8() -> Path:
             [
                 "aria2c", "--allow-overwrite=true", "--auto-file-renaming=false", "--continue=true",
                 "--file-allocation=none", "--max-connection-per-server=16", "--split=16",
-                "--min-split-size=1M", "--console-log-level=warn",
+                "--min-split-size=1M", "--console-log-level=warn", "--enable-color=false",
                 "--dir", str(partial.parent), "--out", partial.name, JAVA_URL,
             ],
             check=True,

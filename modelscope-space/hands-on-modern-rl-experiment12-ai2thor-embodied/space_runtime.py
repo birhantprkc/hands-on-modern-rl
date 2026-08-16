@@ -114,6 +114,7 @@ def _prepare_thor_build() -> Iterator[str]:
         "aria2c", "--allow-overwrite=true", "--auto-file-renaming=false", "--continue=true",
         "--file-allocation=none", "--max-connection-per-server=16", "--split=16",
         "--min-split-size=1M", "--summary-interval=4", "--console-log-level=notice",
+        "--enable-color=false",
         "--dir", str(downloads), "--out", archive.name, build.url,
     ]
     yield "Downloading the official AI2-THOR CloudRendering build with 16 parallel ranges"
@@ -126,10 +127,20 @@ def _prepare_thor_build() -> Iterator[str]:
         start_new_session=True,
     )
     assert process.stdout is not None
+    last_progress = 0.0
+    latest_progress = ""
     for line in process.stdout:
         clean = line.strip()
-        if clean and ("[#" in clean or "Download complete" in clean or "NOTICE" in clean):
+        if clean and ("Download complete" in clean or "NOTICE" in clean):
             yield clean
+        elif "[#" in clean:
+            latest_progress = clean
+            now = time.monotonic()
+            if now - last_progress >= 4.0:
+                yield latest_progress
+                last_progress = now
+    if latest_progress and time.monotonic() - last_progress < 4.0:
+        yield latest_progress
     if process.wait() != 0:
         raise RuntimeError(f"AI2-THOR parallel download exited with code {process.returncode}")
 
