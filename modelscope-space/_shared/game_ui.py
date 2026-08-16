@@ -173,6 +173,9 @@ def preview_path(root: Path, task: Any) -> str:
 def embedded_image(path_value: str) -> str:
     """Return a compact, proxy-independent task-detail image data URL."""
     path = Path(path_value)
+    if path.suffix.lower() == ".svg":
+        encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+        return f"data:image/svg+xml;base64,{encoded}"
     with Image.open(path) as source:
         frame_count = int(getattr(source, "n_frames", 1))
         if frame_count > 1:

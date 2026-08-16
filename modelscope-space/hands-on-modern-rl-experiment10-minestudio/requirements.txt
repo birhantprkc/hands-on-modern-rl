@@ -3,7 +3,7 @@ matplotlib>=3.8,<4
 numpy>=1.26,<3
 Pillow>=10,<12
 imageio>=2.34,<3
-imageio-ffmpeg>=0.5,<1
+imageio-ffmpeg>=0.3,<0.4
 torch==2.3.1
 stable-baselines3==2.4.1
 minestudio==1.1.6
