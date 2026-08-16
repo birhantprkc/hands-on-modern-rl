@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import shutil
@@ -8,6 +9,7 @@ import signal
 import subprocess
 import tarfile
 import time
+import zipfile
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -24,6 +26,8 @@ os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.setdefault("DISPLAY", ":99")
 JAVA_CACHE = Path("/mnt/workspace/hands-on-modern-rl/temurin-jre8")
 JAVA_URL = "https://api.adoptium.net/v3/binary/latest/8/ga/linux/x64/jre/hotspot/normal/eclipse"
+ENGINE_SIZE = 458_106_630
+ENGINE_SHA256 = "293fac6ac72245b3365dce0e8bfbb6396fb94df29b23b6538f3bd7e2eec13ec6"
 
 SPACE = {
     "title": {"en": "MineStudio xGPU Minecraft Agent Lab", "zh": "MineStudio xGPU Minecraft 智能体训练场"},
@@ -119,6 +123,85 @@ def _ensure_java8() -> Path:
     return java_candidates[0]
 
 
+def _ensure_engine() -> Iterator[str]:
+    """Download, verify, and extract the official MineStudio engine visibly."""
+    root = Path(os.environ["MINESTUDIO_DIR"])
+    engine_jar = root / "engine" / "build" / "libs" / "mcprec-6.13.jar"
+    if engine_jar.exists():
+        yield f"MineStudio engine cache ready: {engine_jar}"
+        return
+
+    root.mkdir(parents=True, exist_ok=True)
+    archive = root / "engine.zip.part"
+    completed_archive = root / "engine.zip"
+    if completed_archive.exists() and not archive.exists():
+        completed_archive.replace(archive)
+    aria2 = shutil.which("aria2c")
+    if aria2 is None:
+        raise RuntimeError("aria2c is required for the resumable MineStudio engine download")
+    endpoint = os.environ["HF_ENDPOINT"].rstrip("/")
+    url = f"{endpoint}/CraftJarvis/SimulatorEngine/resolve/main/engine.zip"
+    process = subprocess.Popen(
+        [
+            aria2,
+            "--allow-overwrite=true",
+            "--auto-file-renaming=false",
+            "--continue=true",
+            "--file-allocation=none",
+            "--max-connection-per-server=16",
+            "--split=16",
+            "--min-split-size=1M",
+            "--summary-interval=2",
+            "--console-log-level=notice",
+            "--enable-color=false",
+            "--dir",
+            str(root),
+            "--out",
+            archive.name,
+            url,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        start_new_session=True,
+    )
+    assert process.stdout is not None
+    last_update = 0.0
+    for line in process.stdout:
+        clean = line.strip()
+        now = time.monotonic()
+        if clean and ("Download complete" in clean or ("[#" in clean and now - last_update >= 3.0)):
+            yield f"MineStudio engine · {clean}"
+            last_update = now
+    if process.wait() != 0:
+        raise RuntimeError(f"MineStudio engine download exited with code {process.returncode}")
+    if not archive.exists() or archive.stat().st_size != ENGINE_SIZE:
+        actual = archive.stat().st_size if archive.exists() else 0
+        raise RuntimeError(f"MineStudio engine size mismatch: expected {ENGINE_SIZE}, received {actual}")
+
+    yield "Verifying the official MineStudio engine archive (SHA-256)"
+    digest = hashlib.sha256()
+    with archive.open("rb") as handle:
+        for block in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(block)
+    if digest.hexdigest() != ENGINE_SHA256:
+        raise RuntimeError("MineStudio engine checksum mismatch; the resumable cache was not trusted")
+
+    yield "Extracting the verified MineStudio engine into persistent storage"
+    with zipfile.ZipFile(archive) as bundle:
+        resolved_root = root.resolve()
+        for member in bundle.infolist():
+            target = (root / member.filename).resolve()
+            if resolved_root not in target.parents and target != resolved_root:
+                raise RuntimeError(f"Unsafe path in MineStudio engine archive: {member.filename}")
+        bundle.extractall(root)
+    archive.unlink(missing_ok=True)
+    if not engine_jar.exists():
+        raise RuntimeError("MineStudio engine archive extracted without mcprec-6.13.jar")
+    yield f"MineStudio engine cache ready: {engine_jar}"
+
+
 def _stop_process(process: subprocess.Popen[Any] | None) -> None:
     if process is None or process.poll() is not None:
         return
@@ -139,9 +222,6 @@ class MinecraftDiscreteEnv(gym.Env):
     def __init__(self, task: dict[str, Any], seed: int, max_steps: int = 256):
         from minestudio.simulator import MinecraftSim
         from minestudio.simulator.callbacks import CommandsCallback, RewardsCallback
-        from minestudio.simulator.entry import check_engine
-
-        check_engine(skip_confirmation=True)
         self.task, self.max_steps, self.steps = task, max_steps, 0
         callbacks = [CommandsCallback(commands=task["commands"]), RewardsCallback([{
             "event": task["reward_event"], "objects": task["reward_objects"], "reward": 1.0,
@@ -231,7 +311,10 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
     yield {"phase": "initializing", "step": 0, "log": f"Preparing persistent MineStudio engine cache at {os.environ['MINESTUDIO_DIR']}"}
     try:
         java = _ensure_java8()
-        yield {"phase": "initializing", "step": 0, "log": f"Temurin Java 8 ready: {java}\nMineStudio engine source: {os.environ['HF_ENDPOINT']}\nStarting the Minecraft renderer"}
+        yield {"phase": "initializing", "step": 0, "log": f"Temurin Java 8 ready: {java}\nMineStudio engine source: {os.environ['HF_ENDPOINT']}"}
+        for detail in _ensure_engine():
+            yield {"phase": "initializing", "step": 0, "log": detail}
+        yield {"phase": "initializing", "step": 0, "log": "Starting the Minecraft renderer"}
         xvfb = _start_xvfb(); time.sleep(1.0)
         env = _make_env(task, int(seed))
 
