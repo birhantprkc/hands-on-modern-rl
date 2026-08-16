@@ -18,7 +18,7 @@ from typing import Any, Iterable
 import gradio as gr
 import matplotlib
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageStat
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -166,9 +166,25 @@ def embedded_image(path_value: str) -> str:
     """Return a compact, proxy-independent task-detail image data URL."""
     path = Path(path_value)
     with Image.open(path) as source:
-        source.seek(0)
-        has_alpha = "A" in source.getbands() or "transparency" in source.info
-        frame = source.convert("RGBA" if has_alpha else "RGB")
+        frame_count = int(getattr(source, "n_frames", 1))
+        if frame_count > 1:
+            sample_count = min(frame_count, 18)
+            sample_indices = sorted({
+                round(index * (frame_count - 1) / (sample_count - 1))
+                for index in range(sample_count)
+            })
+            candidates: list[tuple[tuple[float, float], Image.Image]] = []
+            for frame_index in sample_indices:
+                source.seek(frame_index)
+                candidate = source.convert("RGB")
+                grayscale = candidate.convert("L")
+                score = (grayscale.entropy(), float(ImageStat.Stat(grayscale).var[0]))
+                candidates.append((score, candidate))
+            frame = max(candidates, key=lambda item: item[0])[1]
+        else:
+            source.seek(0)
+            has_alpha = "A" in source.getbands() or "transparency" in source.info
+            frame = source.convert("RGBA" if has_alpha else "RGB")
         frame.thumbnail((960, 640), Image.Resampling.LANCZOS)
     lossy = io.BytesIO()
     frame.save(lossy, format="WEBP", quality=88, method=4)
