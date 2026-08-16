@@ -19,3 +19,5 @@ license: apache-2.0
 - Companion chapter: <https://walkinglabs.github.io/hands-on-modern-rl>
 - Live Studio: <https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment10-minestudio>
 - Training source: <https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment10-minestudio/file/view/master/space_runtime.py>
+
+The live Studio bundles the official Eclipse Temurin JRE 8 archive so Minecraft startup does not depend on a slow first-run GitHub redirect. Its SHA-256 is `f1a7bea0804bfa5627dac412fe7a0d751c4228592e356d6a32a30da54a48ed7a`; the unmodified archive contains the upstream `NOTICE`, `LICENSE`, `ASSEMBLY_EXCEPTION`, and third-party license files (GPL-2.0 with Classpath Exception).

@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import shutil
 import signal
 import subprocess
 import tarfile
@@ -17,6 +18,7 @@ from sb3_tools import save_gif
 
 
 ROOT = Path(__file__).resolve().parent
+BUNDLED_JAVA = ROOT / "assets" / "OpenJDK8U-jre_x64_linux_hotspot_8u502b07.tar.gz"
 os.environ.setdefault("MINESTUDIO_DIR", "/mnt/workspace/hands-on-modern-rl/minestudio")
 os.environ.setdefault("DISPLAY", ":99")
 JAVA_CACHE = Path("/mnt/workspace/hands-on-modern-rl/temurin-jre8")
@@ -78,18 +80,29 @@ def _ensure_java8() -> Path:
     if not java_candidates:
         JAVA_CACHE.mkdir(parents=True, exist_ok=True)
         archive, partial = JAVA_CACHE / "temurin8.tar.gz", JAVA_CACHE / "temurin8.tar.gz.part"
-        subprocess.run(
-            [
-                "aria2c", "--allow-overwrite=true", "--auto-file-renaming=false", "--continue=true",
-                "--file-allocation=none", "--max-connection-per-server=16", "--split=16",
-                "--min-split-size=1M", "--console-log-level=warn", "--enable-color=false",
-                "--dir", str(partial.parent), "--out", partial.name, JAVA_URL,
-            ],
-            check=True,
-            timeout=900,
-        )
-        partial.replace(archive)
-        with tarfile.open(archive, "r:gz") as bundle:
+        if BUNDLED_JAVA.exists() and BUNDLED_JAVA.stat().st_size > 10_000_000:
+            source = BUNDLED_JAVA
+        else:
+            aria2 = shutil.which("aria2c")
+            curl = shutil.which("curl")
+            if aria2:
+                command = [
+                    "aria2c", "--allow-overwrite=true", "--auto-file-renaming=false", "--continue=true",
+                    "--file-allocation=none", "--max-connection-per-server=16", "--split=16",
+                    "--min-split-size=1M", "--console-log-level=warn", "--enable-color=false",
+                    "--dir", str(partial.parent), "--out", partial.name, JAVA_URL,
+                ]
+            elif curl:
+                command = [
+                    "curl", "--location", "--fail", "--retry", "5", "--retry-all-errors",
+                    "--connect-timeout", "20", "--continue-at", "-", "--output", str(partial), JAVA_URL,
+                ]
+            else:
+                raise RuntimeError("Temurin JRE 8 requires aria2c or curl")
+            subprocess.run(command, check=True, timeout=1800)
+            partial.replace(archive)
+            source = archive
+        with tarfile.open(source, "r:gz") as bundle:
             root = JAVA_CACHE.resolve()
             for member in bundle.getmembers():
                 target = (JAVA_CACHE / member.name).resolve()
