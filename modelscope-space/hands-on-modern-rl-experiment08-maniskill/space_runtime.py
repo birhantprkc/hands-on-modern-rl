@@ -16,6 +16,7 @@ from sb3_tools import save_gif
 
 
 ROOT = Path(__file__).resolve().parent
+BUNDLED_PHYSX = ROOT / "assets" / "physx-105.1-physx-5.3.1.patch0-linux-so.zip"
 PERSISTENT_CACHE = Path(
     os.environ.get("HOMRL_PERSISTENT_CACHE", "/mnt/workspace/hands-on-modern-rl")
 ) / "maniskill"
@@ -142,12 +143,19 @@ def _warmup_runtime() -> None:
         target.mkdir(parents=True, exist_ok=True)
         dll = target / "libPhysXGpu_64.so"
         if not dll.exists():
-            url = (
-                "https://github.com/sapien-sim/physx-precompiled/releases/download/"
-                f"{physx_version}/linux-so.zip"
-            )
-            _set_warmup_state("downloading", "Downloading the GPU PhysX runtime", 0.02)
-            _download_physx(url, target / "linux-so.zip.part", target, dll)
+            if BUNDLED_PHYSX.exists():
+                _set_warmup_state("extracting", "Loading the bundled BSD-licensed GPU PhysX runtime", 0.96)
+                with ZipFile(BUNDLED_PHYSX) as bundle:
+                    bundle.extractall(target)
+                if not dll.exists():
+                    raise RuntimeError("Bundled PhysX archive is missing libPhysXGpu_64.so")
+            else:
+                url = (
+                    "https://github.com/sapien-sim/physx-precompiled/releases/download/"
+                    f"{physx_version}/linux-so.zip"
+                )
+                _set_warmup_state("downloading", "Downloading the GPU PhysX runtime", 0.02)
+                _download_physx(url, target / "linux-so.zip.part", target, dll)
         _set_warmup_state("loading", "Loading the cached GPU PhysX runtime", 0.99)
         sapien.physx.enable_gpu()
         _set_warmup_state("ready", f"GPU PhysX {physx_version} is cached and ready", 1.0)
