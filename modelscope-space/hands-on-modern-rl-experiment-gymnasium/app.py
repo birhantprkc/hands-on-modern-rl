@@ -1005,14 +1005,16 @@ def hero_html(language: str, experiment: str = BANDIT) -> str:
     return f"""
     <main class="app-shell">
       <section class="hero">
+        <div class="brand-lockup"><a href="https://modelscope.cn/organization/walkinglab" target="_blank" rel="noreferrer">WALKINGLAB</a><span>×</span><a href="{PROJECT_URL}" target="_blank" rel="noreferrer">HANDS-ON MODERN RL</a></div>
         <img class="project-mark" src="{LOGO_DATA_URI}" alt="Hands-On Modern RL" />
         <div class="hero-topline"><span class="experiment-badge">CPU PLAYGROUND</span><span class="hero-course">{copy['course']}</span></div>
         <h1>{copy['title']}</h1>
         <p class="hero-copy">{copy['description']}</p>
         <nav class="hero-links">
-          <a class="hero-link primary" href="{chapter_url}" target="_blank" rel="noreferrer">{copy['chapter']}</a>
+          <a class="hero-link primary" href="{PROJECT_URL}" target="_blank" rel="noreferrer">GitHub · walkinglabs/hands-on-modern-rl</a>
+          <a class="hero-link" href="https://modelscope.cn/organization/walkinglab" target="_blank" rel="noreferrer">WalkingLab</a>
+          <a class="hero-link" href="{chapter_url}" target="_blank" rel="noreferrer">{copy['chapter']}</a>
           <a class="hero-link" href="{SCRIPT_URL}" target="_blank" rel="noreferrer">{copy['script']}</a>
-          <a class="hero-link" href="{PROJECT_URL}" target="_blank" rel="noreferrer">{copy['project']}</a>
         </nav>
       </section>
       <section class="lab-strip">
@@ -1026,7 +1028,7 @@ def hero_html(language: str, experiment: str = BANDIT) -> str:
 
 
 def footer_html() -> str:
-    return f'<div class="footer-note">Gymnasium CPU Playground · <a href="{COURSE_URL}" target="_blank">Hands-On Modern RL</a> · WalkingLabs</div>'
+    return f'<div class="footer-note">Gymnasium CPU Playground · <a href="{COURSE_URL}" target="_blank">Hands-On Modern RL</a> · WalkingLab</div>'
 
 
 def learning_figure(x: list[float], y: list[float], title: str, ylabel: str):
@@ -1586,6 +1588,7 @@ CSS = """
 .language-switch label:has(input:checked) span,.language-switch input:checked+span { color:#fff!important; background:linear-gradient(135deg,#6667e8,#7778f2)!important; box-shadow:0 3px 9px rgba(13,15,55,.28)!important; }
 .hero { position:relative; overflow:hidden; padding:38px 42px 34px; border:1px solid rgba(129,140,248,.2); border-radius:26px; color:#f8fafc; background:radial-gradient(circle at 88% 8%,rgba(125,127,255,.42),transparent 31%),radial-gradient(circle at 92% 92%,rgba(61,207,170,.18),transparent 30%),linear-gradient(132deg,#11182c 0%,#25265d 58%,#4546a4 100%); box-shadow:0 22px 54px rgba(25,32,56,.16); }
 .project-mark { display:block; width:290px; max-width:55%; height:auto; margin:0 0 22px; padding:9px 13px; border-radius:11px; background:#fff; box-shadow:0 8px 24px rgba(8,15,35,.2); }
+.brand-lockup{display:flex;align-items:center;gap:9px;width:max-content;max-width:calc(100% - 230px);margin:0 0 14px;padding:8px 12px;border:1px solid rgba(255,255,255,.28);border-radius:10px;background:rgba(12,17,59,.28);font-size:12px;font-weight:900;letter-spacing:.075em}.brand-lockup a{color:#fff!important;text-decoration:none!important}.brand-lockup a:last-child{color:#cfd5ff!important}.brand-lockup span{color:#aeb7ff}
 .hero-topline{display:flex;align-items:center;gap:11px;margin-bottom:22px}.experiment-badge{padding:6px 11px;border:1px solid #fff;border-radius:999px;color:#25265d;background:#fff;box-shadow:0 4px 12px rgba(8,15,35,.16);font-size:12px;font-weight:800;letter-spacing:.06em}.hero-course{color:#b9c0d4;font-size:13px;font-weight:650}
 .hero h1{max-width:760px;margin:0 0 12px;color:#fff;font-size:clamp(32px,5vw,48px);line-height:1.1;letter-spacing:-.035em}.hero-copy{max-width:760px;margin:0;color:#cdd3e2;font-size:15px;line-height:1.7}.hero-links{display:flex;flex-wrap:wrap;gap:9px;margin-top:25px}.hero-link{display:inline-flex;align-items:center;min-height:38px;padding:0 14px;border:1px solid rgba(255,255,255,.18);border-radius:9px;color:#eef2ff!important;background:rgba(255,255,255,.08);font-size:13px;font-weight:650;text-decoration:none!important}.hero-link.primary{color:#172554!important;background:#fff;border-color:#fff}
 .lab-strip{display:flex;flex-wrap:wrap;gap:8px 22px;margin:17px 0 22px;padding:13px 18px;border:1px solid var(--line);border-radius:13px;background:#fff;color:var(--muted);font-size:13px;box-shadow:0 6px 20px rgba(18,25,43,.035)}.lab-strip strong{margin-left:5px;color:var(--ink)}

@@ -1,0 +1,11 @@
+xvfb
+ffmpeg
+libvulkan1
+vulkan-tools
+libgl1
+libglib2.0-0
+libx11-6
+libxext6
+libxrender1
+libxtst6
+libxi6

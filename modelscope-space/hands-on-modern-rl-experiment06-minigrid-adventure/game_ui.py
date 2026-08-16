@@ -26,11 +26,16 @@ import matplotlib.pyplot as plt
 
 PROJECT_URL = "https://github.com/walkinglabs/hands-on-modern-rl"
 COURSE_URL = "https://walkinglabs.github.io/hands-on-modern-rl/"
+ORGANIZATION_URL = "https://modelscope.cn/organization/walkinglab"
+DEFAULT_LANGUAGE = "English"
 
 
 TEXT = {
     "English": {
-        "course": "Hands-On Modern RL · CPU game experiments",
+        "course": "Open-source reinforcement learning experiments",
+        "brand": "WALKINGLAB × HANDS-ON MODERN RL",
+        "brand_note": "Learn the idea, change the parameters, and train it online.",
+        "organization": "WalkingLab",
         "chapter": "Companion chapter",
         "source": "Training source",
         "project": "GitHub project",
@@ -38,7 +43,7 @@ TEXT = {
         "tasks": "Playable tasks",
         "runtime": "Runtime",
         "choose": "Choose a game",
-        "choose_copy": "Every card opens a real CPU training recipe. Select a task, review its goal, then start a run.",
+        "choose_copy": "Every card opens a real training recipe. Select a task, review its goal, then start a run.",
         "understand": "UNDERSTAND BEFORE TRAINING",
         "observation": "Observation",
         "action": "Action",
@@ -47,7 +52,7 @@ TEXT = {
         "ready_runtime": "Ready · preinstalled",
         "hint": "Adjust the parameters below, then start training. The curve and console update throughout the run.",
         "setup": "Experiment setup",
-        "setup_copy": "Quick defaults are sized for a shared ModelScope CPU server. Increase the budget for a longer run.",
+        "setup_copy": "Quick defaults are sized for the selected ModelScope runtime. Increase the budget for a longer run.",
         "selected": "Selected game",
         "budget": "Training budget",
         "budget_info": "Environment steps, episodes, or optimization iterations depending on the selected game",
@@ -59,7 +64,7 @@ TEXT = {
         "running_button": "Training…",
         "run_status": "Run status",
         "ready": "Ready to train",
-        "ready_detail": "Select a game, review its goal, and start the CPU run",
+        "ready_detail": "Select a game, review its goal, and start the run",
         "running": "Training in progress",
         "complete": "Training complete",
         "failed": "Run stopped",
@@ -72,11 +77,14 @@ TEXT = {
         "preview": "Task preview / learned policy",
         "preview_copy": "The task opens with a real environment preview. A completed run replaces it with this run's replay or result visualization.",
         "download": "Download run summary",
-        "wait_title": "CPU training is active",
+        "wait_title": "Training is active",
         "wait_detail": "Preparing the environment, updating the policy, evaluating it, and rendering the learned result.",
     },
     "中文": {
-        "course": "《动手学现代强化学习》· CPU 游戏实验",
+        "course": "开源强化学习在线实验",
+        "brand": "WALKINGLAB × 动手学现代强化学习",
+        "brand_note": "理解任务、调整参数，并在网页中完成真实训练。",
+        "organization": "WalkingLab 主页",
         "chapter": "阅读配套章节",
         "source": "训练源码",
         "project": "GitHub 项目",
@@ -84,7 +92,7 @@ TEXT = {
         "tasks": "可训练任务",
         "runtime": "运行环境",
         "choose": "选择一个游戏",
-        "choose_copy": "每张卡片都对应一个真实的 CPU 训练配方。选择任务、阅读目标，然后启动训练。",
+        "choose_copy": "每张卡片都对应一个真实训练配方。选择任务、阅读目标，然后启动训练。",
         "understand": "训练前先理解任务",
         "observation": "观察",
         "action": "动作",
@@ -93,7 +101,7 @@ TEXT = {
         "ready_runtime": "就绪 · 已预装",
         "hint": "调整下方参数后启动训练。学习曲线和训练日志会持续更新。",
         "setup": "实验设置",
-        "setup_copy": "默认参数适配共享的 ModelScope CPU 服务器；增加训练预算可以运行更久。",
+        "setup_copy": "默认参数适配当前 ModelScope 运行环境；增加训练预算可以运行更久。",
         "selected": "已选游戏",
         "budget": "训练预算",
         "budget_info": "根据任务表示环境步数、回合数或优化迭代次数",
@@ -105,7 +113,7 @@ TEXT = {
         "running_button": "训练中…",
         "run_status": "训练状态",
         "ready": "等待训练",
-        "ready_detail": "选择游戏、阅读目标，然后启动 CPU 训练",
+        "ready_detail": "选择游戏、阅读目标，然后启动训练",
         "running": "训练进行中",
         "complete": "训练完成",
         "failed": "训练停止",
@@ -118,7 +126,7 @@ TEXT = {
         "preview": "任务预览 / 学习后的策略",
         "preview_copy": "打开任务时显示真实环境预览；训练完成后替换为本次运行生成的回放或结果图。",
         "download": "下载运行摘要",
-        "wait_title": "CPU 训练正在运行",
+        "wait_title": "训练正在运行",
         "wait_detail": "正在准备环境、更新策略、执行评估并渲染学习结果。",
     },
 }
@@ -202,22 +210,31 @@ def hero_html(space: dict[str, Any], tasks: list[Any], task: Any, language: str,
     course = space.get("course_url", COURSE_URL)
     source = space.get("source_url", PROJECT_URL)
     project = space.get("project_url", PROJECT_URL)
+    organization = space.get("organization_url", ORGANIZATION_URL)
+    device = html.escape(str(space.get("device", "CPU")))
     badge = html.escape(str(space.get("badge", "CPU GAME LAB")))
     return f"""
     <main class="app-shell">
       <section class="hero">
+        <div class="brand-lockup">
+          <a href="{html.escape(organization)}" target="_blank" rel="noreferrer">WALKINGLAB</a>
+          <span aria-hidden="true">×</span>
+          <a href="{html.escape(project)}" target="_blank" rel="noreferrer">HANDS-ON MODERN RL</a>
+        </div>
+        <p class="brand-note">{html.escape(copy['brand_note'])}</p>
         <div class="hero-topline"><span class="experiment-badge">{badge}</span><span class="hero-course">{copy['course']}</span></div>
         <h1>{html.escape(title)}</h1>
         <p class="hero-copy">{html.escape(description)}</p>
         <nav class="hero-links">
-          <a class="hero-link primary" href="{html.escape(course)}" target="_blank" rel="noreferrer">{copy['chapter']}</a>
+          <a class="hero-link primary" href="{html.escape(project)}" target="_blank" rel="noreferrer">GitHub · walkinglabs/hands-on-modern-rl</a>
+          <a class="hero-link" href="{html.escape(organization)}" target="_blank" rel="noreferrer">{copy['organization']}</a>
+          <a class="hero-link" href="{html.escape(course)}" target="_blank" rel="noreferrer">{copy['chapter']}</a>
           <a class="hero-link" href="{html.escape(source)}" target="_blank" rel="noreferrer">{copy['source']}</a>
-          <a class="hero-link" href="{html.escape(project)}" target="_blank" rel="noreferrer">{copy['project']}</a>
         </nav>
       </section>
       <section class="lab-strip">
         <span>{copy['tasks']} <strong>{len(tasks)}</strong></span>
-        <span>{copy['device']} <strong>CPU</strong></span>
+        <span>{copy['device']} <strong>{device}</strong></span>
         <span>{copy['runtime']} <strong>{html.escape(runtime_status)}</strong></span>
         <span>Environment <strong>{html.escape(str(task_value(task, 'environment')))}</strong></span>
       </section>
@@ -377,7 +394,7 @@ def build_demo(space_module: Any):
     tasks = normalize_tasks(space_module.TASKS)
     space = dict(space_module.SPACE)
     runtime_status = str(space_module.runtime_status())
-    default_language = "English"
+    default_language = DEFAULT_LANGUAGE
     default_task = tasks[0]
 
     def gallery_items(language: str):
@@ -439,7 +456,8 @@ def build_demo(space_module: Any):
             "epsilon": float(epsilon),
             "seed": int(seed),
         }
-        logs = [f"0.0s  CONFIG  environment={task_value(task, 'environment')} algorithm={task_value(task, 'algorithm')} device=CPU"]
+        device = str(space.get("device", "CPU"))
+        logs = [f"0.0s  CONFIG  environment={task_value(task, 'environment')} algorithm={task_value(task, 'algorithm')} device={device}"]
         logs.append(f"0.0s  CONFIG  budget={params['budget']} seed={params['seed']}")
         started = time.perf_counter()
         last_x: list[float] = []
@@ -577,7 +595,7 @@ def build_demo(space_module: Any):
             with gr.Column(scale=1):
                 artifact = gr.File(label=copy["download"], interactive=False)
 
-        gr.HTML(f'<div class="footer-note">{html.escape(local_value(space["title"], "English"))} · <a href="{COURSE_URL}" target="_blank">Hands-On Modern RL</a> · WalkingLabs</div>')
+        gr.HTML(f'<div class="footer-note">{html.escape(local_value(space["title"], "English"))} · <a href="{COURSE_URL}" target="_blank">Hands-On Modern RL</a> · WalkingLab</div>')
 
         gallery.select(choose_task, inputs=[language], outputs=[selected, hero, task_info, budget, learning_rate, gamma, epsilon, status, metric, console, preview, artifact], queue=False, show_progress="hidden")
         language.change(switch_language, inputs=[language, selected, seed], outputs=[hero, catalog_header, gallery, task_info, settings_header, selected, seed, start, status, metric, chart_header, console, preview_header, artifact], queue=False, show_progress="hidden")
@@ -593,8 +611,8 @@ CSS = r"""
 .language-bar{position:absolute!important;z-index:5!important;top:18px!important;right:20px!important;width:auto!important;min-width:0!important;margin:0!important;padding:0!important;border:0!important;background:transparent!important}
 .language-switch{width:216px!important;min-width:216px!important;margin:0!important;padding:5px!important;border:1px solid rgba(255,255,255,.82)!important;border-radius:12px!important;background:rgba(255,255,255,.96)!important;box-shadow:0 10px 28px rgba(20,24,74,.2)!important;backdrop-filter:blur(12px)}
 .language-switch>.wrap:not([data-testid]){display:grid!important;grid-template-columns:1fr 1fr!important;gap:5px!important}.language-switch label{display:flex!important;align-items:center!important;justify-content:center!important;min-height:38px!important;margin:0!important;padding:0 12px!important;border:0!important;border-radius:8px!important;background:transparent!important}.language-switch label input{position:absolute!important;opacity:0!important;pointer-events:none!important}.language-switch label span{color:#343b68!important;font-weight:800!important}.language-switch label.selected,.language-switch label:has(input:checked){background:#554ee6!important;box-shadow:0 4px 12px rgba(72,65,201,.28)!important}.language-switch label.selected span,.language-switch label:has(input:checked) span{color:#fff!important}
-.app-shell{margin-bottom:18px}.hero{position:relative;overflow:hidden;padding:66px 34px 30px;border-radius:24px 24px 0 0;color:white;background:radial-gradient(circle at 84% 12%,rgba(139,92,246,.45),transparent 28%),linear-gradient(135deg,#1f255f,#3731a8 56%,#5b3fc5);box-shadow:0 24px 55px rgba(30,37,95,.18)}
-.hero:after{content:"";position:absolute;inset:auto -80px -120px auto;width:280px;height:280px;border:44px solid rgba(255,255,255,.07);border-radius:50%}.hero-topline{display:flex;gap:12px;align-items:center;margin-bottom:15px}.experiment-badge{display:inline-flex;padding:7px 11px;border:1px solid rgba(255,255,255,.3);border-radius:999px;color:#fff!important;background:rgba(255,255,255,.12);font-size:11px;font-weight:850;letter-spacing:.13em}.hero-course{font-size:13px;color:#d9ddff!important}.hero h1{position:relative;z-index:1;max-width:780px;margin:0 0 12px;color:#fff!important;font-size:clamp(30px,5vw,56px);line-height:1.04;letter-spacing:-.035em}.hero-copy{position:relative;z-index:1;max-width:760px;margin:0;color:#e1e4ff!important;font-size:16px;line-height:1.65}.hero-links{position:relative;z-index:1;display:flex;flex-wrap:wrap;gap:9px;margin-top:22px}.hero-link{display:inline-flex;padding:10px 14px;border:1px solid rgba(255,255,255,.22);border-radius:10px;color:white!important;text-decoration:none!important;background:rgba(255,255,255,.08);font-size:13px;font-weight:750}.hero-link.primary{color:#272b72!important;background:white}.lab-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;overflow:hidden;border:1px solid #dde2ec;border-top:0;border-radius:0 0 18px 18px;background:#dde2ec}.lab-strip span{padding:13px 16px;color:var(--muted);background:#fff;font-size:11px;text-transform:uppercase;letter-spacing:.07em}.lab-strip strong{display:block;margin-top:3px;color:var(--ink);font-size:13px;text-transform:none;letter-spacing:0}
+.app-shell{margin-bottom:18px}.hero{position:relative;overflow:hidden;padding:28px 34px 30px;border-radius:24px 24px 0 0;color:white;background:radial-gradient(circle at 84% 12%,rgba(139,92,246,.45),transparent 28%),linear-gradient(135deg,#1f255f,#3731a8 56%,#5b3fc5);box-shadow:0 24px 55px rgba(30,37,95,.18)}
+.hero:after{content:"";position:absolute;inset:auto -80px -120px auto;width:280px;height:280px;border:44px solid rgba(255,255,255,.07);border-radius:50%}.brand-lockup{position:relative;z-index:2;display:flex;align-items:center;gap:9px;width:max-content;max-width:calc(100% - 230px);padding:8px 12px;border:1px solid rgba(255,255,255,.28);border-radius:10px;background:rgba(12,17,59,.28);box-shadow:0 8px 24px rgba(10,13,50,.14);font-size:12px;font-weight:900;letter-spacing:.075em}.brand-lockup a{color:#fff!important;text-decoration:none!important}.brand-lockup a:last-child{color:#cfd5ff!important}.brand-lockup span{color:#aeb7ff}.brand-note{position:relative;z-index:1;margin:9px 0 18px!important;color:#dfe3ff!important;font-size:12px!important}.hero-topline{display:flex;gap:12px;align-items:center;margin-bottom:15px}.experiment-badge{display:inline-flex;padding:7px 11px;border:1px solid rgba(255,255,255,.3);border-radius:999px;color:#fff!important;background:rgba(255,255,255,.12);font-size:11px;font-weight:850;letter-spacing:.13em}.hero-course{font-size:13px;color:#d9ddff!important}.hero h1{position:relative;z-index:1;max-width:780px;margin:0 0 12px;color:#fff!important;font-size:clamp(30px,5vw,56px);line-height:1.04;letter-spacing:-.035em}.hero-copy{position:relative;z-index:1;max-width:760px;margin:0;color:#e1e4ff!important;font-size:16px;line-height:1.65}.hero-links{position:relative;z-index:1;display:flex;flex-wrap:wrap;gap:9px;margin-top:22px}.hero-link{display:inline-flex;padding:10px 14px;border:1px solid rgba(255,255,255,.22);border-radius:10px;color:white!important;text-decoration:none!important;background:rgba(255,255,255,.08);font-size:13px;font-weight:750}.hero-link.primary{color:#272b72!important;background:white}.lab-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;overflow:hidden;border:1px solid #dde2ec;border-top:0;border-radius:0 0 18px 18px;background:#dde2ec}.lab-strip span{padding:13px 16px;color:var(--muted);background:#fff;font-size:11px;text-transform:uppercase;letter-spacing:.07em}.lab-strip strong{display:block;margin-top:3px;color:var(--ink);font-size:13px;text-transform:none;letter-spacing:0}
 .catalog-card,.control-card,.chart-card,.output-card>div,.task-brief{border:1px solid #e1e6ef!important;border-radius:17px!important;background:#fff!important;box-shadow:0 14px 34px rgba(31,42,77,.055)!important}.catalog-card{padding:24px!important;margin-bottom:18px!important}.panel-title{margin:0 0 5px!important;color:var(--ink);font-size:18px!important}.panel-copy,.artifact-note{margin:0 0 18px!important;color:var(--muted)!important;font-size:13px!important;line-height:1.55!important}
 .experiment-gallery{margin-top:6px!important;border:0!important;background:transparent!important}.experiment-gallery .grid-wrap{height:auto!important;min-height:0!important}.experiment-gallery .grid-container{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:13px!important}.experiment-gallery button,.experiment-gallery .thumbnail-item{position:relative!important;height:auto!important;aspect-ratio:16/9!important;overflow:hidden!important;border:2px solid transparent!important;border-radius:14px!important;background:#101532!important;transition:transform .16s ease,border-color .16s ease!important}.experiment-gallery button:hover{transform:translateY(-2px);border-color:#7778eb!important}.experiment-gallery img{width:100%!important;height:100%!important;object-fit:cover!important}.experiment-gallery .caption-label{position:absolute!important;z-index:2!important;inset:auto 0 0!important;padding:34px 13px 12px!important;color:#fff!important;background:linear-gradient(transparent,rgba(4,8,28,.92))!important;font-size:12px!important;font-weight:800!important;line-height:1.35!important;white-space:pre-line!important;text-align:left!important}
 .task-brief{display:grid;grid-template-columns:minmax(270px,.9fr) minmax(0,1.7fr);gap:26px;margin:18px 0!important;padding:13px!important;background:linear-gradient(135deg,#fff,#f7f9ff)!important}.task-brief__visual{overflow:hidden;border-radius:12px;background:#101532}.task-brief__visual img{display:block;width:100%;height:100%;min-height:205px;object-fit:cover}.task-brief__body{padding:12px 12px 8px 0}.task-kicker{display:block;margin-bottom:7px;color:#5b5ce2;font-size:10px;font-weight:900;letter-spacing:.13em}.task-brief h3{margin:0 0 5px;color:var(--ink);font-size:23px}.task-brief p{margin:0;color:var(--muted);font-size:13px;line-height:1.55}.task-facts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}.task-facts span{padding:9px 11px;border:1px solid #e1e6ef;border-radius:9px;background:rgba(255,255,255,.88);color:var(--ink);font-size:11px}.task-facts b{display:block;margin-bottom:3px;color:#7a879d;font-size:8px;letter-spacing:.12em;text-transform:uppercase}.task-hint{font-weight:650;color:#465166!important}
@@ -602,8 +620,8 @@ CSS = r"""
 .console-panel{overflow:hidden;margin-top:14px;border:1px solid #29315e;border-radius:12px;background:#11162d}.console-head{padding:9px 13px;border-bottom:1px solid #28305b;color:#dbe1ff;font-size:11px;font-weight:800}.console-dot{display:inline-block;width:7px;height:7px;margin-right:8px;border-radius:50%;background:#31d39b}.console-text{height:300px!important;margin:0!important;padding:13px!important;overflow:auto!important;color:#d5dcf4!important;background:#11162d!important;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace!important;white-space:pre-wrap!important}.run-wait{display:flex;gap:12px;align-items:center;margin:0 0 13px;padding:13px 15px;border:1px solid #d6d8ff;border-radius:11px;background:#f8f7ff;color:#313774}.run-wait strong,.run-wait small,.run-wait em{display:block}.run-wait small{margin-top:2px;color:#68748a;font-size:11px}.run-wait em{margin-top:4px;color:#5b5ce2;font-size:10px;font-style:normal;font-weight:800}.run-wait__spinner{width:20px;height:20px;border:2px solid #d7d9ff;border-top-color:#5b5ce2;border-radius:50%;animation:spin .75s linear infinite}
 .output-card{margin-top:18px!important}.output-card>div{padding:24px!important}.policy-preview,.policy-preview .image-container,.policy-preview img{min-height:320px!important}.policy-preview img{max-height:520px!important;object-fit:contain!important;background:#0f1430}.footer-note{padding:27px 0 0;text-align:center;color:#8390a6;font-size:11px}.footer-note a{color:#5b5ce2!important;font-weight:750}
 @keyframes spin{to{transform:rotate(360deg)}}@keyframes pulse{50%{box-shadow:0 0 0 8px rgba(139,92,246,.08)}}
-@media(max-width:900px){.lab-strip{grid-template-columns:1fr 1fr}.experiment-gallery .grid-container{grid-template-columns:repeat(2,minmax(0,1fr))!important}.task-brief{grid-template-columns:1fr}.task-brief__body{padding:7px}.language-bar{position:static!important;margin:-58px 12px 16px auto!important}.hero{padding-top:34px}}
-@media(max-width:620px){.gradio-container{padding:10px!important}.hero{padding:30px 20px 24px;border-radius:18px 18px 0 0}.experiment-gallery .grid-container{grid-template-columns:1fr!important}.task-facts{grid-template-columns:1fr}.lab-strip{grid-template-columns:1fr}.language-switch{width:190px!important;min-width:190px!important}}
+@media(max-width:900px){.lab-strip{grid-template-columns:1fr 1fr}.experiment-gallery .grid-container{grid-template-columns:repeat(2,minmax(0,1fr))!important}.task-brief{grid-template-columns:1fr}.task-brief__body{padding:7px}.language-bar{position:static!important;margin:-58px 12px 16px auto!important}.brand-lockup{max-width:calc(100% - 220px)}.hero{padding-top:24px}}
+@media(max-width:620px){.gradio-container{padding:10px!important}.hero{padding:22px 20px 24px;border-radius:18px 18px 0 0}.brand-lockup{max-width:100%;font-size:10px;letter-spacing:.045em}.experiment-gallery .grid-container{grid-template-columns:1fr!important}.task-facts{grid-template-columns:1fr}.lab-strip{grid-template-columns:1fr}.language-switch{width:190px!important;min-width:190px!important}}
 """
 
 

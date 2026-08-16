@@ -1,0 +1,9 @@
+xvfb
+ffmpeg
+libgl1
+libglib2.0-0
+libxrandr2
+libxinerama1
+libxcursor1
+libxi6
+libnss3

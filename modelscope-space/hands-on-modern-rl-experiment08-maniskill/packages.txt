@@ -1,0 +1,10 @@
+ffmpeg
+libvulkan1
+vulkan-tools
+libgl1
+libglib2.0-0
+libx11-6
+libxrandr2
+libxinerama1
+libxcursor1
+libxi6

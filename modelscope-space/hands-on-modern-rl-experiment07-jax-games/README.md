@@ -10,8 +10,10 @@ pinned: false
 license: apache-2.0
 ---
 
-# Hands-On Modern RL · JAX MinAtar CPU Game Lab
+# WalkingLab × Hands-On Modern RL · JAX MinAtar CPU Game Lab
 
-在 ModelScope CPU 容器中使用 JAX/Optax 训练 MinAtar 策略。首次运行会编译更新函数，随后持续报告策略梯度损失、评估回报并生成语义像素回放。
+**WalkingLab** 与开源课程 **Hands-On Modern RL（《动手学现代强化学习》）** 的 JAX 游戏实验。在 ModelScope CPU 容器中使用 JAX/Optax 训练 MinAtar 策略。首次运行会编译更新函数，随后持续报告策略梯度损失、评估回报并生成语义像素回放。
 
 课程项目：<https://github.com/walkinglabs/hands-on-modern-rl>
+
+WalkingLab：<https://modelscope.cn/organization/walkinglab>

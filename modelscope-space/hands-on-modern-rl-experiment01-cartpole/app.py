@@ -370,6 +370,7 @@ def hero_html(language: str) -> str:
     return f"""
     <main class="app-shell">
       <section class="hero">
+        <div class="brand-lockup"><a href="https://modelscope.cn/organization/walkinglab" target="_blank" rel="noreferrer">WALKINGLAB</a><span>×</span><a href="{PROJECT_URL}" target="_blank" rel="noreferrer">HANDS-ON MODERN RL</a></div>
         <img class="project-mark" src="{LOGO_DATA_URI}" alt="Hands-On Modern RL" />
         <div class="hero-topline">
           <span class="experiment-badge">EXPERIMENT 01</span>
@@ -378,10 +379,11 @@ def hero_html(language: str) -> str:
         <h1>{copy['title']}</h1>
         <p class="hero-copy">{copy['description']}</p>
         <nav class="hero-links" aria-label="Project links">
-          <a class="hero-link primary" href="{CHAPTER_URL}" target="_blank" rel="noreferrer">{copy['chapter']}</a>
+          <a class="hero-link primary" href="{PROJECT_URL}" target="_blank" rel="noreferrer">GitHub · walkinglabs/hands-on-modern-rl</a>
+          <a class="hero-link" href="https://modelscope.cn/organization/walkinglab" target="_blank" rel="noreferrer">WalkingLab</a>
+          <a class="hero-link" href="{CHAPTER_URL}" target="_blank" rel="noreferrer">{copy['chapter']}</a>
           <a class="hero-link" href="{MODELSCOPE_NOTEBOOK_URL}" target="_blank" rel="noreferrer">{copy['notebook']}</a>
           <a class="hero-link" href="{SCRIPT_URL}" target="_blank" rel="noreferrer">{copy['script']}</a>
-          <a class="hero-link" href="{PROJECT_URL}" target="_blank" rel="noreferrer">{copy['project']}</a>
         </nav>
       </section>
       <section class="lab-strip" aria-label="Experiment configuration">
@@ -418,7 +420,7 @@ def console_panel(logs: str, language: str) -> str:
 def footer_html(language: str) -> str:
     """Render the localized footer label."""
     copy = text_for(language)
-    return f'<div class="footer-note">{copy["footer"]} · <a href="{COURSE_URL}" target="_blank" rel="noreferrer">Hands-On Modern RL</a> · WalkingLabs</div>'
+    return f'<div class="footer-note">{copy["footer"]} · <a href="{COURSE_URL}" target="_blank" rel="noreferrer">Hands-On Modern RL</a> · WalkingLab</div>'
 
 
 def switch_language(language: str):
@@ -555,6 +557,7 @@ CSS = """
   background: #ffffff;
   box-shadow: 0 8px 24px rgba(8, 15, 35, .2);
 }
+.brand-lockup{display:flex;align-items:center;gap:9px;width:max-content;max-width:calc(100% - 230px);margin:0 0 14px;padding:8px 12px;border:1px solid rgba(255,255,255,.28);border-radius:10px;background:rgba(12,17,59,.28);font-size:12px;font-weight:900;letter-spacing:.075em}.brand-lockup a{color:#fff!important;text-decoration:none!important}.brand-lockup a:last-child{color:#cfd5ff!important}.brand-lockup span{color:#aeb7ff}
 .hero-topline { display: flex; align-items: center; gap: 11px; margin-bottom: 22px; }
 .experiment-badge {
   display: inline-flex;

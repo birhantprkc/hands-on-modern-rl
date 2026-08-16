@@ -10,9 +10,12 @@ pinned: false
 license: apache-2.0
 ---
 
-# Hands-On Modern RL · Gymnasium CPU Playground
+# WalkingLab × Hands-On Modern RL · Gymnasium CPU Playground
 
-《动手学现代强化学习》的在线训练合集。创空间在构建阶段显式预装 Gymnasium 的 Atari/ALE、Box2D、Classic Control、JAX CPU、MuJoCo、Toy Text 和 Robotics 运行时，以及 EGL、OSMesa、Mesa DRI 与 FFmpeg。应用进程启动时会分别创建并执行一次代表环境，预热原生库、ROM、模型资源和 JAX 编译缓存；正式训练仍使用全新的环境实例，避免不同实验共享状态。
+**WalkingLab** 与开源课程 **Hands-On Modern RL（《动手学现代强化学习》）** 的 Gymnasium 在线训练合集。创空间在构建阶段显式预装 Gymnasium 的 Atari/ALE、Box2D、Classic Control、JAX CPU、MuJoCo、Toy Text 和 Robotics 运行时，以及 EGL、OSMesa、Mesa DRI 与 FFmpeg。应用进程启动时会分别创建并执行一次代表环境，预热原生库、ROM、模型资源和 JAX 编译缓存；正式训练仍使用全新的环境实例，避免不同实验共享状态。
+
+- Project: <https://github.com/walkinglabs/hands-on-modern-rl>
+- WalkingLab: <https://modelscope.cn/organization/walkinglab>
 
 首批实验：
 
