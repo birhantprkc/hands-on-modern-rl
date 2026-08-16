@@ -444,10 +444,13 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
             x.append(float(completed)); y.append(score)
             metrics = callback.latest
             simulation_backend = "GPU PhysX" if gpu_sim else "CPU PhysX fallback"
+            policy_loss = metrics.get("train/policy_gradient_loss")
+            value_loss = metrics.get("train/value_loss")
+            policy_loss_text = "n/a" if policy_loss is None else f"{float(policy_loss):.6g}"
+            value_loss_text = "n/a" if value_loss is None else f"{float(value_loss):.6g}"
             log = (f"PPO update · step={completed:,}\n"
                    f"parallel_envs={parallel_envs}  rollout={rollout}  policy_device={model.device}  simulation={simulation_backend}\n"
-                   f"policy_loss={float(metrics.get('train/policy_gradient_loss') or float('nan')):.6g}  "
-                   f"value_loss={float(metrics.get('train/value_loss') or float('nan')):.6g}\n"
+                   f"policy_loss={policy_loss_text}  value_loss={value_loss_text}\n"
                    f"EVAL mean_dense_return={score:.3f} std={spread:.3f}")
             yield {"phase": "training", "step": completed, "score": score, "x": x, "y": y,
                    "detail": f"{completed:,}/{int(budget):,} environment steps",
