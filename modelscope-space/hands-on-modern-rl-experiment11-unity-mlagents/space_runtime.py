@@ -236,6 +236,7 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
     y: list[float] = []
     last_step = 0
     number = r"-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+    step_re = re.compile(r"Step:\s*([0-9,]+)", re.IGNORECASE)
     score_re = re.compile(rf"Step:\s*([0-9,]+).*?Mean Reward:\s*({number})", re.IGNORECASE)
     ansi_re = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
     try:
@@ -256,11 +257,18 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
             if not re.search(r"[A-Za-z0-9]{3}", clean):
                 continue
             pending.append(clean)
+            step_match = step_re.search(clean)
+            if step_match:
+                last_step = int(step_match.group(1).replace(",", ""))
             match = score_re.search(clean)
             if match:
                 last_step, score = int(match.group(1).replace(",", "")), float(match.group(2))
                 x.append(float(last_step)); y.append(score)
-            if match or time.monotonic() - last_emit >= 0.8:
+            # Some long-horizon scenes (FoodCollector and Walker in
+            # particular) may not finish an episode before the next summary.
+            # Their native log still contains a valid Step value, so progress
+            # must advance even when Mean Reward is intentionally absent.
+            if step_match or time.monotonic() - last_emit >= 0.8:
                 event = {"phase": "training", "step": last_step, "x": x, "y": y, "detail": f"{last_step:,}/{int(budget):,} Unity steps", "log": "\n".join(pending)}
                 if match:
                     event.update(score=score, metric_detail="Unity trainer mean reward")

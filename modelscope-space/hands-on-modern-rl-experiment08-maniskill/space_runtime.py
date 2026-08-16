@@ -395,7 +395,12 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
     for detail in _wait_for_runtime():
         yield {"phase": "initializing", "step": 0, "log": detail}
     task = next(item for item in TASKS if item["key"] == key)
-    parallel_envs = max(16, min(128, int(budget) // 1_000))
+    # Keep simulator topology independent from the requested training length.
+    # Scaling a long run from 16 to 128 scenes caused SAPIEN to exhaust the
+    # graphics/PhysX initialization resources on the ModelScope T4 container,
+    # even though the same task is stable with 16 GPU scenes. A larger budget
+    # should produce more PPO updates, not silently request a larger simulator.
+    parallel_envs = 16
     yield {"phase": "initializing", "step": 0, "log": f"Creating {parallel_envs} parallel {task['environment']} simulations on {torch.cuda.get_device_name(0)}"}
     gpu_sim = True
     try:
@@ -458,10 +463,17 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         artifact_dir = ROOT / "artifacts"
         artifact_dir.mkdir(parents=True, exist_ok=True)
         model.save(str(artifact_dir / f"{key}-ppo"))
+        # Release the training scene before opening the replay scene. SAPIEN's
+        # renderer and PhysX pools are process-global and keeping both alive can
+        # make a later task fail with a misleading rendering-device error.
+        train_env.close()
+        train_env = None
+        raw = None
         preview, preview_detail = _record(model, task, int(seed) + 10_000)
         (artifact_dir / f"{key}-model.json").write_text(json.dumps({"environment": task["environment"], "algorithm": "PPO", "budget": int(budget), "parallel_envs": parallel_envs, "simulation_backend": "gpu_physx" if gpu_sim else "cpu_physx_fallback", "policy_device": str(model.device), "seed": int(seed)}, indent=2), encoding="utf-8")
         yield {"phase": "complete", "step": completed, "score": y[-1], "x": x, "y": y, "preview": preview,
                "log": f"Saved the GPU policy and generated {Path(preview).name}. {preview_detail}"}
     finally:
-        train_env.close()
-        del raw
+        if train_env is not None:
+            train_env.close()
+        raw = None

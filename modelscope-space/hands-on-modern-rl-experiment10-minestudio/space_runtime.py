@@ -60,9 +60,9 @@ def _task(key: str, title: str, zh: str, description: str, description_zh: str,
 
 TASKS = [
     _task("mine-dirt", "Mine Dirt · Visual PPO", "挖掘泥土 · 视觉 PPO", "Find the nearby dirt blocks, aim, and mine them.", "找到附近的泥土方块，瞄准并挖掘。", ["/give @s minecraft:stone_shovel", "/execute as @p at @s run fill ~1 ~ ~1 ~4 ~2 ~4 minecraft:dirt"], "mine_block", ["dirt"], "assets/minecraft-mine.svg"),
-    _task("collect-wood", "Collect Wood · Visual PPO", "收集木材 · 视觉 PPO", "Approach the nearby oak logs and collect wood with an axe.", "走近附近的橡木原木，并使用斧头收集木材。", ["/give @s minecraft:wooden_axe", "/execute as @p at @s run fill ~1 ~ ~1 ~5 ~8 ~5 minecraft:oak_log"], "mine_block", ["oak_log", "log"], "assets/minecraft-wood.svg"),
-    _task("hunt-sheep", "Hunt a Sheep · Visual PPO", "猎取绵羊 · 视觉 PPO", "Track a nearby sheep and attack with a wooden sword.", "追踪附近的绵羊，并使用木剑攻击。", ["/replaceitem entity @s weapon.mainhand minecraft:wooden_sword", "/summon minecraft:sheep ~2 ~ ~", "/give @p minecraft:bread 10"], "kill_entity", ["sheep"], "assets/minecraft-sheep.svg"),
-    _task("combat-zombie", "Combat a Zombie · Visual PPO", "对抗僵尸 · 视觉 PPO", "Face one nearby zombie at night and learn a short combat policy.", "在夜间面对附近的一只僵尸，学习一段短程战斗策略。", ["/replaceitem entity @s armor.chest minecraft:diamond_chestplate", "/replaceitem entity @s weapon.mainhand minecraft:diamond_sword", "/summon minecraft:zombie ~3 ~ ~", "/time set night"], "kill_entity", ["zombie"], "assets/minecraft-zombie.svg"),
+    _task("collect-wood", "Collect Wood · Visual PPO", "收集木材 · 视觉 PPO", "Approach the nearby oak logs and collect wood with an axe.", "走近附近的橡木原木，并使用斧头收集木材。", ["/give @s minecraft:wooden_axe", "/execute as @p at @s run fill ~1 ~ ~1 ~5 ~10 ~5 minecraft:oak_log"], "mine_block", ["oak_log", "log"], "assets/minecraft-wood.svg"),
+    _task("hunt-sheep", "Hunt a Sheep · Visual PPO", "猎取绵羊 · 视觉 PPO", "Track a nearby sheep and attack with a wooden sword.", "追踪附近的绵羊，并使用木剑攻击。", ["/replaceitem entity @s weapon.mainhand minecraft:wooden_sword", "/summon minecraft:sheep ~2 ~ ~", "/give @p minecraft:bread 10", "/give @p minecraft:wooden_sword 1"], "kill_entity", ["sheep"], "assets/minecraft-sheep.svg"),
+    _task("combat-zombie", "Combat a Zombie · Visual PPO", "对抗僵尸 · 视觉 PPO", "Face one nearby zombie at night and learn a short combat policy.", "在夜间面对附近的一只僵尸，学习一段短程战斗策略。", ["/replaceitem entity @s armor.head minecraft:diamond_helmet", "/replaceitem entity @s armor.chest minecraft:diamond_chestplate", "/replaceitem entity @s armor.legs minecraft:diamond_leggings", "/replaceitem entity @s armor.feet minecraft:diamond_boots", "/replaceitem entity @s weapon.mainhand minecraft:diamond_sword", "/summon minecraft:zombie ~3 ~ ~", "/time set night"], "kill_entity", ["zombie"], "assets/minecraft-zombie.svg"),
 ]
 
 
@@ -319,6 +319,15 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
             yield {"phase": "initializing", "step": 0, "log": detail}
         yield {"phase": "initializing", "step": 0, "log": "Starting the Minecraft renderer"}
         xvfb = _start_xvfb(); time.sleep(1.0)
+        yield {
+            "phase": "initializing",
+            "step": 0,
+            "detail": "Launching the Minecraft Java world",
+            "log": (
+                "Launching the MineStudio Java/Forge world. The first world connection "
+                "normally takes several minutes; this run remains active while the controls stay locked."
+            ),
+        }
         env = _make_env(task, int(seed))
 
         class MetricsCallback(BaseCallback):
@@ -333,7 +342,10 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         x: list[float] = []
         y: list[float] = []
         completed = 0
-        chunk = max(1_024, int(budget) // 6)
+        # One 1,024-step call leaves the online console unchanged for several
+        # minutes. PPO already uses 256-step rollouts, so expose each rollout
+        # as a real checkpoint without changing the total amount of training.
+        chunk = max(256, (int(budget) // 6 // 256) * 256)
         while completed < int(budget):
             model.learn(total_timesteps=min(chunk, int(budget) - completed), reset_num_timesteps=False,
                         callback=callback, progress_bar=False)
@@ -349,6 +361,9 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         artifact_dir = ROOT / "artifacts"; artifact_dir.mkdir(parents=True, exist_ok=True)
         model.save(str(artifact_dir / f"{key}-cnn-ppo"))
         env.close(); env = None
+        yield {"phase": "finalizing", "step": completed, "x": x, "y": y,
+               "detail": "Recording the learned Minecraft policy",
+               "log": "Training is complete. Starting a fresh Minecraft episode for the learned-policy GIF."}
         preview, evaluation = _record(model, task, int(seed) + 10_000)
         (artifact_dir / f"{key}-model.json").write_text(json.dumps({"environment": task["environment"], "algorithm": "CNN PPO", "budget": int(budget), "seed": int(seed), "evaluation_return": evaluation}, indent=2), encoding="utf-8")
         yield {"phase": "complete", "step": completed, "score": evaluation, "x": x, "y": y,

@@ -319,6 +319,9 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
     env = None
     try:
         xvfb = _start_xvfb(); time.sleep(1.0)
+        yield {"phase": "initializing", "step": 0,
+               "detail": f"Launching {task['scene']}",
+               "log": "Launching the AI2-THOR Unity scene through Xvfb; controls remain locked until the scene is ready."}
         env = _make_env(task, int(seed))
 
         class MetricsCallback(BaseCallback):
@@ -333,7 +336,9 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         x: list[float] = []
         y: list[float] = []
         completed = 0
-        chunk = max(1_024, int(budget) // 6)
+        # Publish every native 256-step PPO rollout so the progress bar and
+        # live console keep moving during the minimum online demonstration.
+        chunk = max(256, (int(budget) // 6 // 256) * 256)
         while completed < int(budget):
             model.learn(total_timesteps=min(chunk, int(budget) - completed), reset_num_timesteps=False, callback=callback, progress_bar=False)
             completed = min(int(budget), int(model.num_timesteps))
@@ -348,6 +353,9 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         artifact_dir = ROOT / "artifacts"; artifact_dir.mkdir(parents=True, exist_ok=True)
         model.save(str(artifact_dir / f"{key}-cnn-ppo"))
         env.close(); env = None
+        yield {"phase": "finalizing", "step": completed, "x": x, "y": y,
+               "detail": "Recording the learned ObjectNav policy",
+               "log": "Training is complete. Starting a fresh AI2-THOR episode for the learned-policy GIF."}
         preview, evaluation, success = _record(model, task, int(seed) + 10_000)
         (artifact_dir / f"{key}-model.json").write_text(json.dumps({"scene": task["scene"], "target": task["target"], "algorithm": "CNN PPO", "budget": int(budget), "seed": int(seed), "evaluation_return": evaluation, "success": success}, indent=2), encoding="utf-8")
         yield {"phase": "complete", "step": completed, "score": evaluation, "x": x, "y": y, "preview": preview,
