@@ -1,10 +1,10 @@
 xvfb
 ffmpeg
 aria2
-libvulkan1
-vulkan-tools
-mesa-vulkan-drivers
 libgl1
+libgl1-mesa-dri
+libglx-mesa0
+mesa-utils
 libglib2.0-0
 libx11-6
 libxext6

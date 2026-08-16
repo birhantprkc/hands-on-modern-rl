@@ -25,24 +25,16 @@ THOR_CACHE = Path("/mnt/workspace/hands-on-modern-rl/ai2thor")
 os.environ.setdefault("DISPLAY", ":99")
 
 
-def _configure_software_vulkan() -> str | None:
-    """Select Mesa Vulkan before AI2-THOR starts its Unity player."""
-    candidates = sorted(
-        list(Path("/usr/share/vulkan/icd.d").glob("lvp_icd*.json"))
-        + list(Path("/usr/local/share/vulkan/icd.d").glob("lvp_icd*.json"))
-    )
-    if not candidates:
-        return None
-    icd = str(candidates[0])
-    os.environ["VK_ICD_FILENAMES"] = icd
-    os.environ["VK_DRIVER_FILES"] = icd
+def _configure_software_opengl() -> str:
+    """Select Mesa llvmpipe before AI2-THOR starts its X11 Unity player."""
     os.environ["LIBGL_ALWAYS_SOFTWARE"] = "1"
     os.environ["MESA_LOADER_DRIVER_OVERRIDE"] = "llvmpipe"
     os.environ["GALLIUM_DRIVER"] = "llvmpipe"
-    return icd
+    os.environ["XLIB_SKIP_ARGB_VISUALS"] = "1"
+    return "Mesa llvmpipe OpenGL"
 
 
-SOFTWARE_VULKAN_ICD = _configure_software_vulkan()
+SOFTWARE_RENDERER = _configure_software_opengl()
 
 SPACE = {
     "title": {"en": "AI2-THOR xGPU Embodied Home", "zh": "AI2-THOR xGPU 具身家庭环境"},
@@ -51,7 +43,7 @@ SPACE = {
         "zh": "在 AI2-THOR 渲染的可交互厨房、客厅和卧室中训练视觉目标导航策略。",
     },
     "badge": "EXPERIMENT 12 · AI2-THOR",
-    "device": "xGPU · CUDA PPO + Mesa Vulkan",
+    "device": "xGPU · CUDA PPO + Xvfb OpenGL",
     "organization_url": "https://modelscope.cn/organization/walkinglab",
     "project_url": "https://github.com/walkinglabs/hands-on-modern-rl",
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/",
@@ -85,8 +77,7 @@ def runtime_status() -> str:
         import ai2thor
         import torch
         device = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "waiting for xGPU"
-        renderer = "Mesa software Vulkan" if SOFTWARE_VULKAN_ICD else "Vulkan device pending"
-        return f"AI2-THOR {getattr(ai2thor, '__version__', '5.0.0')} · {device} · {renderer}"
+        return f"AI2-THOR {getattr(ai2thor, '__version__', '5.0.0')} · {device} · {SOFTWARE_RENDERER}"
     except Exception as exc:
         return f"installing AI2-THOR runtime · {type(exc).__name__}"
 
@@ -110,20 +101,20 @@ def _safe_extract(archive: Path, destination: Path) -> None:
 
 
 def _prepare_thor_build() -> Iterator[str]:
-    """Download the official build in parallel, verify it, and persist the extraction."""
+    """Download the official Linux/X11 build, verify it, and persist it."""
     import ai2thor.build
-    from ai2thor.platform import CloudRendering
+    from ai2thor.platform import Linux64
 
     releases = Path.home() / ".ai2thor" / "releases"
     build = ai2thor.build.Build(
-        platform=CloudRendering,
+        platform=Linux64,
         commit_id=ai2thor.build.COMMIT_ID,
         include_private_scenes=False,
         releases_dir=str(releases),
     )
     executable = Path(build.executable_path)
     if executable.exists():
-        yield f"AI2-THOR CloudRendering cache ready: {executable}"
+        yield f"AI2-THOR Linux64/Xvfb cache ready: {executable}"
         return
 
     if shutil.which("aria2c") is None:
@@ -138,7 +129,7 @@ def _prepare_thor_build() -> Iterator[str]:
         "--enable-color=false",
         "--dir", str(downloads), "--out", archive.name, build.url,
     ]
-    yield "Downloading the official AI2-THOR CloudRendering build with 16 parallel ranges"
+    yield "Downloading the official AI2-THOR Linux64 build with 16 parallel ranges"
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -179,7 +170,7 @@ def _prepare_thor_build() -> Iterator[str]:
     if digest.hexdigest().lower() != expected:
         raise RuntimeError("AI2-THOR build failed the official SHA-256 verification")
 
-    yield "Official SHA-256 verified · extracting CloudRendering into persistent storage"
+    yield "Official SHA-256 verified · extracting Linux64 into persistent storage"
     releases.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=f"{build.name}-", dir=str(THOR_CACHE)) as temporary:
         extracted = Path(temporary) / build.name
@@ -190,7 +181,7 @@ def _prepare_thor_build() -> Iterator[str]:
         os.replace(extracted, base_dir)
     executable.chmod(0o755)
     archive.unlink(missing_ok=True)
-    yield f"AI2-THOR CloudRendering cache ready: {executable}"
+    yield f"AI2-THOR Linux64/Xvfb cache ready: {executable}"
 
 
 def _start_xvfb() -> subprocess.Popen[str]:
@@ -215,18 +206,18 @@ class ThorObjectNavEnv(gym.Env):
 
     def __init__(self, task: dict[str, Any], seed: int, max_steps: int = 256):
         from ai2thor.controller import Controller
-        from ai2thor.platform import CloudRendering
+        from ai2thor.platform import Linux64
 
         self.task, self.seed, self.max_steps, self.steps = task, seed, max_steps, 0
-        # ModelScope xGPU exposes CUDA compute but not the matching NVIDIA
-        # Vulkan device. AI2-THOR maps CUDA UUIDs to Vulkan whenever either
-        # gpu_device or CUDA_VISIBLE_DEVICES is set. Hide the latter only while
-        # launching Unity so it selects Mesa Lavapipe; restore it immediately
-        # for the already initialized Torch CUDA policy.
+        # ModelScope xGPU exposes CUDA compute but no graphics device. The
+        # official Linux64 player renders through Xvfb + Mesa llvmpipe. Hide
+        # CUDA_VISIBLE_DEVICES only while AI2-THOR builds its Unity command so
+        # it cannot append a Vulkan-only force-device-index argument; restore
+        # it immediately for the already initialized Torch CUDA policy.
         cuda_visible_devices = os.environ.pop("CUDA_VISIBLE_DEVICES", None)
         try:
             self.controller = Controller(
-                scene=task["scene"], platform=CloudRendering,
+                scene=task["scene"], platform=Linux64, x_display=os.environ["DISPLAY"],
                 width=320, height=240, fieldOfView=90, quality="Low",
                 gridSize=0.25, rotateStepDegrees=30, visibilityDistance=1.5,
             )
@@ -319,7 +310,7 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
     yield {"phase": "initializing", "step": 0, "log": f"AI2-THOR persistent cache: {THOR_CACHE}"}
     for detail in _prepare_thor_build():
         yield {"phase": "initializing", "step": 0, "log": detail}
-    yield {"phase": "initializing", "step": 0, "log": f"Preparing {task['scene']} with CloudRendering on {torch.cuda.get_device_name(0)}"}
+    yield {"phase": "initializing", "step": 0, "log": f"Preparing {task['scene']} with Linux64/Xvfb rendering; PPO device={torch.cuda.get_device_name(0)}"}
     xvfb: subprocess.Popen[str] | None = None
     env = None
     try:
