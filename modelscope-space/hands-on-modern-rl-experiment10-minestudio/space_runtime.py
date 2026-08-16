@@ -275,8 +275,11 @@ class MinecraftDiscreteEnv(gym.Env):
 
 
 def _make_env(task: dict[str, Any], seed: int):
-    import gymnasium as gym
-    return gym.wrappers.RecordEpisodeStatistics(MinecraftDiscreteEnv(task, seed))
+    # MineStudio already publishes an ``episode`` entry in its persistent info
+    # dictionary. Gymnasium's RecordEpisodeStatistics asserts that this key is
+    # absent at termination, while Stable-Baselines3 adds its own Monitor around
+    # this plain environment and records the same statistics without that clash.
+    return MinecraftDiscreteEnv(task, seed)
 
 
 def _record(model: Any, task: dict[str, Any], seed: int) -> tuple[str, float]:
