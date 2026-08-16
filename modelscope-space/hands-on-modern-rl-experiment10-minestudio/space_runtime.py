@@ -20,6 +20,7 @@ from sb3_tools import save_gif
 ROOT = Path(__file__).resolve().parent
 BUNDLED_JAVA = ROOT / "assets" / "OpenJDK8U-jre_x64_linux_hotspot_8u502b07.tar.gz"
 os.environ.setdefault("MINESTUDIO_DIR", "/mnt/workspace/hands-on-modern-rl/minestudio")
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ.setdefault("DISPLAY", ":99")
 JAVA_CACHE = Path("/mnt/workspace/hands-on-modern-rl/temurin-jre8")
 JAVA_URL = "https://api.adoptium.net/v3/binary/latest/8/ga/linux/x64/jre/hotspot/normal/eclipse"
@@ -230,7 +231,7 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
     yield {"phase": "initializing", "step": 0, "log": f"Preparing persistent MineStudio engine cache at {os.environ['MINESTUDIO_DIR']}"}
     try:
         java = _ensure_java8()
-        yield {"phase": "initializing", "step": 0, "log": f"Temurin Java 8 ready: {java}\nStarting the Minecraft renderer"}
+        yield {"phase": "initializing", "step": 0, "log": f"Temurin Java 8 ready: {java}\nMineStudio engine source: {os.environ['HF_ENDPOINT']}\nStarting the Minecraft renderer"}
         xvfb = _start_xvfb(); time.sleep(1.0)
         env = _make_env(task, int(seed))
 

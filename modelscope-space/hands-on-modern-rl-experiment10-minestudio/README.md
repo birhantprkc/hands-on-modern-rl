@@ -21,3 +21,5 @@ license: apache-2.0
 - Training source: <https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment10-minestudio/file/view/master/space_runtime.py>
 
 The live Studio bundles the official Eclipse Temurin JRE 8 archive so Minecraft startup does not depend on a slow first-run GitHub redirect. Its SHA-256 is `f1a7bea0804bfa5627dac412fe7a0d751c4228592e356d6a32a30da54a48ed7a`; the unmodified archive contains the upstream `NOTICE`, `LICENSE`, `ASSEMBLY_EXCEPTION`, and third-party license files (GPL-2.0 with Classpath Exception).
+
+MineStudio's separate 458 MB simulator engine remains sourced from the upstream `CraftJarvis/SimulatorEngine` repository. The container uses the `hf-mirror.com` endpoint because direct `huggingface.co` egress is unavailable on ModelScope xGPU, and keeps the downloaded engine under `/mnt/workspace` for later runs.
