@@ -81,26 +81,26 @@ def runtime_status() -> str:
 
 
 def _ensure_unity_bundle() -> Path:
-    executable = UNITY_CACHE / "Startup"
-    if executable.exists():
-        executable.chmod(0o755)
-        return executable
+    candidates = [path for path in UNITY_CACHE.rglob("Startup.x86_64") if path.is_file()]
+    if not candidates:
+        candidates = [path for path in UNITY_CACHE.rglob("*.x86_64") if path.is_file()]
+    if candidates:
+        candidates[0].chmod(0o755)
+        return candidates[0]
     UNITY_CACHE.mkdir(parents=True, exist_ok=True)
     archive, partial = UNITY_CACHE / "Startup.zip", UNITY_CACHE / "Startup.zip.part"
     urllib.request.urlretrieve(UNITY_BUNDLE_URL, partial)
     partial.replace(archive)
     with zipfile.ZipFile(archive) as bundle:
         bundle.extractall(UNITY_CACHE)
-    candidates = [path for path in UNITY_CACHE.rglob("Startup") if path.is_file()]
+    candidates = [path for path in UNITY_CACHE.rglob("Startup.x86_64") if path.is_file()]
     if not candidates:
         candidates = [path for path in UNITY_CACHE.rglob("*.x86_64") if path.is_file()]
     if not candidates:
         raise RuntimeError("The official Unity bundle did not contain a Linux executable")
     selected = candidates[0]
     selected.chmod(0o755)
-    if selected != executable:
-        executable.symlink_to(selected)
-    return executable
+    return selected
 
 
 def _scaled_config(task: dict[str, Any], budget: int, learning_rate: float, gamma: float,
