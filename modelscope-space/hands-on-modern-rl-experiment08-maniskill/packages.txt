@@ -1,4 +1,5 @@
 ffmpeg
+aria2
 libvulkan1
 vulkan-tools
 libgl1

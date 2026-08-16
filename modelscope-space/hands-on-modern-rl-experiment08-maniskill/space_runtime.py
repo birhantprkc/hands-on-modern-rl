@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import threading
-import time
 from pathlib import Path
 from typing import Any, Iterator
 from zipfile import ZipFile
@@ -95,34 +96,28 @@ def _prepare_persistent_sapien_home() -> Path:
 
 
 def _download_physx(url: str, archive: Path, target: Path, dll: Path) -> None:
-    import requests
-
-    existing = archive.stat().st_size if archive.exists() else 0
-    headers = {"Range": f"bytes={existing}-"} if existing else {}
-    with requests.get(url, headers=headers, stream=True, timeout=(30, 900)) as response:
-        response.raise_for_status()
-        resumed = existing > 0 and response.status_code == 206
-        mode = "ab" if resumed else "wb"
-        downloaded = existing if resumed else 0
-        remaining = int(response.headers.get("content-length") or 0)
-        total = downloaded + remaining if remaining else 0
-        last_update = 0.0
-        with archive.open(mode) as handle:
-            for chunk in response.iter_content(chunk_size=1024 * 1024):
-                if not chunk:
-                    continue
-                handle.write(chunk)
-                downloaded += len(chunk)
-                now = time.monotonic()
-                if now - last_update >= 1.0:
-                    percent = downloaded / total if total else 0.0
-                    _set_warmup_state(
-                        "downloading",
-                        f"Downloading GPU PhysX runtime · {downloaded / 1_048_576:.1f} / "
-                        f"{total / 1_048_576:.1f} MiB",
-                        percent,
-                    )
-                    last_update = now
+    if shutil.which("aria2c") is None:
+        raise RuntimeError("aria2c is required to prepare the GPU PhysX cache efficiently")
+    process = subprocess.Popen(
+        [
+            "aria2c", "--allow-overwrite=true", "--auto-file-renaming=false", "--continue=true",
+            "--file-allocation=none", "--max-connection-per-server=16", "--split=16",
+            "--min-split-size=1M", "--summary-interval=2", "--console-log-level=notice",
+            "--dir", str(archive.parent), "--out", archive.name, url,
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        start_new_session=True,
+    )
+    assert process.stdout is not None
+    for line in process.stdout:
+        clean = line.strip()
+        if clean and ("[#" in clean or "Download complete" in clean):
+            _set_warmup_state("downloading", f"GPU PhysX · {clean}", 0.5)
+    if process.wait() != 0:
+        raise RuntimeError(f"GPU PhysX parallel download exited with code {process.returncode}")
     _set_warmup_state("extracting", "Extracting the GPU PhysX runtime into persistent storage", 0.98)
     with ZipFile(archive) as bundle:
         bundle.extractall(target)
