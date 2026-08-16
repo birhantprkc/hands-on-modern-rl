@@ -219,7 +219,7 @@ class ThorObjectNavEnv(gym.Env):
             self.controller = Controller(
                 scene=task["scene"], platform=Linux64, x_display=os.environ["DISPLAY"],
                 width=320, height=240, fieldOfView=90, quality="Low",
-                gridSize=0.25, rotateStepDegrees=30, visibilityDistance=1.5,
+                gridSize=0.25, rotateStepDegrees=90, visibilityDistance=1.5,
             )
         finally:
             if cuda_visible_devices is not None:
