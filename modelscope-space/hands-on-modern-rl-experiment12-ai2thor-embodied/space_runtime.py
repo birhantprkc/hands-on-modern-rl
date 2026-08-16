@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 import os
+import shutil
 import signal
 import subprocess
+import tempfile
 import time
+import zipfile
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -71,6 +75,90 @@ def _prepare_cache() -> None:
     default = Path.home() / ".ai2thor"
     if not default.exists():
         default.symlink_to(THOR_CACHE, target_is_directory=True)
+
+
+def _safe_extract(archive: Path, destination: Path) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    root = destination.resolve()
+    with zipfile.ZipFile(archive) as bundle:
+        for member in bundle.infolist():
+            target = (destination / member.filename).resolve()
+            if target != root and root not in target.parents:
+                raise RuntimeError(f"Unsafe path in AI2-THOR archive: {member.filename}")
+        bundle.extractall(destination)
+
+
+def _prepare_thor_build() -> Iterator[str]:
+    """Download the official build in parallel, verify it, and persist the extraction."""
+    import ai2thor.build
+    from ai2thor.platform import CloudRendering
+
+    releases = Path.home() / ".ai2thor" / "releases"
+    build = ai2thor.build.Build(
+        platform=CloudRendering,
+        commit_id=ai2thor.build.COMMIT_ID,
+        include_private_scenes=False,
+        releases_dir=str(releases),
+    )
+    executable = Path(build.executable_path)
+    if executable.exists():
+        yield f"AI2-THOR CloudRendering cache ready: {executable}"
+        return
+
+    if shutil.which("aria2c") is None:
+        raise RuntimeError("aria2c is required to prepare the 797 MB AI2-THOR build efficiently")
+    downloads = THOR_CACHE / "downloads"
+    downloads.mkdir(parents=True, exist_ok=True)
+    archive = downloads / f"{build.name}.zip"
+    command = [
+        "aria2c", "--allow-overwrite=true", "--auto-file-renaming=false", "--continue=true",
+        "--file-allocation=none", "--max-connection-per-server=16", "--split=16",
+        "--min-split-size=1M", "--summary-interval=4", "--console-log-level=notice",
+        "--dir", str(downloads), "--out", archive.name, build.url,
+    ]
+    yield "Downloading the official AI2-THOR CloudRendering build with 16 parallel ranges"
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        start_new_session=True,
+    )
+    assert process.stdout is not None
+    for line in process.stdout:
+        clean = line.strip()
+        if clean and ("[#" in clean or "Download complete" in clean or "NOTICE" in clean):
+            yield clean
+    if process.wait() != 0:
+        raise RuntimeError(f"AI2-THOR parallel download exited with code {process.returncode}")
+
+    expected = subprocess.run(
+        ["curl", "--fail", "--location", "--silent", "--show-error", build.sha256_url],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    ).stdout.strip().split()[0].lower()
+    digest = hashlib.sha256()
+    with archive.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest().lower() != expected:
+        raise RuntimeError("AI2-THOR build failed the official SHA-256 verification")
+
+    yield "Official SHA-256 verified · extracting CloudRendering into persistent storage"
+    releases.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=f"{build.name}-", dir=str(THOR_CACHE)) as temporary:
+        extracted = Path(temporary) / build.name
+        _safe_extract(archive, extracted)
+        base_dir = Path(build.base_dir)
+        if base_dir.exists():
+            raise RuntimeError(f"Incomplete AI2-THOR cache already exists: {base_dir}")
+        os.replace(extracted, base_dir)
+    executable.chmod(0o755)
+    archive.unlink(missing_ok=True)
+    yield f"AI2-THOR CloudRendering cache ready: {executable}"
 
 
 def _start_xvfb() -> subprocess.Popen[str]:
@@ -184,7 +272,10 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         raise RuntimeError("This visual ObjectNav experiment requires a scheduled ModelScope xGPU")
     task = next(item for item in TASKS if item["key"] == key)
     _prepare_cache()
-    yield {"phase": "initializing", "step": 0, "log": f"AI2-THOR persistent cache: {THOR_CACHE}\nPreparing {task['scene']} with CloudRendering on {torch.cuda.get_device_name(0)}"}
+    yield {"phase": "initializing", "step": 0, "log": f"AI2-THOR persistent cache: {THOR_CACHE}"}
+    for detail in _prepare_thor_build():
+        yield {"phase": "initializing", "step": 0, "log": detail}
+    yield {"phase": "initializing", "step": 0, "log": f"Preparing {task['scene']} with CloudRendering on {torch.cuda.get_device_name(0)}"}
     xvfb: subprocess.Popen[str] | None = None
     env = None
     try:
