@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import base64
 import html
 import json
 import math
+import mimetypes
 import os
 import time
 import traceback
 from dataclasses import asdict, is_dataclass
+from functools import lru_cache
 from pathlib import Path
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/hands-on-modern-rl-matplotlib")
 
@@ -157,6 +160,15 @@ def preview_path(root: Path, task: Any) -> str:
     return str(path)
 
 
+@lru_cache(maxsize=128)
+def embedded_image(path_value: str) -> str:
+    """Return a proxy-independent data URL for task-detail HTML images."""
+    path = Path(path_value)
+    mime_type = mimetypes.guess_type(path.name)[0] or "image/png"
+    encoded = base64.b64encode(path.read_bytes()).decode("ascii")
+    return f"data:{mime_type};base64,{encoded}"
+
+
 def hero_html(space: dict[str, Any], tasks: list[Any], task: Any, language: str, runtime_status: str) -> str:
     copy = copy_for(language)
     title = local_value(space["title"], language)
@@ -189,9 +201,10 @@ def hero_html(space: dict[str, Any], tasks: list[Any], task: Any, language: str,
 
 def task_brief(root: Path, task: Any, language: str) -> str:
     copy = copy_for(language)
+    preview = embedded_image(preview_path(root, task))
     return f"""
     <section class="task-brief">
-      <div class="task-brief__visual"><img src="/gradio_api/file={html.escape(preview_path(root, task))}" alt="{html.escape(str(task_value(task, 'environment')))}"></div>
+      <div class="task-brief__visual"><img src="{html.escape(preview)}" alt="{html.escape(str(task_value(task, 'environment')))}"></div>
       <div class="task-brief__body">
         <span class="task-kicker">{copy['understand']}</span>
         <h3>{html.escape(local_value(task_value(task, 'title'), language))}</h3>
