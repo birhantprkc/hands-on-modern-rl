@@ -249,7 +249,11 @@ class ThorObjectNavEnv(gym.Env):
         return self._image(), {"target": self.target_id, "distance": self.previous_distance}
 
     def step(self, action: int):
-        self.last_event = self.controller.step(action=self.ACTIONS[int(action)], moveMagnitude=0.25)
+        action_name = self.ACTIONS[int(action)]
+        action_arguments: dict[str, Any] = {"action": action_name}
+        if action_name in {"MoveAhead", "MoveBack"}:
+            action_arguments["moveMagnitude"] = 0.25
+        self.last_event = self.controller.step(**action_arguments)
         self.steps += 1
         objects = {obj["objectId"]: obj for obj in self.last_event.metadata["objects"]}
         target = objects[self.target_id]
