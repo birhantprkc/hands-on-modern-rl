@@ -7,7 +7,6 @@ import signal
 import subprocess
 import tarfile
 import time
-import urllib.request
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -79,7 +78,15 @@ def _ensure_java8() -> Path:
     if not java_candidates:
         JAVA_CACHE.mkdir(parents=True, exist_ok=True)
         archive, partial = JAVA_CACHE / "temurin8.tar.gz", JAVA_CACHE / "temurin8.tar.gz.part"
-        urllib.request.urlretrieve(JAVA_URL, partial)
+        subprocess.run(
+            [
+                "curl", "--fail", "--location", "--show-error", "--silent",
+                "--retry", "3", "--retry-delay", "2", "--continue-at", "-",
+                "--output", str(partial), JAVA_URL,
+            ],
+            check=True,
+            timeout=900,
+        )
         partial.replace(archive)
         with tarfile.open(archive, "r:gz") as bundle:
             root = JAVA_CACHE.resolve()

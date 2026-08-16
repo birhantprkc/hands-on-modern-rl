@@ -1,4 +1,4 @@
-gradio==6.17.3
+gradio[mcp]==6.17.3
 matplotlib>=3.8,<4
 numpy==1.23.5
 Pillow>=10,<12

@@ -6,7 +6,6 @@ import shutil
 import signal
 import subprocess
 import time
-import urllib.request
 import zipfile
 from pathlib import Path
 from typing import Any, Iterator
@@ -89,7 +88,15 @@ def _ensure_unity_bundle() -> Path:
         return candidates[0]
     UNITY_CACHE.mkdir(parents=True, exist_ok=True)
     archive, partial = UNITY_CACHE / "Startup.zip", UNITY_CACHE / "Startup.zip.part"
-    urllib.request.urlretrieve(UNITY_BUNDLE_URL, partial)
+    subprocess.run(
+        [
+            "curl", "--fail", "--location", "--show-error", "--silent",
+            "--retry", "3", "--retry-delay", "2", "--continue-at", "-",
+            "--output", str(partial), UNITY_BUNDLE_URL,
+        ],
+        check=True,
+        timeout=900,
+    )
     partial.replace(archive)
     with zipfile.ZipFile(archive) as bundle:
         bundle.extractall(UNITY_CACHE)
