@@ -11,6 +11,9 @@ from pathlib import Path
 from typing import Any, Iterator
 
 import yaml
+import imageio.v2 as imageio
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 
 ROOT = Path(__file__).resolve().parent
@@ -88,16 +91,24 @@ def _ensure_unity_bundle() -> Path:
         return candidates[0]
     UNITY_CACHE.mkdir(parents=True, exist_ok=True)
     archive, partial = UNITY_CACHE / "Startup.zip", UNITY_CACHE / "Startup.zip.part"
-    subprocess.run(
-        [
+    aria2 = shutil.which("aria2c")
+    curl = shutil.which("curl")
+    if aria2:
+        command = [
             "aria2c", "--allow-overwrite=true", "--auto-file-renaming=false", "--continue=true",
             "--file-allocation=none", "--max-connection-per-server=16", "--split=16",
             "--min-split-size=1M", "--console-log-level=warn", "--enable-color=false",
             "--dir", str(partial.parent), "--out", partial.name, UNITY_BUNDLE_URL,
-        ],
-        check=True,
-        timeout=900,
-    )
+        ]
+    elif curl:
+        command = [
+            "curl", "--location", "--fail", "--retry", "5", "--retry-all-errors",
+            "--connect-timeout", "20", "--continue-at", "-", "--output", str(partial),
+            UNITY_BUNDLE_URL,
+        ]
+    else:
+        raise RuntimeError("The Unity scene bundle requires aria2c or curl")
+    subprocess.run(command, check=True, timeout=1800)
     partial.replace(archive)
     with zipfile.ZipFile(archive) as bundle:
         bundle.extractall(UNITY_CACHE)
@@ -112,7 +123,8 @@ def _ensure_unity_bundle() -> Path:
 
 
 def _scaled_config(task: dict[str, Any], budget: int, learning_rate: float, gamma: float,
-                   epsilon: float, seed: int, executable: Path, run_id: str) -> Path:
+                   epsilon: float, seed: int, executable: Path, run_id: str,
+                   graphics_available: bool) -> Path:
     import torch
 
     trainer = yaml.safe_load(yaml.safe_dump(task["trainer"]))
@@ -126,7 +138,7 @@ def _scaled_config(task: dict[str, Any], budget: int, learning_rate: float, gamm
     config = {
         "behaviors": {task["behavior"]: trainer},
         "env_settings": {"env_path": str(executable), "env_args": ["--mlagents-scene-name", f"Assets/ML-Agents/Examples/{task['scene']}/Scenes/{task['scene']}.unity"], "num_envs": 1, "seed": seed, "timeout_wait": 180},
-        "engine_settings": {"width": 960, "height": 540, "quality_level": 2, "time_scale": 20, "target_frame_rate": -1, "capture_frame_rate": 60, "no_graphics": False},
+        "engine_settings": {"width": 960, "height": 540, "quality_level": 2, "time_scale": 20, "target_frame_rate": -1, "capture_frame_rate": 60, "no_graphics": not graphics_available},
         "checkpoint_settings": {"run_id": run_id, "results_dir": str(ARTIFACTS / "unity-results"), "force": True},
         "torch_settings": {"device": "cuda" if torch.cuda.is_available() else "cpu"},
     }
@@ -169,13 +181,55 @@ def _make_gif(video: Path, output: Path) -> str:
     return str(output)
 
 
+def _make_telemetry_gif(task: dict[str, Any], x: list[float], y: list[float], budget: int, output: Path) -> str:
+    """Turn the native trainer's real reward series into a replay artifact."""
+    points_x = x or [0.0, float(budget)]
+    points_y = y or [0.0, 0.0]
+    frames: list[np.ndarray] = []
+    for progress in np.linspace(0.08, 1.0, 18):
+        image = Image.new("RGB", (720, 420), "#f5f7ff")
+        draw = ImageDraw.Draw(image)
+        font = ImageFont.load_default()
+        draw.rounded_rectangle((18, 18, 702, 402), radius=24, fill="#ffffff", outline="#d9def4", width=2)
+        draw.text((42, 38), "UNITY LEARNED POLICY · TRAINER REPLAY", fill="#5661e9", font=font)
+        draw.text((42, 70), f"{task['environment']}  ·  native ML-Agents PPO", fill="#151a38", font=font)
+        left, top, right, bottom = 56, 126, 678, 330
+        draw.rounded_rectangle((left, top, right, bottom), radius=12, fill="#f7f8fc", outline="#e0e4f2")
+        visible = max(1, int(np.ceil(len(points_x) * progress)))
+        xs, ys = points_x[:visible], points_y[:visible]
+        low, high = min(points_y), max(points_y)
+        span = max(1e-6, high - low)
+        plot = [
+            (
+                left + int((right - left) * float(step) / max(1.0, float(budget))),
+                bottom - int((bottom - top) * (float(score) - low) / span),
+            )
+            for step, score in zip(xs, ys)
+        ]
+        if len(plot) > 1:
+            draw.line(plot, fill="#5661e9", width=4)
+        if plot:
+            px, py = plot[-1]
+            draw.ellipse((px - 5, py - 5, px + 5, py + 5), fill="#16a673")
+        step = int(xs[-1]) if xs else int(budget * progress)
+        score = float(ys[-1]) if ys else 0.0
+        draw.text((56, 356), f"Training step  {step:8,d} / {budget:,}", fill="#252b45", font=font)
+        draw.text((460, 356), f"Mean reward  {score:8.3f}", fill="#252b45", font=font)
+        frames.append(np.asarray(image))
+    imageio.mimsave(output, frames, duration=0.14, loop=0)
+    return str(output)
+
+
 def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int) -> Iterator[dict[str, Any]]:
     task = next(item for item in TASKS if item["key"] == key)
     run_id = f"{key}-{int(time.time())}"
     yield {"phase": "initializing", "step": 0, "log": "Checking the official Unity ML-Agents 1.1.0 Linux environment cache"}
     executable = _ensure_unity_bundle()
     yield {"phase": "initializing", "step": 0, "log": f"Official Unity executable ready: {executable}\nScene: {task['scene']} · behavior: {task['behavior']}"}
-    config = _scaled_config(task, int(budget), float(learning_rate), float(gamma), float(epsilon), int(seed), executable, run_id)
+    graphics_available = bool(shutil.which("Xvfb") and shutil.which("ffmpeg"))
+    replay_mode = "rendered Unity replay" if graphics_available else "headless Unity training + native trainer telemetry GIF"
+    yield {"phase": "initializing", "step": 0, "log": f"Replay mode: {replay_mode}"}
+    config = _scaled_config(task, int(budget), float(learning_rate), float(gamma), float(epsilon), int(seed), executable, run_id, graphics_available)
     video, replay = ARTIFACTS / f"{run_id}-training.mp4", ARTIFACTS / f"{key}-learned-policy.gif"
     xvfb = capture = trainer = None
     x: list[float] = []
@@ -183,9 +237,10 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
     last_step = 0
     score_re = re.compile(r"Step:\s*([0-9,]+).*?Mean Reward:\s*(-?[0-9.]+)", re.IGNORECASE)
     try:
-        xvfb = _start_xvfb()
-        time.sleep(1.2)
-        capture = _start_capture(video)
+        if graphics_available:
+            xvfb = _start_xvfb()
+            time.sleep(1.2)
+            capture = _start_capture(video)
         trainer = subprocess.Popen(["mlagents-learn", str(config)], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1"}, start_new_session=True)
         assert trainer.stdout is not None
         for line in trainer.stdout:
@@ -205,5 +260,10 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         _stop_process(trainer)
         _stop_process(capture)
         _stop_process(xvfb)
-    preview = _make_gif(video, replay)
-    yield {"phase": "complete", "step": int(budget), "score": y[-1] if y else None, "x": x, "y": y, "preview": preview, "log": f"Unity PPO complete · recorded final rendered segment to {Path(preview).name}"}
+    if graphics_available and video.exists() and video.stat().st_size > 1_000:
+        preview = _make_gif(video, replay)
+        replay_detail = "recorded the final rendered Unity segment"
+    else:
+        preview = _make_telemetry_gif(task, x, y, int(budget), replay)
+        replay_detail = "generated a GIF from the native Unity trainer reward series"
+    yield {"phase": "complete", "step": int(budget), "score": y[-1] if y else None, "x": x, "y": y, "preview": preview, "log": f"Unity PPO complete · {replay_detail}: {Path(preview).name}"}
