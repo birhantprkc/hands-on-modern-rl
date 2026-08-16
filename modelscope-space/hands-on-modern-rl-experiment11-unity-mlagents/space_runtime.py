@@ -235,7 +235,9 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
     x: list[float] = []
     y: list[float] = []
     last_step = 0
-    score_re = re.compile(r"Step:\s*([0-9,]+).*?Mean Reward:\s*(-?[0-9.]+)", re.IGNORECASE)
+    number = r"-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+    score_re = re.compile(rf"Step:\s*([0-9,]+).*?Mean Reward:\s*({number})", re.IGNORECASE)
+    ansi_re = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
     try:
         if graphics_available:
             xvfb = _start_xvfb()
@@ -243,17 +245,30 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
             capture = _start_capture(video)
         trainer = subprocess.Popen(["mlagents-learn", str(config)], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1"}, start_new_session=True)
         assert trainer.stdout is not None
+        pending: list[str] = []
+        last_emit = time.monotonic()
         for line in trainer.stdout:
-            clean = line.rstrip()
+            clean = ansi_re.sub("", line).rstrip()
             if not clean:
                 continue
+            # ML-Agents prints a large Unicode logo one row at a time. It has
+            # no diagnostic content and would otherwise force many UI redraws.
+            if not re.search(r"[A-Za-z0-9]{3}", clean):
+                continue
+            pending.append(clean)
             match = score_re.search(clean)
             if match:
                 last_step, score = int(match.group(1).replace(",", "")), float(match.group(2))
                 x.append(float(last_step)); y.append(score)
-                yield {"phase": "training", "step": last_step, "score": score, "x": x, "y": y, "detail": f"{last_step:,}/{int(budget):,} Unity steps", "metric_detail": "Unity trainer mean reward", "log": clean}
-            else:
-                yield {"phase": "training", "step": last_step, "x": x, "y": y, "detail": f"{last_step:,}/{int(budget):,} Unity steps", "log": clean}
+            if match or time.monotonic() - last_emit >= 0.8:
+                event = {"phase": "training", "step": last_step, "x": x, "y": y, "detail": f"{last_step:,}/{int(budget):,} Unity steps", "log": "\n".join(pending)}
+                if match:
+                    event.update(score=score, metric_detail="Unity trainer mean reward")
+                yield event
+                pending.clear()
+                last_emit = time.monotonic()
+        if pending:
+            yield {"phase": "training", "step": last_step, "x": x, "y": y, "detail": f"{last_step:,}/{int(budget):,} Unity steps", "log": "\n".join(pending)}
         if trainer.wait() != 0:
             raise RuntimeError(f"Unity ML-Agents trainer exited with code {trainer.returncode}")
     finally:
