@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
+import time
 from pathlib import Path
 from typing import Any, Iterator
+from zipfile import ZipFile
 
 import numpy as np
 
@@ -10,6 +14,18 @@ from sb3_tools import save_gif
 
 
 ROOT = Path(__file__).resolve().parent
+PERSISTENT_CACHE = Path(
+    os.environ.get("HOMRL_PERSISTENT_CACHE", "/mnt/workspace/hands-on-modern-rl")
+) / "maniskill"
+_WARMUP_LOCK = threading.Lock()
+_WARMUP_DONE = threading.Event()
+_WARMUP_THREAD: threading.Thread | None = None
+_WARMUP_STATE: dict[str, Any] = {
+    "phase": "pending",
+    "detail": "GPU PhysX cache is queued for background preparation",
+    "progress": 0.0,
+    "error": None,
+}
 SPACE = {
     "title": {"en": "ManiSkill xGPU Robot Lab", "zh": "ManiSkill xGPU 机器人训练场"},
     "description": {
@@ -46,12 +62,138 @@ TASKS = [
 ]
 
 
+def _set_warmup_state(phase: str, detail: str, progress: float = 0.0, error: str | None = None) -> None:
+    with _WARMUP_LOCK:
+        _WARMUP_STATE.update(phase=phase, detail=detail, progress=float(progress), error=error)
+
+
+def _warmup_snapshot() -> dict[str, Any]:
+    with _WARMUP_LOCK:
+        return dict(_WARMUP_STATE)
+
+
+def _prepare_persistent_sapien_home() -> Path:
+    """Map SAPIEN's hard-coded ~/.sapien cache onto ModelScope persistent storage."""
+    persistent_home = PERSISTENT_CACHE / "sapien-home"
+    persistent_home.mkdir(parents=True, exist_ok=True)
+    sapien_home = Path.home() / ".sapien"
+    if sapien_home.is_symlink():
+        return sapien_home
+    if not sapien_home.exists():
+        sapien_home.parent.mkdir(parents=True, exist_ok=True)
+        sapien_home.symlink_to(persistent_home, target_is_directory=True)
+        return sapien_home
+
+    # A base image may have created ~/.sapien already. In that case persist the
+    # large PhysX subtree without removing any image-owned files.
+    persistent_physx = persistent_home / "physx"
+    persistent_physx.mkdir(parents=True, exist_ok=True)
+    physx_home = sapien_home / "physx"
+    if not physx_home.exists():
+        physx_home.symlink_to(persistent_physx, target_is_directory=True)
+    return sapien_home
+
+
+def _download_physx(url: str, archive: Path, target: Path, dll: Path) -> None:
+    import requests
+
+    existing = archive.stat().st_size if archive.exists() else 0
+    headers = {"Range": f"bytes={existing}-"} if existing else {}
+    with requests.get(url, headers=headers, stream=True, timeout=(30, 900)) as response:
+        response.raise_for_status()
+        resumed = existing > 0 and response.status_code == 206
+        mode = "ab" if resumed else "wb"
+        downloaded = existing if resumed else 0
+        remaining = int(response.headers.get("content-length") or 0)
+        total = downloaded + remaining if remaining else 0
+        last_update = 0.0
+        with archive.open(mode) as handle:
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                if not chunk:
+                    continue
+                handle.write(chunk)
+                downloaded += len(chunk)
+                now = time.monotonic()
+                if now - last_update >= 1.0:
+                    percent = downloaded / total if total else 0.0
+                    _set_warmup_state(
+                        "downloading",
+                        f"Downloading GPU PhysX runtime · {downloaded / 1_048_576:.1f} / "
+                        f"{total / 1_048_576:.1f} MiB",
+                        percent,
+                    )
+                    last_update = now
+    _set_warmup_state("extracting", "Extracting the GPU PhysX runtime into persistent storage", 0.98)
+    with ZipFile(archive) as bundle:
+        bundle.extractall(target)
+    archive.unlink(missing_ok=True)
+    if not dll.exists():
+        raise RuntimeError(f"PhysX archive extracted without the expected library: {dll.name}")
+
+
+def _warmup_runtime() -> None:
+    try:
+        _set_warmup_state("preparing", "Connecting SAPIEN to persistent ModelScope storage", 0.01)
+        _prepare_persistent_sapien_home()
+        import sapien
+
+        physx_version = sapien.physx.version()
+        target = Path.home() / ".sapien" / "physx" / physx_version
+        target.mkdir(parents=True, exist_ok=True)
+        dll = target / "libPhysXGpu_64.so"
+        if not dll.exists():
+            url = (
+                "https://github.com/sapien-sim/physx-precompiled/releases/download/"
+                f"{physx_version}/linux-so.zip"
+            )
+            _set_warmup_state("downloading", "Downloading the GPU PhysX runtime", 0.02)
+            _download_physx(url, target / "linux-so.zip.part", target, dll)
+        _set_warmup_state("loading", "Loading the cached GPU PhysX runtime", 0.99)
+        sapien.physx.enable_gpu()
+        _set_warmup_state("ready", f"GPU PhysX {physx_version} is cached and ready", 1.0)
+    except Exception as exc:
+        _set_warmup_state(
+            "error",
+            f"GPU PhysX preparation failed: {type(exc).__name__}: {exc}",
+            error=f"{type(exc).__name__}: {exc}",
+        )
+    finally:
+        _WARMUP_DONE.set()
+
+
+def start_runtime_warmup() -> None:
+    global _WARMUP_THREAD
+    with _WARMUP_LOCK:
+        if _WARMUP_THREAD is not None:
+            return
+        _WARMUP_THREAD = threading.Thread(target=_warmup_runtime, name="physx-warmup", daemon=True)
+        _WARMUP_THREAD.start()
+
+
+def _wait_for_runtime() -> Iterator[str]:
+    start_runtime_warmup()
+    last_detail = ""
+    while not _WARMUP_DONE.wait(timeout=1.0):
+        detail = str(_warmup_snapshot()["detail"])
+        if detail != last_detail:
+            yield detail
+            last_detail = detail
+    state = _warmup_snapshot()
+    if state["error"]:
+        raise RuntimeError(str(state["detail"]))
+    if str(state["detail"]) != last_detail:
+        yield str(state["detail"])
+
+
 def runtime_status() -> str:
     try:
         import mani_skill
         import torch
+        warmup = _warmup_snapshot()
         if torch.cuda.is_available():
-            return f"ManiSkill {mani_skill.__version__} · {torch.cuda.get_device_name(0)} · GPU PHYSX"
+            if warmup["phase"] == "ready":
+                return f"ManiSkill {mani_skill.__version__} · {torch.cuda.get_device_name(0)} · GPU PHYSX READY"
+            return f"ManiSkill {mani_skill.__version__} · {torch.cuda.get_device_name(0)} · {warmup['detail']}"
         return f"ManiSkill {mani_skill.__version__} · waiting for xGPU"
     except Exception as exc:
         return f"installing ManiSkill runtime · {type(exc).__name__}"
@@ -108,6 +250,8 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
 
     if not torch.cuda.is_available():
         raise RuntimeError("This experiment requires a scheduled ModelScope xGPU; CUDA is not currently visible")
+    for detail in _wait_for_runtime():
+        yield {"phase": "initializing", "step": 0, "log": detail}
     task = next(item for item in TASKS if item["key"] == key)
     parallel_envs = max(16, min(128, int(budget) // 1_000))
     yield {"phase": "initializing", "step": 0, "log": f"Creating {parallel_envs} parallel {task['environment']} simulations on {torch.cuda.get_device_name(0)}"}
