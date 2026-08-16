@@ -259,7 +259,10 @@ def _make_vec_env(
         render_mode=render_mode,
         render_backend="none" if render_mode is None else "cpu",
         sim_backend="physx_cuda" if gpu_sim and num_envs > 1 else "physx_cpu",
-        reconfiguration_freq=1,
+        # ManiSkillSB3VectorEnv auto-resets only the vector slots whose
+        # episodes ended. Scene reconfiguration cannot be combined with that
+        # partial reset, so build each slot once and reset state thereafter.
+        reconfiguration_freq=0,
     )
     # Gymnasium 1.0 no longer forwards arbitrary attributes through wrappers.
     # ManiSkillSB3VectorEnv needs num_envs/single_*_space from the BaseEnv, so
