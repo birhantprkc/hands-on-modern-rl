@@ -274,7 +274,7 @@ def _start_capture(target: Path, frames_dir: Path) -> subprocess.Popen[str]:
     return subprocess.Popen([
         ffmpeg, "-y", "-loglevel", "error", "-f", "x11grab", "-framerate", "12",
         "-video_size", "960x540", "-i", os.environ["DISPLAY"],
-        "-filter_complex", "[0:v]split=2[record][preview];[preview]fps=2,scale=480:-1:flags=lanczos[live]",
+        "-filter_complex", "[0:v]split=2[record][preview];[preview]fps=4,scale=480:-1:flags=lanczos[live]",
         "-map", "[record]", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", str(target),
         "-map", "[live]", "-q:v", "5", str(frames_dir / "frame-%06d.jpg"),
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
@@ -288,11 +288,10 @@ def _latest_preview_frame(frames_dir: Path) -> np.ndarray | None:
     try:
         with Image.open(latest) as image:
             frame = np.asarray(image.convert("RGB"))
-        # Live frames are transient. Keeping only the newest file avoids an
-        # ever-growing directory during long training runs.
+        # Live frames are transient. Consume every captured image once so a
+        # quiet Unity scene does not resend the same frame to the browser.
         for stale in candidates:
-            if stale != latest:
-                stale.unlink(missing_ok=True)
+            stale.unlink(missing_ok=True)
         # Xvfb is black before the Unity window is mapped. Keep the task card
         # visible until a real rendered frame is available.
         return frame if float(frame.mean()) > 2.0 else None
@@ -315,7 +314,7 @@ def _stop_process(process: subprocess.Popen[Any] | None) -> None:
 
 def _make_gif(video: Path, output: Path) -> str:
     replay_filter = (
-        "[0:v]fps=8,scale=480:-1:flags=lanczos,split[palette_source][replay];"
+        "[0:v]fps=10,scale=480:-1:flags=lanczos,split[palette_source][replay];"
         "[palette_source]palettegen=max_colors=96:stats_mode=diff[palette];"
         "[replay][palette]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle"
     )
@@ -398,7 +397,7 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         while not stream_finished:
             step_match = match = None
             try:
-                line = output_queue.get(timeout=0.5)
+                line = output_queue.get(timeout=0.25)
             except queue.Empty:
                 line = ""
             if line is None:
@@ -422,7 +421,7 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
             if capture is not None and capture.poll() is not None:
                 raise RuntimeError("ffmpeg stopped before it captured the Unity window")
             live_frame = None
-            if now - last_preview_emit >= 0.5:
+            if now - last_preview_emit >= 0.25:
                 live_frame = _latest_preview_frame(frames_dir)
                 last_preview_emit = now
                 rendered_frame_seen = rendered_frame_seen or live_frame is not None
