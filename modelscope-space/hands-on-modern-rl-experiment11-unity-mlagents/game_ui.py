@@ -50,7 +50,7 @@ TEXT = {
         "action": "Action",
         "algorithm": "Algorithm",
         "status": "Status",
-        "ready_runtime": "Ready · preinstalled",
+        "ready_runtime": "Ready · automatic scene setup",
         "hint": "Adjust the parameters below, then start training. The curve and console update throughout the run.",
         "setup": "Experiment setup",
         "setup_copy": "Quick defaults are sized for the selected ModelScope runtime. Increase the budget for a longer run.",
@@ -76,7 +76,7 @@ TEXT = {
         "log": "Live training log",
         "log_waiting": "Waiting for a training run…",
         "preview": "Task preview / learned policy",
-        "preview_copy": "The task opens with a real environment preview. A completed run replaces it with this run's replay or result visualization.",
+        "preview_copy": "The task opens with a local illustration. During training it switches to live Unity frames, then finishes with this run's replay.",
         "download": "Download run summary",
         "wait_title": "Training is active",
         "wait_detail": "Preparing the environment, updating the policy, evaluating it, and rendering the learned result.",
@@ -101,7 +101,7 @@ TEXT = {
         "action": "动作",
         "algorithm": "算法",
         "status": "状态",
-        "ready_runtime": "就绪 · 已预装",
+        "ready_runtime": "就绪 · 自动准备场景",
         "hint": "调整下方参数后启动训练。学习曲线和训练日志会持续更新。",
         "setup": "实验设置",
         "setup_copy": "默认参数适配当前 ModelScope 运行环境；增加训练预算可以运行更久。",
@@ -127,7 +127,7 @@ TEXT = {
         "log": "实时训练日志",
         "log_waiting": "等待训练任务…",
         "preview": "任务预览 / 学习后的策略",
-        "preview_copy": "打开任务时显示真实环境预览；训练完成后替换为本次运行生成的回放或结果图。",
+        "preview_copy": "打开任务时显示本地任务图；训练开始后切换为实时 Unity 画面，结束后显示本次运行的回放。",
         "download": "下载运行摘要",
         "wait_title": "训练正在运行",
         "wait_detail": "正在准备环境、更新策略、执行评估并渲染学习结果。",
@@ -508,8 +508,8 @@ def build_demo(space_module: Any):
                 if score is not None and math.isfinite(float(score)):
                     last_score = float(score)
                 event_preview = event_value(event, "preview")
-                if event_preview:
-                    preview = str(event_preview)
+                if event_preview is not None:
+                    preview = event_preview
                 phase = str(event_value(event, "phase", "training"))
                 detail = str(event_value(event, "detail", f"{int(event_value(event, 'step', 0)):,}/{params['budget']:,}"))
                 metric_detail = str(event_value(event, "metric_detail", "Mean evaluation score"))
@@ -524,7 +524,7 @@ def build_demo(space_module: Any):
                     gr.HTML(value=wait, visible=True),
                     gr.Button(value=copy["running_button"], interactive=False),
                 )
-            if preview == preview_path(root, task):
+            if isinstance(preview, (str, Path)) and str(preview) == preview_path(root, task):
                 preview = result_image(root, task, "training complete", last_score, last_x, last_y, "The environment did not expose replay frames; this plot records the learned result.")
             summary = save_summary(root, task, {
                 "status": "complete",

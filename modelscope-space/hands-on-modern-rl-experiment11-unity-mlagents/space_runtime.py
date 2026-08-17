@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import os
+import queue
 import re
 import shutil
 import signal
 import subprocess
+import threading
 import time
 import zipfile
 from pathlib import Path
@@ -76,7 +78,7 @@ TASKS = [
           "Continuous joint-motor rotations for all four legs", "assets/unity-huggy.svg",
           (20_000, 2_000_000, 100_000, 20_000),
           {"trainer_type": "ppo", "hyperparameters": {"batch_size": 2048, "buffer_size": 20480, "learning_rate": 0.0003, "beta": 0.005, "epsilon": 0.2, "lambd": 0.95, "num_epoch": 3, "learning_rate_schedule": "linear"}, "network_settings": {"normalize": True, "hidden_units": 512, "num_layers": 3, "vis_encode_type": "simple"}, "reward_signals": {"extrinsic": {"gamma": 0.995, "strength": 1.0}}, "keep_checkpoints": 3, "time_horizon": 1000},
-          bundle_url=HUGGY_BUNDLE_URL, cache_subdir="huggy", executable="Huggy/Huggy", env_args=[],
+          bundle_url=HUGGY_BUNDLE_URL, cache_subdir="huggy", executable="Huggy/Huggy.x86_64", env_args=[],
           reference_url="https://huggingface.co/learn/deep-rl-course/unitbonus1/train"),
     _task("unity-basic", "Basic · Discrete PPO", "Basic · 离散 PPO", "Basic", "Basic",
           "Match the target value with a short sequence of discrete decisions.", "通过一小段离散决策使数值匹配目标。",
@@ -132,26 +134,30 @@ def _ensure_unity_bundle(task: dict[str, Any]) -> Path:
     cache.mkdir(parents=True, exist_ok=True)
     bundle_url = str(task.get("bundle_url", UNITY_BUNDLE_URL))
     archive_name = bundle_url.rsplit("/", 1)[-1].split("?", 1)[0] or "UnityEnvironment.zip"
+    bundled_archive = ROOT / "bundles" / archive_name
     archive, partial = cache / archive_name, cache / f"{archive_name}.part"
-    aria2 = shutil.which("aria2c")
-    curl = shutil.which("curl")
-    if aria2:
-        command = [
-            "aria2c", "--allow-overwrite=true", "--auto-file-renaming=false", "--continue=true",
-            "--file-allocation=none", "--max-connection-per-server=16", "--split=16",
-            "--min-split-size=1M", "--console-log-level=warn", "--enable-color=false",
-            "--dir", str(partial.parent), "--out", partial.name, bundle_url,
-        ]
-    elif curl:
-        command = [
-            "curl", "--location", "--fail", "--retry", "5", "--retry-all-errors",
-            "--connect-timeout", "20", "--continue-at", "-", "--output", str(partial),
-            bundle_url,
-        ]
+    if bundled_archive.is_file():
+        archive = bundled_archive
     else:
-        raise RuntimeError("The Unity scene bundle requires aria2c or curl")
-    subprocess.run(command, check=True, timeout=1800)
-    partial.replace(archive)
+        aria2 = shutil.which("aria2c")
+        curl = shutil.which("curl")
+        if aria2:
+            command = [
+                "aria2c", "--allow-overwrite=true", "--auto-file-renaming=false", "--continue=true",
+                "--file-allocation=none", "--max-connection-per-server=16", "--split=16",
+                "--min-split-size=1M", "--console-log-level=warn", "--enable-color=false",
+                "--dir", str(partial.parent), "--out", partial.name, bundle_url,
+            ]
+        elif curl:
+            command = [
+                "curl", "--location", "--fail", "--retry", "5", "--retry-all-errors",
+                "--connect-timeout", "20", "--continue-at", "-", "--output", str(partial),
+                bundle_url,
+            ]
+        else:
+            raise RuntimeError("The Unity scene bundle requires aria2c or curl")
+        subprocess.run(command, check=True, timeout=1800)
+        partial.replace(archive)
     with zipfile.ZipFile(archive) as bundle:
         bundle.extractall(cache)
     selected = _find_unity_executable(cache, relative_path)
@@ -198,10 +204,31 @@ def _start_xvfb() -> subprocess.Popen[str]:
     return subprocess.Popen(["Xvfb", display, "-screen", "0", "960x540x24", "-ac", "+extension", "GLX"], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, text=True, start_new_session=True)
 
 
-def _start_capture(target: Path) -> subprocess.Popen[str]:
+def _start_capture(target: Path, frames_dir: Path) -> subprocess.Popen[str]:
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("ffmpeg is required to record the Unity replay")
-    return subprocess.Popen(["ffmpeg", "-y", "-loglevel", "error", "-f", "x11grab", "-framerate", "12", "-video_size", "960x540", "-i", os.environ["DISPLAY"], "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", str(target)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+    frames_dir.mkdir(parents=True, exist_ok=True)
+    return subprocess.Popen([
+        "ffmpeg", "-y", "-loglevel", "error", "-f", "x11grab", "-framerate", "12",
+        "-video_size", "960x540", "-i", os.environ["DISPLAY"],
+        "-filter_complex", "[0:v]split=2[record][preview];[preview]fps=0.5,scale=640:-1:flags=lanczos[live]",
+        "-map", "[record]", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", str(target),
+        "-map", "[live]", "-q:v", "5", str(frames_dir / "frame-%06d.jpg"),
+    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
+
+
+def _latest_preview_frame(frames_dir: Path) -> np.ndarray | None:
+    candidates = sorted(frames_dir.glob("frame-*.jpg"))
+    if not candidates:
+        return None
+    try:
+        with Image.open(candidates[-1]) as image:
+            frame = np.asarray(image.convert("RGB"))
+        # Xvfb is black before the Unity window is mapped. Keep the task card
+        # visible until a real rendered frame is available.
+        return frame if float(frame.mean()) > 2.0 else None
+    except (OSError, ValueError):
+        return None
 
 
 def _stop_process(process: subprocess.Popen[Any] | None) -> None:
@@ -275,6 +302,7 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
     yield {"phase": "initializing", "step": 0, "log": f"Replay mode: {replay_mode}"}
     config = _scaled_config(task, int(budget), float(learning_rate), float(gamma), float(epsilon), int(seed), executable, run_id, graphics_available)
     video, replay = ARTIFACTS / f"{run_id}-training.mp4", ARTIFACTS / f"{key}-learned-policy.gif"
+    frames_dir = ARTIFACTS / f"{run_id}-live"
     xvfb = capture = trainer = None
     x: list[float] = []
     y: list[float] = []
@@ -287,38 +315,68 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         if graphics_available:
             xvfb = _start_xvfb()
             time.sleep(1.2)
-            capture = _start_capture(video)
+            capture = _start_capture(video, frames_dir)
         trainer = subprocess.Popen(["mlagents-learn", str(config)], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1, env={**os.environ, "PYTHONUNBUFFERED": "1"}, start_new_session=True)
         assert trainer.stdout is not None
+        output_queue: queue.Queue[str | None] = queue.Queue()
+
+        def read_trainer_output() -> None:
+            assert trainer is not None and trainer.stdout is not None
+            for output_line in trainer.stdout:
+                output_queue.put(output_line)
+            output_queue.put(None)
+
+        threading.Thread(target=read_trainer_output, daemon=True).start()
         pending: list[str] = []
         last_emit = time.monotonic()
-        for line in trainer.stdout:
-            clean = ansi_re.sub("", line).rstrip()
-            if not clean:
-                continue
-            # ML-Agents prints a large Unicode logo one row at a time. It has
-            # no diagnostic content and would otherwise force many UI redraws.
-            if not re.search(r"[A-Za-z0-9]{3}", clean):
-                continue
-            pending.append(clean)
-            step_match = step_re.search(clean)
-            if step_match:
-                last_step = int(step_match.group(1).replace(",", ""))
-            match = score_re.search(clean)
-            if match:
-                last_step, score = int(match.group(1).replace(",", "")), float(match.group(2))
-                x.append(float(last_step)); y.append(score)
-            # Some long-horizon scenes (FoodCollector and Walker in
-            # particular) may not finish an episode before the next summary.
-            # Their native log still contains a valid Step value, so progress
-            # must advance even when Mean Reward is intentionally absent.
-            if step_match or time.monotonic() - last_emit >= 0.8:
-                event = {"phase": "training", "step": last_step, "x": x, "y": y, "detail": f"{last_step:,}/{int(budget):,} Unity steps", "log": "\n".join(pending)}
+        last_preview_emit = 0.0
+        stream_finished = False
+        while not stream_finished:
+            step_match = match = None
+            try:
+                line = output_queue.get(timeout=0.5)
+            except queue.Empty:
+                line = ""
+            if line is None:
+                stream_finished = True
+            elif line:
+                clean = ansi_re.sub("", line).rstrip()
+                # ML-Agents prints a large Unicode logo one row at a time. It
+                # has no diagnostic content and would force many UI redraws.
+                if clean and re.search(r"[A-Za-z0-9]{3}", clean):
+                    pending.append(clean)
+                    step_match = step_re.search(clean)
+                    if step_match:
+                        last_step = int(step_match.group(1).replace(",", ""))
+                    match = score_re.search(clean)
+                    if match:
+                        last_step, score = int(match.group(1).replace(",", "")), float(match.group(2))
+                        x.append(float(last_step))
+                        y.append(score)
+
+            now = time.monotonic()
+            live_frame = None
+            if graphics_available and now - last_preview_emit >= 2.0:
+                live_frame = _latest_preview_frame(frames_dir)
+                last_preview_emit = now
+            should_emit = bool(
+                step_match or match or live_frame is not None
+                or (pending and now - last_emit >= 0.8)
+                or now - last_emit >= 2.0
+            )
+            if should_emit:
+                event = {
+                    "phase": "training", "step": last_step, "x": x, "y": y,
+                    "detail": f"{last_step:,}/{int(budget):,} Unity steps",
+                    "log": "\n".join(pending),
+                }
                 if match:
                     event.update(score=score, metric_detail="Unity trainer mean reward")
+                if live_frame is not None:
+                    event["preview"] = live_frame
                 yield event
                 pending.clear()
-                last_emit = time.monotonic()
+                last_emit = now
         if pending:
             yield {"phase": "training", "step": last_step, "x": x, "y": y, "detail": f"{last_step:,}/{int(budget):,} Unity steps", "log": "\n".join(pending)}
         if trainer.wait() != 0:
