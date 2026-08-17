@@ -124,12 +124,14 @@ EXPERIMENTS = [
     {
         "slug": "hands-on-modern-rl-experiment11-unity-mlagents",
         "title": "Experiment 11 · Unity ML-Agents Arena",
-        "summary": "Run an official Unity ML-Agents Linux scene, train PPO, and inspect the native trainer output.",
+        "summary": "Train Huggy the Dog to fetch a stick in a real Unity Linux scene, or switch to another ML-Agents task.",
         "resource": "xGPU",
         "kind": "runtime",
-        "task": "unity-basic",
-        "budget": 2_000,
-        "full_budget": "20,000+ steps after the one-time official scene download",
+        "task": "unity-huggy",
+        "budget": 100_000,
+        "gamma": "0.995",
+        "epsilon": "0.20",
+        "full_budget": "up to 2,000,000 Unity steps after the one-time 39 MB Huggy scene download",
     },
     {
         "slug": "hands-on-modern-rl-experiment12-ai2thor-embodied",
@@ -287,8 +289,8 @@ for key, item in tasks.items():
 TASK_KEY = "{spec['task']}"
 TRAINING_BUDGET = {spec['budget']}
 LEARNING_RATE = 3e-4
-GAMMA = 0.99
-EPSILON = 0.10
+GAMMA = {spec.get('gamma', '0.99')}
+EPSILON = {spec.get('epsilon', '0.10')}
 SEED = 42
 
 if TASK_KEY not in tasks:

@@ -2,9 +2,15 @@ xvfb
 ffmpeg
 aria2
 libgl1
+libglu1-mesa
 libglib2.0-0
+libx11-xcb1
 libxrandr2
 libxinerama1
 libxcursor1
 libxi6
+libxrender1
+libxext6
+libxtst6
+libvulkan1
 libnss3

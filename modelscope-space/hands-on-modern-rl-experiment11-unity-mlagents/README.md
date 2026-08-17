@@ -12,7 +12,7 @@ license: apache-2.0
 
 # WalkingLab × Hands-On Modern RL · Unity ML-Agents xGPU Arena
 
-**WalkingLab** 与开源课程 **Hands-On Modern RL（《动手学现代强化学习》）** 的实验 11。页面直接使用 Unity 官方 ML-Agents 1.1.0 Linux 注册表中的真实场景训练 PPO，并录制本次运行产生的 Unity 画面。
+**WalkingLab** 与开源课程 **Hands-On Modern RL（《动手学现代强化学习》）** 的实验 11。页面直接使用 Unity ML-Agents Linux 场景训练 PPO，并录制本次运行产生的 Unity 画面。默认任务是 **Huggy · 小狗捡树枝**，它基于 Unity 官方 Puppo the Corgi 演示；页面也保留 Basic、3D Ball、Food Collector 与 Walker。
 
 - Project: <https://github.com/walkinglabs/hands-on-modern-rl>
 - WalkingLab: <https://modelscope.cn/organization/walkinglab>
@@ -21,4 +21,4 @@ license: apache-2.0
 - Training source: <https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment11-unity-mlagents/file/view/master/space_runtime.py>
 - Companion Notebook: <https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment11-unity-mlagents.ipynb> (requires a scheduled xGPU Notebook)
 
-The official scene archive uses persistent, resumable storage and automatically falls back from `aria2c` to `curl`. When the xGPU image exposes Xvfb, the Studio records the Unity window; otherwise it runs the same official executable headlessly and creates the result GIF from the native trainer's real reward series.
+Scene archives use persistent, resumable storage and automatically fall back from `aria2c` to `curl`. Huggy's 39 MB Linux build is downloaded only once. When the xGPU image exposes Xvfb, the Studio records the real Unity window and turns its final segment into a GIF; otherwise it runs the same executable headlessly and creates a clearly labelled telemetry GIF from the native trainer reward series.

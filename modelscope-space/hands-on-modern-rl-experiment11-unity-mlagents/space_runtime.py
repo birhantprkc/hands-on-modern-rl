@@ -19,13 +19,14 @@ from PIL import Image, ImageDraw, ImageFont
 ROOT = Path(__file__).resolve().parent
 ARTIFACTS = ROOT / "artifacts"
 UNITY_BUNDLE_URL = "https://storage.googleapis.com/mlagents-test-environments/1.1.0/linux/Startup.zip"
+HUGGY_BUNDLE_URL = "https://github.com/huggingface/Huggy/raw/main/Huggy.zip"
 UNITY_CACHE = Path(os.environ.get("UNITY_MLAGENTS_CACHE", "/mnt/workspace/hands-on-modern-rl/unity-mlagents-1.1.0"))
 
 SPACE = {
     "title": {"en": "Unity ML-Agents xGPU Arena", "zh": "Unity ML-Agents xGPU 训练场"},
     "description": {
-        "en": "Train PPO inside official Unity ML-Agents Linux scenes, follow the native trainer console, and replay the rendered run.",
-        "zh": "在 Unity ML-Agents 官方 Linux 场景中训练 PPO，查看原生训练日志，并回放本次训练过程。",
+        "en": "Train PPO inside ready-to-run Unity ML-Agents Linux scenes, including Huggy the dog, and replay the rendered run.",
+        "zh": "在可直接运行的 Unity ML-Agents Linux 场景中训练 PPO，包括小狗 Huggy，并回放本次训练画面。",
     },
     "badge": "EXPERIMENT 11 · UNITY",
     "device": "xGPU",
@@ -40,8 +41,11 @@ SPACE = {
 
 def _task(key: str, title: str, title_zh: str, scene: str, behavior: str, description: str,
           description_zh: str, observation: str, action: str, preview: str,
-          budget: tuple[int, int, int, int], trainer: dict[str, Any]) -> dict[str, Any]:
-    return {
+          budget: tuple[int, int, int, int], trainer: dict[str, Any], *,
+          bundle_url: str = UNITY_BUNDLE_URL, cache_subdir: str | None = None,
+          executable: str | None = None, env_args: list[str] | None = None,
+          reference_url: str | None = None) -> dict[str, Any]:
+    task = {
         "key": key, "title": {"en": title, "zh": title_zh}, "environment": f"Unity/{scene}",
         "scene": scene, "behavior": behavior,
         "description": {"en": description, "zh": description_zh},
@@ -51,10 +55,29 @@ def _task(key: str, title: str, title_zh: str, scene: str, behavior: str, descri
         "gamma": (0.8, 1.0, float(trainer["reward_signals"]["extrinsic"]["gamma"]), 0.005),
         "epsilon": (0.05, 0.35, float(trainer["hyperparameters"]["epsilon"]), 0.01),
         "checkpoints": 6, "trainer": trainer,
+        "bundle_url": bundle_url,
     }
+    if cache_subdir:
+        task["cache_subdir"] = cache_subdir
+    if executable:
+        task["executable"] = executable
+    if env_args is not None:
+        task["env_args"] = env_args
+    if reference_url:
+        task["reference_url"] = reference_url
+    return task
 
 
 TASKS = [
+    _task("unity-huggy", "Huggy · Fetch the Stick", "Huggy · 小狗捡树枝", "Huggy", "Huggy",
+          "Coordinate four articulated legs, run toward the randomly placed stick, and reach it without spinning out.",
+          "协调四条腿的关节运动，跑向随机出现的树枝，并在不过度旋转的情况下抵达目标。",
+          "Stick position, relative target direction, body state, and leg orientation",
+          "Continuous joint-motor rotations for all four legs", "assets/unity-huggy.svg",
+          (20_000, 2_000_000, 100_000, 20_000),
+          {"trainer_type": "ppo", "hyperparameters": {"batch_size": 2048, "buffer_size": 20480, "learning_rate": 0.0003, "beta": 0.005, "epsilon": 0.2, "lambd": 0.95, "num_epoch": 3, "learning_rate_schedule": "linear"}, "network_settings": {"normalize": True, "hidden_units": 512, "num_layers": 3, "vis_encode_type": "simple"}, "reward_signals": {"extrinsic": {"gamma": 0.995, "strength": 1.0}}, "keep_checkpoints": 3, "time_horizon": 1000},
+          bundle_url=HUGGY_BUNDLE_URL, cache_subdir="huggy", executable="Huggy/Huggy", env_args=[],
+          reference_url="https://huggingface.co/learn/deep-rl-course/unitbonus1/train"),
     _task("unity-basic", "Basic · Discrete PPO", "Basic · 离散 PPO", "Basic", "Basic",
           "Match the target value with a short sequence of discrete decisions.", "通过一小段离散决策使数值匹配目标。",
           "Vector target and current state", "Discrete left / stay / right", "assets/unity-basic.svg", (2_000, 120_000, 20_000, 2_000),
@@ -85,15 +108,31 @@ def runtime_status() -> str:
         return f"installing ML-Agents runtime · {type(exc).__name__}"
 
 
-def _ensure_unity_bundle() -> Path:
-    candidates = [path for path in UNITY_CACHE.rglob("Startup.x86_64") if path.is_file()]
+def _find_unity_executable(cache: Path, relative_path: str | None) -> Path | None:
+    if relative_path:
+        exact = cache / relative_path
+        if exact.is_file():
+            return exact
+    candidates = [path for path in cache.rglob("Startup.x86_64") if path.is_file()]
     if not candidates:
-        candidates = [path for path in UNITY_CACHE.rglob("*.x86_64") if path.is_file()]
+        candidates = [path for path in cache.rglob("*.x86_64") if path.is_file()]
     if candidates:
         candidates[0].chmod(0o755)
         return candidates[0]
-    UNITY_CACHE.mkdir(parents=True, exist_ok=True)
-    archive, partial = UNITY_CACHE / "Startup.zip", UNITY_CACHE / "Startup.zip.part"
+    return None
+
+
+def _ensure_unity_bundle(task: dict[str, Any]) -> Path:
+    cache = UNITY_CACHE / task["cache_subdir"] if task.get("cache_subdir") else UNITY_CACHE
+    relative_path = task.get("executable")
+    selected = _find_unity_executable(cache, relative_path)
+    if selected:
+        selected.chmod(0o755)
+        return selected
+    cache.mkdir(parents=True, exist_ok=True)
+    bundle_url = str(task.get("bundle_url", UNITY_BUNDLE_URL))
+    archive_name = bundle_url.rsplit("/", 1)[-1].split("?", 1)[0] or "UnityEnvironment.zip"
+    archive, partial = cache / archive_name, cache / f"{archive_name}.part"
     aria2 = shutil.which("aria2c")
     curl = shutil.which("curl")
     if aria2:
@@ -101,26 +140,23 @@ def _ensure_unity_bundle() -> Path:
             "aria2c", "--allow-overwrite=true", "--auto-file-renaming=false", "--continue=true",
             "--file-allocation=none", "--max-connection-per-server=16", "--split=16",
             "--min-split-size=1M", "--console-log-level=warn", "--enable-color=false",
-            "--dir", str(partial.parent), "--out", partial.name, UNITY_BUNDLE_URL,
+            "--dir", str(partial.parent), "--out", partial.name, bundle_url,
         ]
     elif curl:
         command = [
             "curl", "--location", "--fail", "--retry", "5", "--retry-all-errors",
             "--connect-timeout", "20", "--continue-at", "-", "--output", str(partial),
-            UNITY_BUNDLE_URL,
+            bundle_url,
         ]
     else:
         raise RuntimeError("The Unity scene bundle requires aria2c or curl")
     subprocess.run(command, check=True, timeout=1800)
     partial.replace(archive)
     with zipfile.ZipFile(archive) as bundle:
-        bundle.extractall(UNITY_CACHE)
-    candidates = [path for path in UNITY_CACHE.rglob("Startup.x86_64") if path.is_file()]
-    if not candidates:
-        candidates = [path for path in UNITY_CACHE.rglob("*.x86_64") if path.is_file()]
-    if not candidates:
-        raise RuntimeError("The official Unity bundle did not contain a Linux executable")
-    selected = candidates[0]
+        bundle.extractall(cache)
+    selected = _find_unity_executable(cache, relative_path)
+    if not selected:
+        raise RuntimeError(f"The Unity bundle for {task['scene']} did not contain the expected Linux executable")
     selected.chmod(0o755)
     return selected
 
@@ -138,9 +174,12 @@ def _scaled_config(task: dict[str, Any], budget: int, learning_rate: float, gamm
     hyper["buffer_size"] = max(min_buffer, min(int(hyper["buffer_size"]), max(min_buffer, budget // 4)))
     hyper["batch_size"] = max(16, min(int(hyper["batch_size"]), int(hyper["buffer_size"]) // 4))
     trainer.update(max_steps=budget, summary_freq=max(200, budget // 8), checkpoint_interval=max(1_000, budget))
+    env_args = task.get("env_args")
+    if env_args is None:
+        env_args = ["--mlagents-scene-name", f"Assets/ML-Agents/Examples/{task['scene']}/Scenes/{task['scene']}.unity"]
     config = {
         "behaviors": {task["behavior"]: trainer},
-        "env_settings": {"env_path": str(executable), "env_args": ["--mlagents-scene-name", f"Assets/ML-Agents/Examples/{task['scene']}/Scenes/{task['scene']}.unity"], "num_envs": 1, "seed": seed, "timeout_wait": 180},
+        "env_settings": {"env_path": str(executable), "env_args": env_args, "num_envs": 1, "seed": seed, "timeout_wait": 180},
         "engine_settings": {"width": 960, "height": 540, "quality_level": 2, "time_scale": 20, "target_frame_rate": -1, "capture_frame_rate": 60, "no_graphics": not graphics_available},
         "checkpoint_settings": {"run_id": run_id, "results_dir": str(ARTIFACTS / "unity-results"), "force": True},
         "torch_settings": {"device": "cuda" if torch.cuda.is_available() else "cpu"},
@@ -152,7 +191,8 @@ def _scaled_config(task: dict[str, Any], budget: int, learning_rate: float, gamm
 
 
 def _start_xvfb() -> subprocess.Popen[str]:
-    display = os.environ.setdefault("DISPLAY", ":99")
+    display = os.environ.get("UNITY_DISPLAY", ":99")
+    os.environ["DISPLAY"] = display
     if shutil.which("Xvfb") is None:
         raise RuntimeError("Xvfb is required to render the Unity replay")
     return subprocess.Popen(["Xvfb", display, "-screen", "0", "960x540x24", "-ac", "+extension", "GLX"], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT, text=True, start_new_session=True)
@@ -226,9 +266,10 @@ def _make_telemetry_gif(task: dict[str, Any], x: list[float], y: list[float], bu
 def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int) -> Iterator[dict[str, Any]]:
     task = next(item for item in TASKS if item["key"] == key)
     run_id = f"{key}-{int(time.time())}"
-    yield {"phase": "initializing", "step": 0, "log": "Checking the official Unity ML-Agents 1.1.0 Linux environment cache"}
-    executable = _ensure_unity_bundle()
-    yield {"phase": "initializing", "step": 0, "log": f"Official Unity executable ready: {executable}\nScene: {task['scene']} · behavior: {task['behavior']}"}
+    download_note = " · first run downloads a resumable 39 MB scene" if key == "unity-huggy" else ""
+    yield {"phase": "initializing", "step": 0, "log": f"Checking the Unity ML-Agents 1.1.0 Linux environment cache{download_note}"}
+    executable = _ensure_unity_bundle(task)
+    yield {"phase": "initializing", "step": 0, "log": f"Unity executable ready: {executable}\nScene: {task['scene']} · behavior: {task['behavior']}"}
     graphics_available = bool(shutil.which("Xvfb") and shutil.which("ffmpeg"))
     replay_mode = "rendered Unity replay" if graphics_available else "headless Unity training + native trainer telemetry GIF"
     yield {"phase": "initializing", "step": 0, "log": f"Replay mode: {replay_mode}"}
