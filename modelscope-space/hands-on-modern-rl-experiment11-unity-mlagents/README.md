@@ -16,9 +16,10 @@ license: apache-2.0
 
 - Project: <https://github.com/walkinglabs/hands-on-modern-rl>
 - WalkingLab: <https://modelscope.cn/organization/walkinglab>
+- Unity scene Dataset: <https://modelscope.cn/datasets/walkinglab/hands-on-modern-rl-unity-environments>
 - Companion chapter: <https://walkinglabs.github.io/hands-on-modern-rl>
 - Live Studio: <https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment11-unity-mlagents>
 - Training source: <https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment11-unity-mlagents/file/view/master/space_runtime.py>
 - Companion Notebook: <https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment11-unity-mlagents.ipynb> (requires a scheduled xGPU Notebook)
 
-Scene archives use persistent, resumable storage and automatically fall back from `aria2c` to `curl`. Huggy's 39 MB Linux build is downloaded only once. When the xGPU image exposes Xvfb, the Studio records the real Unity window and turns its final segment into a GIF; otherwise it runs the same executable headlessly and creates a clearly labelled telemetry GIF from the native trainer reward series.
+Scene archives come from the versioned WalkingLab Dataset above, use persistent resumable storage, and automatically fall back from `aria2c` to `curl`. The Studio repository also carries Huggy's 39 MB Linux build as a zero-wait local fallback; the official 18-scene Startup build is cached after its first Dataset download. When the xGPU image exposes Xvfb, the Studio records the real Unity window and turns its final segment into a GIF; otherwise it runs the same executable headlessly and creates a clearly labelled telemetry GIF from the native trainer reward series.

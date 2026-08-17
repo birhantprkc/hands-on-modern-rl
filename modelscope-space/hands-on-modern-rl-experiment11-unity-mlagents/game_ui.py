@@ -36,6 +36,7 @@ TEXT = {
         "brand": "WALKINGLAB × HANDS-ON MODERN RL",
         "brand_note": "Learn the idea, change the parameters, and train it online.",
         "organization": "WalkingLab",
+        "dataset": "Unity scene Dataset",
         "chapter": "Companion chapter",
         "notebook": "Notebook",
         "source": "Training source",
@@ -87,6 +88,7 @@ TEXT = {
         "brand": "WALKINGLAB × 动手学现代强化学习",
         "brand_note": "理解任务、调整参数，并在网页中完成真实训练。",
         "organization": "WalkingLab 主页",
+        "dataset": "Unity 场景包 Dataset",
         "chapter": "阅读配套章节",
         "notebook": "Notebook",
         "source": "训练源码",
@@ -219,6 +221,7 @@ def hero_html(space: dict[str, Any], tasks: list[Any], task: Any, language: str,
     source = space.get("source_url", PROJECT_URL)
     project = space.get("project_url", PROJECT_URL)
     organization = space.get("organization_url", ORGANIZATION_URL)
+    dataset = space.get("dataset_url")
     device = html.escape(str(space.get("device", "CPU")))
     badge = html.escape(str(space.get("badge", "CPU GAME LAB")))
     return f"""
@@ -236,6 +239,7 @@ def hero_html(space: dict[str, Any], tasks: list[Any], task: Any, language: str,
         <nav class="hero-links">
           <a class="hero-link primary" href="{html.escape(project)}" target="_blank" rel="noreferrer">GitHub · walkinglabs/hands-on-modern-rl</a>
           <a class="hero-link" href="{html.escape(organization)}" target="_blank" rel="noreferrer">{copy['organization']}</a>
+          {f'<a class="hero-link" href="{html.escape(str(dataset))}" target="_blank" rel="noreferrer">{copy["dataset"]}</a>' if dataset else ''}
           <a class="hero-link" href="{html.escape(course)}" target="_blank" rel="noreferrer">{copy['chapter']}</a>
           {f'<a class="hero-link" href="{html.escape(str(notebook))}" target="_blank" rel="noreferrer">{copy["notebook"]}</a>' if notebook else ''}
           <a class="hero-link" href="{html.escape(source)}" target="_blank" rel="noreferrer">{copy['source']}</a>

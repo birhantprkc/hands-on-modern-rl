@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import queue
 import re
@@ -20,8 +21,12 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent
 ARTIFACTS = ROOT / "artifacts"
-UNITY_BUNDLE_URL = "https://storage.googleapis.com/mlagents-test-environments/1.1.0/linux/Startup.zip"
-HUGGY_BUNDLE_URL = "https://github.com/huggingface/Huggy/raw/main/Huggy.zip"
+UNITY_DATASET_URL = "https://modelscope.cn/datasets/walkinglab/hands-on-modern-rl-unity-environments"
+UNITY_DATASET_RESOLVE = f"{UNITY_DATASET_URL}/resolve/master"
+UNITY_BUNDLE_URL = f"{UNITY_DATASET_RESOLVE}/linux/ml-agents-1.1.0/Startup.zip"
+HUGGY_BUNDLE_URL = f"{UNITY_DATASET_RESOLVE}/linux/huggy/Huggy.zip"
+UNITY_BUNDLE_SHA256 = "80e2322215fb7ff5c192e34bd67d63edc80d8cf24e66f8af858010b84a250a5d"
+HUGGY_BUNDLE_SHA256 = "6b35692b1d867f74fdf8987a911700e06ff24d40b95b935460ccd175e3712d28"
 UNITY_CACHE = Path(os.environ.get("UNITY_MLAGENTS_CACHE", "/mnt/workspace/hands-on-modern-rl/unity-mlagents-1.1.0"))
 
 SPACE = {
@@ -33,6 +38,7 @@ SPACE = {
     "badge": "EXPERIMENT 11 · UNITY",
     "device": "xGPU",
     "organization_url": "https://modelscope.cn/organization/walkinglab",
+    "dataset_url": UNITY_DATASET_URL,
     "project_url": "https://github.com/walkinglabs/hands-on-modern-rl",
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/",
     "source_url": "https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment11-unity-mlagents/file/view/master/space_runtime.py",
@@ -45,6 +51,7 @@ def _task(key: str, title: str, title_zh: str, scene: str, behavior: str, descri
           description_zh: str, observation: str, action: str, preview: str,
           budget: tuple[int, int, int, int], trainer: dict[str, Any], *,
           bundle_url: str = UNITY_BUNDLE_URL, cache_subdir: str | None = None,
+          bundle_sha256: str = UNITY_BUNDLE_SHA256,
           executable: str | None = None, env_args: list[str] | None = None,
           reference_url: str | None = None) -> dict[str, Any]:
     task = {
@@ -58,6 +65,7 @@ def _task(key: str, title: str, title_zh: str, scene: str, behavior: str, descri
         "epsilon": (0.05, 0.35, float(trainer["hyperparameters"]["epsilon"]), 0.01),
         "checkpoints": 6, "trainer": trainer,
         "bundle_url": bundle_url,
+        "bundle_sha256": bundle_sha256,
     }
     if cache_subdir:
         task["cache_subdir"] = cache_subdir
@@ -78,7 +86,8 @@ TASKS = [
           "Continuous joint-motor rotations for all four legs", "assets/unity-huggy.png",
           (20_000, 2_000_000, 100_000, 20_000),
           {"trainer_type": "ppo", "hyperparameters": {"batch_size": 2048, "buffer_size": 20480, "learning_rate": 0.0003, "beta": 0.005, "epsilon": 0.2, "lambd": 0.95, "num_epoch": 3, "learning_rate_schedule": "linear"}, "network_settings": {"normalize": True, "hidden_units": 512, "num_layers": 3, "vis_encode_type": "simple"}, "reward_signals": {"extrinsic": {"gamma": 0.995, "strength": 1.0}}, "keep_checkpoints": 3, "time_horizon": 1000},
-          bundle_url=HUGGY_BUNDLE_URL, cache_subdir="huggy", executable="Huggy/Huggy.x86_64", env_args=[],
+          bundle_url=HUGGY_BUNDLE_URL, bundle_sha256=HUGGY_BUNDLE_SHA256,
+          cache_subdir="huggy", executable="Huggy/Huggy.x86_64", env_args=[],
           reference_url="https://huggingface.co/learn/deep-rl-course/unitbonus1/train"),
     _task("unity-basic", "Basic · Discrete PPO", "Basic · 离散 PPO", "Basic", "Basic",
           "Match the target value with a short sequence of discrete decisions.", "通过一小段离散决策使数值匹配目标。",
@@ -124,6 +133,15 @@ def _find_unity_executable(cache: Path, relative_path: str | None) -> Path | Non
     return None
 
 
+def _verify_bundle(archive: Path, expected_sha256: str) -> None:
+    digest = hashlib.sha256()
+    with archive.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    if digest.hexdigest() != expected_sha256:
+        raise RuntimeError(f"Unity scene bundle checksum failed: {archive.name}")
+
+
 def _ensure_unity_bundle(task: dict[str, Any]) -> Path:
     cache = UNITY_CACHE / task["cache_subdir"] if task.get("cache_subdir") else UNITY_CACHE
     relative_path = task.get("executable")
@@ -158,6 +176,12 @@ def _ensure_unity_bundle(task: dict[str, Any]) -> Path:
             raise RuntimeError("The Unity scene bundle requires aria2c or curl")
         subprocess.run(command, check=True, timeout=1800)
         partial.replace(archive)
+    try:
+        _verify_bundle(archive, str(task["bundle_sha256"]))
+    except RuntimeError:
+        if archive != bundled_archive:
+            archive.unlink(missing_ok=True)
+        raise
     with zipfile.ZipFile(archive) as bundle:
         bundle.extractall(cache)
     selected = _find_unity_executable(cache, relative_path)
