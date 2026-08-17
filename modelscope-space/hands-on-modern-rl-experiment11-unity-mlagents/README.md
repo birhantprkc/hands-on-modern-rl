@@ -19,5 +19,6 @@ license: apache-2.0
 - Companion chapter: <https://walkinglabs.github.io/hands-on-modern-rl>
 - Live Studio: <https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment11-unity-mlagents>
 - Training source: <https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment11-unity-mlagents/file/view/master/space_runtime.py>
+- Companion Notebook: <https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment11-unity-mlagents.ipynb> (requires a scheduled xGPU Notebook)
 
 The official scene archive uses persistent, resumable storage and automatically falls back from `aria2c` to `curl`. When the xGPU image exposes Xvfb, the Studio records the Unity window; otherwise it runs the same official executable headlessly and creates the result GIF from the native trainer's real reward series.

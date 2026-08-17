@@ -18,6 +18,8 @@ SPACE = {
     "badge": "EXPERIMENT 06 · EXPLORATION",
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/chapter14_exploration_marl_hierarchical/intrinsic-motivation-exploration",
     "source_url": "https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment06-minigrid-adventure/file/view/master/space_runtime.py",
+    "notebook_url": "https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/"
+    "code/online-experiments/hands-on-modern-rl-experiment06-minigrid-adventure.ipynb",
 }
 
 

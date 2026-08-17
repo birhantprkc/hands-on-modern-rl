@@ -17,3 +17,7 @@ license: apache-2.0
 课程项目：<https://github.com/walkinglabs/hands-on-modern-rl>
 
 WalkingLab：<https://modelscope.cn/organization/walkinglab>
+
+## 配套实验 Notebook
+
+[直接在 ModelScope Notebook 中运行棋盘游戏实验](https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment04-board-selfplay.ipynb)。Notebook 与当前创空间复用同一份 CFR+ 与表格自博弈运行时，并显示训练日志、策略指标和结果回放。

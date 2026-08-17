@@ -18,6 +18,8 @@ SPACE = {
     "badge": "EXPERIMENT 07 · JAX",
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/chapter07_dqn/dqn-family",
     "source_url": "https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment07-jax-games/file/view/master/space_runtime.py",
+    "notebook_url": "https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/"
+    "code/online-experiments/hands-on-modern-rl-experiment07-jax-games.ipynb",
 }
 
 

@@ -18,6 +18,8 @@ SPACE = {
     "badge": "EXPERIMENT 02 · FPS",
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/chapter07_dqn/visual-game-projects",
     "source_url": "https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment02-vizdoom/file/view/master/space_runtime.py",
+    "notebook_url": "https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/"
+    "code/online-experiments/hands-on-modern-rl-experiment02-vizdoom.ipynb",
 }
 
 

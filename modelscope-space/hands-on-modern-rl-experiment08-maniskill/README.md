@@ -19,6 +19,7 @@ license: apache-2.0
 - Companion chapter: <https://walkinglabs.github.io/hands-on-modern-rl>
 - Live Studio: <https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment08-maniskill>
 - Training source: <https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment08-maniskill/file/view/master/space_runtime.py>
+- Companion Notebook: <https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment08-maniskill.ipynb> (requires a scheduled xGPU Notebook)
 
 The live Studio may bundle the official SAPIEN `linux-so.zip` GPU PhysX runtime to avoid a slow first-run GitHub download. The binary remains under NVIDIA's BSD-3-Clause terms; the required notice is included at `assets/physx-BSD-3-Clause.txt`.
 

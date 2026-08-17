@@ -71,6 +71,8 @@ SPACE = {
     "project_url": "https://github.com/walkinglabs/hands-on-modern-rl",
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/",
     "source_url": "https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment08-maniskill/file/view/master/space_runtime.py",
+    "notebook_url": "https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/"
+    "code/online-experiments/hands-on-modern-rl-experiment08-maniskill.ipynb",
 }
 
 

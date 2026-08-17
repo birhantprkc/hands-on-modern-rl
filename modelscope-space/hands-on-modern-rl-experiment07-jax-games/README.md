@@ -17,3 +17,7 @@ license: apache-2.0
 课程项目：<https://github.com/walkinglabs/hands-on-modern-rl>
 
 WalkingLab：<https://modelscope.cn/organization/walkinglab>
+
+## 配套实验 Notebook
+
+[直接在 ModelScope Notebook 中运行 JAX MinAtar 实验](https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment07-jax-games.ipynb)。Notebook 与当前创空间复用同一份 JAX/Optax 训练运行时，并显示编译日志、评估曲线和语义像素回放。

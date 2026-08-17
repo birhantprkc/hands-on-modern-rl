@@ -33,7 +33,10 @@ SEED = 42
 PROJECT_URL = "https://github.com/walkinglabs/hands-on-modern-rl"
 COURSE_URL = "https://walkinglabs.github.io/hands-on-modern-rl/"
 CHAPTER_URL = f"{COURSE_URL}chapter01_cartpole/training"
-NOTEBOOK_GITHUB_PATH = "walkinglabs/hands-on-modern-rl/blob/main/notebooks/cartpole-ppo.ipynb"
+NOTEBOOK_GITHUB_PATH = (
+    "walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/"
+    "hands-on-modern-rl-experiment01-cartpole.ipynb"
+)
 MODELSCOPE_NOTEBOOK_URL = f"https://modelscope.cn/notebook/share/github/{NOTEBOOK_GITHUB_PATH}"
 SCRIPT_URL = (
     "https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment01-cartpole/"

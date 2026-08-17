@@ -51,6 +51,10 @@ gr.set_static_paths(paths=[CARD_BACKGROUND_DIR, TASK_CARD_DIR])
 
 PROJECT_URL = "https://github.com/walkinglabs/hands-on-modern-rl"
 COURSE_URL = "https://walkinglabs.github.io/hands-on-modern-rl/"
+MODELSCOPE_NOTEBOOK_URL = (
+    "https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/"
+    "code/online-experiments/hands-on-modern-rl-experiment-gymnasium.ipynb"
+)
 BANDIT = "Bandit · ε-greedy"
 BLACKJACK = "Blackjack · Monte Carlo"
 GRIDWORLD = "GridWorld · Q-Learning"
@@ -800,6 +804,7 @@ TEXT = {
         "title": "Gymnasium Training Playground",
         "description": "Browse every environment registered by Gymnasium and its installed suites. Twelve curated recipes remain ready for quick CPU training.",
         "chapter": "Companion chapter",
+        "notebook": "Notebook",
         "script": "Training source",
         "project": "GitHub project",
         "device": "Device",
@@ -850,6 +855,7 @@ TEXT = {
         "title": "Gymnasium 在线训练游乐场",
         "description": "浏览 Gymnasium 及已安装扩展套件注册的全部环境，同时保留 12 个可快速训练的调优配方。",
         "chapter": "阅读配套章节",
+        "notebook": "Notebook",
         "script": "训练源码",
         "project": "GitHub 项目",
         "device": "设备",
@@ -1014,6 +1020,7 @@ def hero_html(language: str, experiment: str = BANDIT) -> str:
           <a class="hero-link primary" href="{PROJECT_URL}" target="_blank" rel="noreferrer">GitHub · walkinglabs/hands-on-modern-rl</a>
           <a class="hero-link" href="https://modelscope.cn/organization/walkinglab" target="_blank" rel="noreferrer">WalkingLab</a>
           <a class="hero-link" href="{chapter_url}" target="_blank" rel="noreferrer">{copy['chapter']}</a>
+          <a class="hero-link" href="{MODELSCOPE_NOTEBOOK_URL}" target="_blank" rel="noreferrer">{copy['notebook']}</a>
           <a class="hero-link" href="{SCRIPT_URL}" target="_blank" rel="noreferrer">{copy['script']}</a>
         </nav>
       </section>

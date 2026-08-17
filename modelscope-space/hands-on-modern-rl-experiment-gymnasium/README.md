@@ -16,6 +16,7 @@ license: apache-2.0
 
 - Project: <https://github.com/walkinglabs/hands-on-modern-rl>
 - WalkingLab: <https://modelscope.cn/organization/walkinglab>
+- Companion Notebook: <https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment-gymnasium.ipynb>
 
 首批实验：
 

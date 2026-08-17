@@ -17,3 +17,7 @@ license: apache-2.0
 课程项目：<https://github.com/walkinglabs/hands-on-modern-rl>
 
 WalkingLab：<https://modelscope.cn/organization/walkinglab>
+
+## 配套实验 Notebook
+
+[直接在 ModelScope Notebook 中运行 Atari 实验](https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment03-atari.ipynb)。Notebook 与当前创空间复用同一份 ALE/DQN 训练运行时，并显示完整日志、评估曲线和本次策略回放。

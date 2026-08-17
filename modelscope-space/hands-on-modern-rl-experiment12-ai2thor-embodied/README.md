@@ -19,3 +19,4 @@ license: apache-2.0
 - Companion chapter: <https://walkinglabs.github.io/hands-on-modern-rl>
 - Live Studio: <https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment12-ai2thor-embodied>
 - Training source: <https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment12-ai2thor-embodied/file/view/master/space_runtime.py>
+- Companion Notebook: <https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment12-ai2thor-embodied.ipynb> (requires a scheduled xGPU Notebook)

@@ -17,3 +17,7 @@ license: apache-2.0
 课程项目：<https://github.com/walkinglabs/hands-on-modern-rl>
 
 WalkingLab：<https://modelscope.cn/organization/walkinglab>
+
+## 配套实验 Notebook
+
+[直接在 ModelScope Notebook 中运行多智能体实验](https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment05-multiagent-games.ipynb)。Notebook 与当前创空间复用同一份 PettingZoo/PPO 训练运行时，并显示完整日志、团队奖励曲线和同步策略回放。
