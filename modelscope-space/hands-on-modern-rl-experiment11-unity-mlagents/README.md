@@ -3,9 +3,7 @@ title: Unity ML-Agents xGPU Arena
 emoji: 🧪
 colorFrom: indigo
 colorTo: purple
-sdk: gradio
-sdk_version: 6.17.3
-app_file: app.py
+sdk: docker
 pinned: false
 license: apache-2.0
 ---
@@ -22,6 +20,6 @@ license: apache-2.0
 - Training source: <https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment11-unity-mlagents/file/view/master/space_runtime.py>
 - Companion Notebook: <https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment11-unity-mlagents.ipynb> (requires a scheduled xGPU Notebook)
 
-Scene archives come from the versioned WalkingLab Dataset above, use persistent resumable storage, and automatically fall back from `aria2c` to `curl`. The Studio repository also carries Huggy's 39 MB Linux build as a zero-wait local fallback; the official 18-scene Startup build is cached after its first Dataset download. When the xGPU image exposes Xvfb, the Studio records the real Unity window and turns its final segment into a GIF; otherwise it runs the same executable headlessly and creates a clearly labelled telemetry GIF from the native trainer reward series.
+Scene archives come from the versioned WalkingLab Dataset above, use persistent resumable storage, and automatically fall back from `aria2c` to `curl`. Huggy's 39 MB Linux build and the official 18-scene Startup build are cached after their first Dataset download. The Docker image installs Xvfb, Mesa, and ffmpeg before the Studio starts. Every run must produce visible Unity frames and a real animated replay; if rendering fails, the run stops with an explicit error instead of substituting a reward-curve GIF.
 
 Every gallery card and initial task preview uses a locally stored, compressed capture of the actual Unity environment—no generated illustration and no external hotlink. Huggy's capture comes from the [official Huggy README](https://github.com/huggingface/Huggy); Basic, 3D Ball, Food Collector, and Walker come from the [Unity ML-Agents Release 20 documentation assets](https://github.com/Unity-Technologies/ml-agents/tree/release_20/docs/images). Training then replaces the still capture with live Unity frames and the final replay GIF.

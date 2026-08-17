@@ -664,4 +664,10 @@ initializeGameLabUi();
 
 def launch(space_module: Any) -> None:
     demo = build_demo(space_module)
-    demo.queue(default_concurrency_limit=1, max_size=12).launch(css=CSS, js=AUTO_SCROLL_JS, footer_links=[])
+    demo.queue(default_concurrency_limit=1, max_size=12).launch(
+        server_name=os.environ.get("GRADIO_SERVER_NAME", "0.0.0.0"),
+        server_port=int(os.environ.get("GRADIO_SERVER_PORT", "7860")),
+        css=CSS,
+        js=AUTO_SCROLL_JS,
+        footer_links=[],
+    )
