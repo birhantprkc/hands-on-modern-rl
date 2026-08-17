@@ -274,19 +274,25 @@ def _start_capture(target: Path, frames_dir: Path) -> subprocess.Popen[str]:
     return subprocess.Popen([
         ffmpeg, "-y", "-loglevel", "error", "-f", "x11grab", "-framerate", "12",
         "-video_size", "960x540", "-i", os.environ["DISPLAY"],
-        "-filter_complex", "[0:v]split=2[record][preview];[preview]fps=0.5,scale=640:-1:flags=lanczos[live]",
+        "-filter_complex", "[0:v]split=2[record][preview];[preview]fps=2,scale=480:-1:flags=lanczos[live]",
         "-map", "[record]", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", str(target),
         "-map", "[live]", "-q:v", "5", str(frames_dir / "frame-%06d.jpg"),
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
 
 
 def _latest_preview_frame(frames_dir: Path) -> np.ndarray | None:
-    candidates = sorted(frames_dir.glob("frame-*.jpg"))
+    candidates = list(frames_dir.glob("frame-*.jpg"))
     if not candidates:
         return None
+    latest = max(candidates, key=lambda path: path.name)
     try:
-        with Image.open(candidates[-1]) as image:
+        with Image.open(latest) as image:
             frame = np.asarray(image.convert("RGB"))
+        # Live frames are transient. Keeping only the newest file avoids an
+        # ever-growing directory during long training runs.
+        for stale in candidates:
+            if stale != latest:
+                stale.unlink(missing_ok=True)
         # Xvfb is black before the Unity window is mapped. Keep the task card
         # visible until a real rendered frame is available.
         return frame if float(frame.mean()) > 2.0 else None
@@ -308,7 +314,15 @@ def _stop_process(process: subprocess.Popen[Any] | None) -> None:
 
 
 def _make_gif(video: Path, output: Path) -> str:
-    subprocess.run([_ffmpeg_executable(), "-y", "-loglevel", "error", "-sseof", "-10", "-i", str(video), "-vf", "fps=12,scale=640:-1:flags=lanczos", str(output)], check=True, timeout=90)
+    replay_filter = (
+        "[0:v]fps=8,scale=480:-1:flags=lanczos,split[palette_source][replay];"
+        "[palette_source]palettegen=max_colors=96:stats_mode=diff[palette];"
+        "[replay][palette]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle"
+    )
+    subprocess.run([
+        _ffmpeg_executable(), "-y", "-loglevel", "error", "-sseof", "-6", "-i", str(video),
+        "-filter_complex", replay_filter, "-loop", "0", str(output),
+    ], check=True, timeout=90)
     if not output.exists() or output.stat().st_size < 1_000:
         raise RuntimeError("Unity completed, but the replay capture was empty")
     with Image.open(output) as replay:
@@ -408,7 +422,7 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
             if capture is not None and capture.poll() is not None:
                 raise RuntimeError("ffmpeg stopped before it captured the Unity window")
             live_frame = None
-            if now - last_preview_emit >= 2.0:
+            if now - last_preview_emit >= 0.5:
                 live_frame = _latest_preview_frame(frames_dir)
                 last_preview_emit = now
                 rendered_frame_seen = rendered_frame_seen or live_frame is not None
@@ -423,10 +437,15 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
                 or now - last_emit >= 2.0
             )
             if should_emit:
+                preview_only = bool(
+                    live_frame is not None and not step_match and not match and not pending
+                    and now - last_emit < 2.0
+                )
                 event = {
                     "phase": "training", "step": last_step, "x": x, "y": y,
                     "detail": f"{last_step:,}/{int(budget):,} Unity steps",
                     "log": "\n".join(pending),
+                    "preview_only": preview_only,
                 }
                 if match:
                     event.update(score=score, metric_detail="Unity trainer mean reward")

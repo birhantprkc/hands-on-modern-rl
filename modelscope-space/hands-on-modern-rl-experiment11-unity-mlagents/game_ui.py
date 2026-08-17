@@ -514,6 +514,16 @@ def build_demo(space_module: Any):
                 event_preview = event_value(event, "preview")
                 if event_preview is not None:
                     preview = event_preview
+                if bool(event_value(event, "preview_only", False)):
+                    # Live Unity frames arrive more often than trainer metrics.
+                    # Preserve the other outputs so the browser only decodes
+                    # and paints the new frame instead of rebuilding the plot,
+                    # console, status cards, and button twice per second.
+                    yield (
+                        gr.skip(), gr.skip(), gr.skip(), preview,
+                        gr.skip(), gr.skip(), gr.skip(), gr.skip(),
+                    )
+                    continue
                 phase = str(event_value(event, "phase", "training"))
                 detail = str(event_value(event, "detail", f"{int(event_value(event, 'step', 0)):,}/{params['budget']:,}"))
                 metric_detail = str(event_value(event, "metric_detail", "Mean evaluation score"))
