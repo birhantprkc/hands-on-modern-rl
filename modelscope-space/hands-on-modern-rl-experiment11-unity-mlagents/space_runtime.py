@@ -75,7 +75,7 @@ TASKS = [
           "Coordinate four articulated legs, run toward the randomly placed stick, and reach it without spinning out.",
           "协调四条腿的关节运动，跑向随机出现的树枝，并在不过度旋转的情况下抵达目标。",
           "Stick position, relative target direction, body state, and leg orientation",
-          "Continuous joint-motor rotations for all four legs", "assets/unity-huggy.svg",
+          "Continuous joint-motor rotations for all four legs", "assets/unity-huggy.png",
           (20_000, 2_000_000, 100_000, 20_000),
           {"trainer_type": "ppo", "hyperparameters": {"batch_size": 2048, "buffer_size": 20480, "learning_rate": 0.0003, "beta": 0.005, "epsilon": 0.2, "lambd": 0.95, "num_epoch": 3, "learning_rate_schedule": "linear"}, "network_settings": {"normalize": True, "hidden_units": 512, "num_layers": 3, "vis_encode_type": "simple"}, "reward_signals": {"extrinsic": {"gamma": 0.995, "strength": 1.0}}, "keep_checkpoints": 3, "time_horizon": 1000},
           bundle_url=HUGGY_BUNDLE_URL, cache_subdir="huggy", executable="Huggy/Huggy.x86_64", env_args=[],
