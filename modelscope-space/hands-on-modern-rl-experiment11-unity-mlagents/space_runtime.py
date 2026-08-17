@@ -243,7 +243,7 @@ def _start_xvfb() -> subprocess.Popen[str]:
     xvfb = shutil.which("Xvfb")
     if xvfb is None:
         raise RuntimeError(
-            "Xvfb is missing. This Studio must use the Docker runtime that installs the Unity rendering stack."
+            "Xvfb is missing. Restart this Studio so its xGPU startup bootstrap can install the Unity rendering stack."
         )
     process = subprocess.Popen(
         [
@@ -338,7 +338,7 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
     ffmpeg_path = _ffmpeg_executable()
     if not xvfb_path:
         raise RuntimeError(
-            "Real Unity rendering is unavailable because Xvfb is missing. Redeploy this Studio with its Docker SDK."
+            "Real Unity rendering is unavailable because Xvfb is missing. Restart the xGPU Studio and inspect its startup log."
         )
     yield {
         "phase": "initializing", "step": 0,
