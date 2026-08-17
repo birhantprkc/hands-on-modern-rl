@@ -372,7 +372,13 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         pending: list[str] = []
         last_emit = time.monotonic()
         last_preview_emit = 0.0
-        render_deadline = time.monotonic() + 45.0
+        # Huggy is a larger standalone scene than the compact ML-Agents sample
+        # launcher. On a freshly scheduled xGPU container it can need close to
+        # a minute before the first Unity frame is mapped to Xvfb. Keep waiting
+        # while the trainer is alive instead of misclassifying startup as a
+        # renderer failure.
+        render_timeout = 120.0 if key == "unity-huggy" else 75.0
+        render_deadline = time.monotonic() + render_timeout
         rendered_frame_seen = False
         stream_finished = False
         while not stream_finished:
@@ -408,7 +414,7 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
                 rendered_frame_seen = rendered_frame_seen or live_frame is not None
             if not rendered_frame_seen and now >= render_deadline:
                 raise RuntimeError(
-                    "The Unity window did not produce a visible frame within 45 seconds. "
+                    f"The Unity window did not produce a visible frame within {render_timeout:.0f} seconds. "
                     "Training was stopped instead of returning a fake replay."
                 )
             should_emit = bool(
