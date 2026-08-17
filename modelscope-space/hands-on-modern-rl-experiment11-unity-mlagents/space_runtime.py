@@ -76,10 +76,11 @@ TASKS = [
 
 def runtime_status() -> str:
     try:
-        import mlagents
+        from importlib.metadata import version
+
         import torch
         accelerator = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "CPU fallback"
-        return f"ML-Agents {mlagents.__version__} · {accelerator} · OFFICIAL REGISTRY"
+        return f"ML-Agents {version('mlagents')} · {accelerator} · OFFICIAL REGISTRY"
     except Exception as exc:
         return f"installing ML-Agents runtime · {type(exc).__name__}"
 
