@@ -667,7 +667,10 @@ const enNav = [
     text: 'Safety & Frontiers',
     link: '/en/chapter32_selfplay/self-play-outlook/'
   },
-  { text: 'Appendices', link: '/en/appendix_industrial_training/training-debugging' }
+  {
+    text: 'Appendices',
+    link: '/en/appendix_industrial_training/training-debugging'
+  }
 ]
 
 const zhSidebar = {
@@ -917,11 +920,11 @@ const zhSidebar = {
       ]
     },
     {
-      text: 'Part III · 高级强化学习方法',
+      text: 'Part III · 高级强化学习方法（选修）',
       collapsed: false,
       items: [
         {
-          text: '10. 离线强化学习',
+          text: '10. 离线强化学习（选修）',
           collapsed: false,
           items: [
             {
@@ -939,7 +942,7 @@ const zhSidebar = {
           ]
         },
         {
-          text: '11. 模仿学习、逆强化学习与元强化学习',
+          text: '11. 模仿学习、逆强化学习与元强化学习（选修）',
           collapsed: false,
           items: [
             {
@@ -957,7 +960,7 @@ const zhSidebar = {
           ]
         },
         {
-          text: '12. 探索、多智能体与分层强化学习',
+          text: '12. 探索、多智能体与分层强化学习（选修）',
           collapsed: false,
           items: [
             {
@@ -1002,15 +1005,23 @@ const zhSidebar = {
             },
             {
               text: '13.5 大规模训练工程',
-              link: '/chapter15_rlhf/extended-practice'
+              link: '/chapter15_rlhf/scaling-to-large-models'
             },
             {
               text: '13.6 对齐评测',
               link: '/chapter15_rlhf/evaluation'
             },
             {
-              text: '13.7 动手：使用 veRL 和 PPO 训练 GSM8K',
+              text: '13.7 扩展实战：Reward Hacking 与数据飞轮',
+              link: '/chapter15_rlhf/extended-practice'
+            },
+            {
+              text: '13.8 动手：使用 veRL 和 PPO 训练 GSM8K',
               link: '/chapter15_rlhf/verl-ppo-gsm8k'
+            },
+            {
+              text: '13.9 补充阅读：PPO-RLHF 训练循环',
+              link: '/chapter15_rlhf/ppo-rlhf-loop'
             }
           ]
         },
@@ -1261,11 +1272,11 @@ const zhSidebar = {
       ]
     },
     {
-      text: 'Part VI · 多模态强化学习',
+      text: 'Part VI · 多模态强化学习（选修）',
       collapsed: false,
       items: [
         {
-          text: '23. 视觉语言模型 RL',
+          text: '23. 视觉语言模型 RL（选修）',
           collapsed: false,
           items: [
             {
@@ -1287,7 +1298,7 @@ const zhSidebar = {
           ]
         },
         {
-          text: '24. 前沿多模态 RL',
+          text: '24. 前沿多模态 RL（选修）',
           collapsed: false,
           items: [
             {
@@ -1315,11 +1326,11 @@ const zhSidebar = {
       ]
     },
     {
-      text: 'Part VII · 安全、评测与研究前沿',
+      text: 'Part VII · 安全、评测与研究前沿（选修）',
       collapsed: false,
       items: [
         {
-          text: '25. 奖励黑客与强化学习评测',
+          text: '25. 奖励黑客与强化学习评测（选修）',
           collapsed: false,
           items: [
             {
@@ -1345,7 +1356,7 @@ const zhSidebar = {
           ]
         },
         {
-          text: '26. 自博弈、规模化与研究前沿',
+          text: '26. 自博弈、规模化与研究前沿（选修）',
           collapsed: false,
           items: [
             {
@@ -1815,11 +1826,11 @@ const enSidebar = {
       ]
     },
     {
-      text: 'Advanced RL Methods',
+      text: 'Advanced RL Methods (Elective)',
       collapsed: false,
       items: [
         {
-          text: '10. Offline Reinforcement Learning',
+          text: '10. Offline Reinforcement Learning (Elective)',
           collapsed: false,
           items: [
             {
@@ -1837,7 +1848,7 @@ const enSidebar = {
           ]
         },
         {
-          text: '11. Imitation, Inverse and Meta Reinforcement Learning',
+          text: '11. Imitation, Inverse and Meta Reinforcement Learning (Elective)',
           collapsed: false,
           items: [
             {
@@ -1855,7 +1866,7 @@ const enSidebar = {
           ]
         },
         {
-          text: '12. Exploration, Multi-Agent and Hierarchical RL',
+          text: '12. Exploration, Multi-Agent and Hierarchical RL (Elective)',
           collapsed: false,
           items: [
             {
@@ -1900,15 +1911,23 @@ const enSidebar = {
             },
             {
               text: '13.5 Large-Scale Training Engineering',
-              link: '/en/chapter15_rlhf/extended-practice'
+              link: '/en/chapter15_rlhf/scaling-to-large-models'
             },
             {
               text: '13.6 Alignment Evaluation',
               link: '/en/chapter15_rlhf/evaluation'
             },
             {
-              text: '13.7 Hands-on: veRL PPO on GSM8K',
+              text: '13.7 Extended Practice: Reward Hacking and the Data Flywheel',
+              link: '/en/chapter15_rlhf/extended-practice'
+            },
+            {
+              text: '13.8 Hands-on: veRL PPO on GSM8K',
               link: '/en/chapter15_rlhf/verl-ppo-gsm8k'
+            },
+            {
+              text: '13.9 Supplement: The PPO-RLHF Training Loop',
+              link: '/en/chapter15_rlhf/ppo-rlhf-loop'
             }
           ]
         },
@@ -2159,11 +2178,11 @@ const enSidebar = {
       ]
     },
     {
-      text: 'Multimodal Reinforcement Learning',
+      text: 'Multimodal Reinforcement Learning (Elective)',
       collapsed: false,
       items: [
         {
-          text: '23. Vision-Language Model RL',
+          text: '23. Vision-Language Model RL (Elective)',
           collapsed: false,
           items: [
             {
@@ -2185,7 +2204,7 @@ const enSidebar = {
           ]
         },
         {
-          text: '24. Frontier Multimodal RL',
+          text: '24. Frontier Multimodal RL (Elective)',
           collapsed: false,
           items: [
             {
@@ -2213,11 +2232,11 @@ const enSidebar = {
       ]
     },
     {
-      text: 'Safety, Evaluation and Research Frontiers',
+      text: 'Safety, Evaluation and Research Frontiers (Elective)',
       collapsed: false,
       items: [
         {
-          text: '25. Reward Hacking and RL Evaluation',
+          text: '25. Reward Hacking and RL Evaluation (Elective)',
           collapsed: false,
           items: [
             {
@@ -2243,7 +2262,7 @@ const enSidebar = {
           ]
         },
         {
-          text: '26. Self-Play, Scaling and Research Frontiers',
+          text: '26. Self-Play, Scaling and Research Frontiers (Elective)',
           collapsed: false,
           items: [
             {
