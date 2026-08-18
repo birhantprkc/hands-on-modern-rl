@@ -23,12 +23,21 @@ import argparse
 import csv
 import os
 import random
+import sys
+from pathlib import Path
+
+_CODE_ROOT = Path(__file__).resolve().parents[1]
+if str(_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT))
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import numpy as np
 import gymnasium as gym
 import swanlab
+
+from device_utils import describe_device, print_device_report, resolve_torch_device
 
 
 # ==========================================
@@ -95,6 +104,7 @@ def collect_rollout(
     model,
     env,
     obs,
+    device,
     episode_reward=0.0,
     episode_length=0,
     num_steps=2048,
@@ -110,7 +120,7 @@ def collect_rollout(
     completed_lengths = []
 
     for _ in range(num_steps):
-        obs_tensor = torch.FloatTensor(obs)
+        obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device)
         with torch.no_grad():
             action, log_prob, value = model.get_action(obs_tensor)
 
@@ -119,7 +129,8 @@ def collect_rollout(
             if terminated:
                 next_value = 0.0
             else:
-                _, next_value_tensor = model(torch.FloatTensor(next_obs))
+                next_obs_tensor = torch.as_tensor(next_obs, dtype=torch.float32, device=device)
+                _, next_value_tensor = model(next_obs_tensor)
                 next_value = next_value_tensor.item()
 
         # Store this step's V(s') so termination, truncation, and end-of-rollout all share one GAE formula.
@@ -189,16 +200,18 @@ def compute_gae(transitions, gamma=0.99, lam=0.95):
 # ==========================================
 # Part 4: PPO update
 # ==========================================
-def ppo_update(model, optimizer, transitions, advantages, returns,
+def ppo_update(model, optimizer, transitions, advantages, returns, device,
                clip_eps=0.2, epochs=10, batch_size=64):
     """PPO clipped objective update"""
     obs = np.array([t["obs"] for t in transitions])
     actions = np.array([t["action"] for t in transitions])
     old_log_probs = np.array([t["log_prob"] for t in transitions])
 
-    obs = torch.FloatTensor(obs)
-    actions = torch.LongTensor(actions)
-    old_log_probs = torch.FloatTensor(old_log_probs)
+    obs = torch.as_tensor(obs, dtype=torch.float32, device=device)
+    actions = torch.as_tensor(actions, dtype=torch.long, device=device)
+    old_log_probs = torch.as_tensor(old_log_probs, dtype=torch.float32, device=device)
+    advantages = advantages.to(device)
+    returns = returns.to(device)
 
     total_policy_loss = 0
     total_value_loss = 0
@@ -280,6 +293,12 @@ def parse_args():
         help="Where to save the raw training-metrics CSV",
     )
     parser.add_argument(
+        "--device",
+        choices=["auto", "cuda", "mps", "cpu"],
+        default="auto",
+        help="Training device: auto prefers CUDA, then Apple MPS, then CPU",
+    )
+    parser.add_argument(
         "--swanlab-mode",
         choices=["local", "cloud", "disabled"],
         default="local",
@@ -290,6 +309,9 @@ def parse_args():
 
 def train():
     args = parse_args()
+    device = resolve_torch_device(args.device)
+    print_device_report(device)
+
     model_path = os.path.join(
         os.path.dirname(os.path.abspath(args.log_csv)),
         "pytorch_ppo_cartpole.pth",
@@ -300,6 +322,8 @@ def train():
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
+    if device.type == "cuda":
+        torch.cuda.manual_seed(args.seed)
     env.action_space.seed(args.seed)
     obs, _ = env.reset(seed=args.seed)
 
@@ -316,7 +340,7 @@ def train():
           f"(≈ ±{np.degrees(env.unwrapped.theta_threshold_radians):.0f}°)")
     print("=" * 50)
 
-    model = ActorCritic()
+    model = ActorCritic().to(device)
     optimizer = optim.Adam(model.parameters(), lr=3e-4)
 
     total_iterations = args.iterations
@@ -338,10 +362,11 @@ def train():
             "epochs": 10,
             "batch_size": 64,
             "seed": args.seed,
+            "device": str(device),
         },
     )
 
-    print("Starting training (pure PyTorch PPO + SwanLab)...")
+    print(f"Starting training on {describe_device(device)} (pure PyTorch PPO + SwanLab)...")
     print("-" * 60)
 
     total_timesteps = 0
@@ -366,6 +391,7 @@ def train():
             model,
             env,
             obs,
+            device,
             ongoing_episode_reward,
             ongoing_episode_length,
             steps_per_rollout,
@@ -384,7 +410,7 @@ def train():
 
         # PPO update
         metrics = ppo_update(
-            model, optimizer, transitions, advantages, returns
+            model, optimizer, transitions, advantages, returns, device
         )
 
         # Explained variance compares the value predictions made during rollout collection against the return targets.
@@ -458,7 +484,7 @@ def train():
         obs, _ = env.reset(seed=args.seed + 10_000 + len(eval_rewards))
         done, truncated, score = False, False, 0
         while not (done or truncated):
-            obs_tensor = torch.FloatTensor(obs)
+            obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device)
             with torch.no_grad():
                 action, _, _ = model.get_action(obs_tensor, deterministic=True)
             obs, reward, done, truncated, _ = env.step(action.item())

@@ -15,6 +15,8 @@ pip install -r requirements.txt
 pip install -r chapter01_cartpole/requirements.txt
 ```
 
+Chapter 1 scripts accept `--device auto|cuda|mps|cpu` (auto prefers CUDA, then Apple MPS, then CPU). Shared helpers live in `device_utils.py`.
+
 ## Chapter Code Overview
 
 | Chapter                 | Directory                       | Main Code                            | Description                                                                                                               |

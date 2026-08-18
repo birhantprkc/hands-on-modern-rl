@@ -26,14 +26,22 @@ About the --gui flag:
 import argparse
 import os
 import sys
-import numpy as np
+from pathlib import Path
+
+_CODE_ROOT = Path(__file__).resolve().parents[1]
+if str(_CODE_ROOT) not in sys.path:
+    sys.path.insert(0, str(_CODE_ROOT))
+
 import gymnasium as gym
-from stable_baselines3 import PPO 
+import numpy as np
+from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.evaluation import evaluate_policy
 from stable_baselines3.common.logger import HumanOutputFormat
 from swanlab.integration.sb3 import SwanLabCallback
 import swanlab
+
+from device_utils import describe_device, resolve_sb3_device, print_device_report
 
 
 class LogApproxKL(BaseCallback):
@@ -96,12 +104,20 @@ def parse_args():
         "--gui", action="store_true",
         help="Pop up a GUI window to demo the agent after training finishes (off by default, only prints scores)",
     )
+    parser.add_argument(
+        "--device",
+        choices=["auto", "cuda", "mps", "cpu"],
+        default="auto",
+        help="Training device: auto prefers CUDA, then Apple MPS, then CPU",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
     os.makedirs("output", exist_ok=True)
+    device = resolve_sb3_device(args.device)
+    print_device_report(device)
 
     # ==========================================
     # Stage 1: Training
@@ -121,9 +137,14 @@ def main():
           f"(≈ ±{np.degrees(env.unwrapped.theta_threshold_radians):.0f}°)")
     print("=" * 50)
 
-    model = PPO("MlpPolicy", env, verbose=1)
+    model = PPO("MlpPolicy", env, verbose=1, device=device)
+    if device == "mps":
+        print(
+            "Note: SB3 MlpPolicy on Apple MPS works, but CPU is often faster for "
+            "small networks. Pass --device cpu to compare."
+        )
 
-    print("Starting training (with SwanLab logging)...")
+    print(f"Starting training on {describe_device(device)} (with SwanLab logging)...")
     swanlab_cb = SwanLabCallback(
         project="cartpole-ppo",
         experiment_name="PPO-CartPole-v1",
