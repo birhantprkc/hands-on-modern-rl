@@ -312,9 +312,42 @@ def _stop_process(process: subprocess.Popen[Any] | None) -> None:
             pass
 
 
+def _trim_blank_gif_tail(output: Path, replay_filter: str, fps: int) -> None:
+    """Remove the Xvfb desktop left behind after the Unity window closes."""
+    with Image.open(output) as replay:
+        frame_count = int(getattr(replay, "n_frames", 1))
+        tail_start = frame_count
+        for frame_index in range(frame_count - 1, -1, -1):
+            replay.seek(frame_index)
+            frame = np.asarray(replay.convert("RGB"), dtype=np.float32)
+            # The empty Xvfb desktop is a nearly uniform dark navy frame.
+            # A real Unity scene may be dark, but it still has substantially
+            # more spatial variation than this background.
+            if float(frame.mean()) < 50.0 and float(frame.std()) < 12.0:
+                tail_start = frame_index
+            else:
+                break
+    blank_frames = frame_count - tail_start
+    if blank_frames < 3 or tail_start < 12:
+        return
+    trimmed = output.with_name(f"{output.stem}.trimmed.gif")
+    try:
+        subprocess.run([
+            _ffmpeg_executable(), "-y", "-loglevel", "error", "-i", str(output),
+            "-t", f"{tail_start / fps:.3f}", "-filter_complex", replay_filter,
+            "-loop", "0", str(trimmed),
+        ], check=True, timeout=90)
+        if not trimmed.exists() or trimmed.stat().st_size < 1_000:
+            raise RuntimeError("Unity replay trimming produced an empty GIF")
+        trimmed.replace(output)
+    finally:
+        trimmed.unlink(missing_ok=True)
+
+
 def _make_gif(video: Path, output: Path) -> str:
+    replay_fps = 10
     replay_filter = (
-        "[0:v]fps=10,scale=480:-1:flags=lanczos,split[palette_source][replay];"
+        f"[0:v]fps={replay_fps},scale=480:-1:flags=lanczos,split[palette_source][replay];"
         "[palette_source]palettegen=max_colors=96:stats_mode=diff[palette];"
         "[replay][palette]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle"
     )
@@ -322,6 +355,7 @@ def _make_gif(video: Path, output: Path) -> str:
         _ffmpeg_executable(), "-y", "-loglevel", "error", "-sseof", "-6", "-i", str(video),
         "-filter_complex", replay_filter, "-loop", "0", str(output),
     ], check=True, timeout=90)
+    _trim_blank_gif_tail(output, replay_filter, replay_fps)
     if not output.exists() or output.stat().st_size < 1_000:
         raise RuntimeError("Unity completed, but the replay capture was empty")
     with Image.open(output) as replay:
