@@ -221,7 +221,7 @@ $$
 
 SPA-RL 还加了一个 grounding signal $g_t$（动作是否真的能在环境中执行），最终中间奖励是 $r_t^{\text{fused}} = \alpha c_t + \beta g_t$——一个动作既要"有用"，也要"能执行"。
 
-#### AgentPRM：把 PRM 当成 agent 的 Q(s,a)
+#### AgentPRM：把 PRM 当成 agent 的 $Q(s,a)$
 
 [AgentPRM](https://arxiv.org/abs/2502.10325) 的思路更接近经典 RL 里的 actor-critic。它把 process reward model 看成一个状态-动作价值函数：
 
@@ -379,7 +379,7 @@ def compute_turn_rewards(turn_rewards, gamma=0.9):
 | HGPO           | k-step context       | 解决历史上下文不一致  | 网页导航、上下文敏感任务       |
 | Group-Graph PO | 轨迹 DAG             | 长程 + 共享前缀       | 长程任务（10+ 步）             |
 | SPA-RL         | progress estimator   | reward redistribution | 任意多步任务                   |
-| AgentPRM       | MC return + soft BCE | PRM as Q(s,a)         | 需要 Best-of-N 推理            |
+| AgentPRM       | MC return + soft BCE | PRM as $Q(s,a)$       | 需要 Best-of-N 推理            |
 | ARPO           | entropy spike        | 局部分叉采样          | 工具调用密集任务               |
 | IGPO           | 正确答案 log-prob    | information gain      | 有 ground truth 的任务         |
 | AEM            | 自适应 entropy       | 无需额外监督          | 通用、易坍缩场景               |

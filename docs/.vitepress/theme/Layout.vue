@@ -1007,6 +1007,30 @@ function renderSidebarKatex() {
   // no-op: sidebar labels are plain text
 }
 
+function renderOutlineMath() {
+  if (typeof document === 'undefined') return
+  document
+    .querySelectorAll('.VPDocAsideOutline .outline-link')
+    .forEach((link) => {
+      const href = link.getAttribute('href')
+      if (!href) return
+      const id = decodeURIComponent(href.split('#')[1] || '')
+      if (!id) return
+      const heading = document.getElementById(id)
+      if (!heading) return
+      const clone = heading.cloneNode(true)
+      clone.querySelector('.header-anchor')?.remove()
+      const html = clone.innerHTML.trim()
+      if (!html || html === link.innerHTML) return
+      link.innerHTML = html
+    })
+}
+
+function scheduleRenderOutlineMath() {
+  if (typeof window === 'undefined') return
+  window.requestAnimationFrame(renderOutlineMath)
+}
+
 function enhanceNavTitle() {
   if (typeof document === 'undefined') return
   const title = document.querySelector('.VPNavBar .title')
@@ -1141,6 +1165,7 @@ onMounted(() => {
   initMermaidViewer()
   enhanceNavTitle()
   renderSidebarKatex()
+  scheduleRenderOutlineMath()
   initGithubStars(theme)
 
   router.onBeforeRouteChange = () => {
@@ -1232,6 +1257,7 @@ watch(
     initMermaidViewer()
     enhanceNavTitle()
     renderSidebarKatex()
+    scheduleRenderOutlineMath()
     window.requestAnimationFrame(updateSidebarEdgePosition)
   }
 )
