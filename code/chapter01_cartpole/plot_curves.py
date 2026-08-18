@@ -1,4 +1,4 @@
-"""从训练脚本导出的 CSV 生成可复核的 CartPole 训练曲线。"""
+"""Generate reviewable CartPole training curves from the CSV exported by the training script."""
 
 import argparse
 import csv
@@ -13,7 +13,7 @@ import numpy as np
 
 def parse_args():
     here = os.path.dirname(os.path.abspath(__file__))
-    parser = argparse.ArgumentParser(description="绘制 CartPole PPO 实测曲线")
+    parser = argparse.ArgumentParser(description="Plot measured CartPole PPO curves")
     parser.add_argument(
         "--input",
         default=os.path.join(here, "output", "training_metrics.csv"),
@@ -29,7 +29,7 @@ def load_metrics(path):
     with open(path, newline="", encoding="utf-8") as f:
         rows = list(csv.DictReader(f))
     if not rows:
-        raise ValueError(f"没有可绘制的数据：{path}")
+        raise ValueError(f"No data to plot: {path}")
     return {
         key: np.array([float(row[key]) for row in rows])
         for key in rows[0]

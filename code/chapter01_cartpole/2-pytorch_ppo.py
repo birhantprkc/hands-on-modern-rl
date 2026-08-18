@@ -1,22 +1,22 @@
 """
-第1章：撕开黑盒 —— 用纯 PyTorch 实现 PPO 训练 CartPole
-展示 SB3 的 model.learn() 背后的核心逻辑
+Chapter 1: Cracking open the black box - implementing PPO for CartPole in
+pure PyTorch, to reveal the core logic behind SB3's model.learn().
 
-训练过程通过 SwanLab 记录指标（奖励曲线、损失等），
-训练结束后可选弹出 GUI 窗口展示学习成果。
+Training metrics (reward curves, losses, etc.) are logged via SwanLab, and a GUI
+window can optionally pop up afterwards to show off what the agent learned.
 
-运行方式：
-    # 默认：训练 + SwanLab 曲线（不开 GUI，速度快）
+How to run:
+    # Default: train + SwanLab curves (no GUI, fast)
     python 2-pytorch_ppo.py
 
-    # 打开 GUI 演示（训练完弹出小车动画窗口）
+    # Show the GUI demo (pops up the cart animation window after training)
     python 2-pytorch_ppo.py --gui
 
-关于 --gui 参数：
-    训练阶段始终是 headless（无渲染），速度不受 GUI 影响。
-    --gui 只控制训练结束后的演示环节是否弹出 CartPole 动画窗口。
-    开启 GUI 时，演示环节每帧需要等待屏幕刷新（~16ms），会明显变慢；
-    关闭 GUI 时，演示环节纯计算，几秒内跑完。
+About the --gui flag:
+    Training itself is always headless (no rendering), so GUI has no effect on its speed.
+    --gui only controls whether the post-training demo pops up a CartPole animation window.
+    With the GUI on, the demo waits for a screen refresh (~16ms) each frame and is noticeably slower;
+    with it off, the demo is pure computation and finishes in a few seconds.
 """
 
 import argparse
@@ -32,13 +32,13 @@ import swanlab
 
 
 # ==========================================
-# 第一部分：Actor-Critic 网络（独立头 + 正交初始化）
+# Part 1: Actor-Critic network (separate heads + orthogonal initialization)
 # ==========================================
 class ActorCritic(nn.Module):
     """
-    独立 Actor-Critic 网络（与 SB3 MlpPolicy 对齐）：
-    - Actor 和 Critic 使用各自的隐藏层，避免梯度冲突
-    - 正交初始化：actor 输出层 gain=0.01 保证初始策略接近均匀分布
+    Separate Actor-Critic networks (matching SB3's MlpPolicy):
+    - Actor and Critic use their own hidden layers, avoiding gradient interference
+    - Orthogonal init: gain=0.01 on the actor output layer keeps the initial policy near-uniform
     """
 
     def __init__(self, obs_dim=4, act_dim=2, hidden=64):
@@ -56,7 +56,7 @@ class ActorCritic(nn.Module):
         self._init_weights()
 
     def _init_weights(self):
-        """正交初始化，与 SB3 默认一致"""
+        """Orthogonal initialization, matching SB3's default"""
         for module in self.actor:
             if isinstance(module, nn.Linear):
                 nn.init.orthogonal_(module.weight, gain=np.sqrt(2))
@@ -65,10 +65,10 @@ class ActorCritic(nn.Module):
             if isinstance(module, nn.Linear):
                 nn.init.orthogonal_(module.weight, gain=np.sqrt(2))
                 nn.init.constant_(module.bias, 0)
-        # actor 输出层用小 gain → 初始策略接近均匀
+        # Use a small gain on the actor's output layer -> initial policy close to uniform
         nn.init.orthogonal_(self.actor[-1].weight, gain=0.01)
         nn.init.constant_(self.actor[-1].bias, 0)
-        # critic 输出层 gain=1
+        # Critic output layer gain=1
         nn.init.orthogonal_(self.critic[-1].weight, gain=1.0)
         nn.init.constant_(self.critic[-1].bias, 0)
 
@@ -89,7 +89,7 @@ class ActorCritic(nn.Module):
 
 
 # ==========================================
-# 第二部分：收集轨迹（Rollout）
+# Part 2: Collecting trajectories (Rollout)
 # ==========================================
 def collect_rollout(
     model,
@@ -100,10 +100,10 @@ def collect_rollout(
     num_steps=2048,
 ):
     """
-    收集轨迹，正确处理 terminated vs truncated：
-    - terminated（杆子倒了）：V(s')=0
-    - truncated（达到步数上限）：V(s')需要 bootstrap
-    - rollout 末尾未结束：也用 V(s') bootstrap
+    Collect a trajectory, correctly handling terminated vs truncated:
+    - terminated (the pole fell over): V(s')=0
+    - truncated (hit the step limit): V(s') needs to be bootstrapped
+    - end of rollout without termination: also bootstrap with V(s')
     """
     transitions = []
     completed_rewards = []
@@ -122,7 +122,7 @@ def collect_rollout(
                 _, next_value_tensor = model(torch.FloatTensor(next_obs))
                 next_value = next_value_tensor.item()
 
-        # 保存该步的 V(s')，使终止、截断和 rollout 末尾共用同一条 GAE 公式。
+        # Store this step's V(s') so termination, truncation, and end-of-rollout all share one GAE formula.
         transitions.append({
             "obs": obs,
             "action": action.item(),
@@ -156,14 +156,14 @@ def collect_rollout(
 
 
 # ==========================================
-# 第三部分：计算 GAE 优势
+# Part 3: Computing GAE advantages
 # ==========================================
 def compute_gae(transitions, gamma=0.99, lam=0.95):
     """
-    广义优势估计，正确处理：
-    - terminated（真正结束）：不传播 GAE，V(s')=0
-    - truncated（时间截断）：用 V(s') bootstrap，但不跨越 reset 传播 GAE
-    - rollout 末尾：用已保存的 V(s') bootstrap
+    Generalized Advantage Estimation, handling correctly:
+    - terminated (a genuine episode end): do not propagate GAE, V(s')=0
+    - truncated (time limit): bootstrap with V(s'), but do not propagate GAE across the reset
+    - end of rollout: bootstrap with the stored V(s')
     """
     raw_advantages = []
     gae = 0
@@ -177,7 +177,7 @@ def compute_gae(transitions, gamma=0.99, lam=0.95):
 
     raw_advantages = torch.tensor(raw_advantages, dtype=torch.float32)
     values = torch.tensor([t["value"] for t in transitions], dtype=torch.float32)
-    # Critic 学习未归一化的回报目标；归一化只用于策略损失。
+    # The Critic learns the unnormalized return target; normalization is only for the policy loss.
     returns = raw_advantages + values
     advantages = (raw_advantages - raw_advantages.mean()) / (
         raw_advantages.std(unbiased=False) + 1e-8
@@ -187,11 +187,11 @@ def compute_gae(transitions, gamma=0.99, lam=0.95):
 
 
 # ==========================================
-# 第四部分：PPO 更新
+# Part 4: PPO update
 # ==========================================
 def ppo_update(model, optimizer, transitions, advantages, returns,
                clip_eps=0.2, epochs=10, batch_size=64):
-    """PPO 裁剪目标函数更新"""
+    """PPO clipped objective update"""
     obs = np.array([t["obs"] for t in transitions])
     actions = np.array([t["action"] for t in transitions])
     old_log_probs = np.array([t["log_prob"] for t in transitions])
@@ -223,16 +223,16 @@ def ppo_update(model, optimizer, transitions, advantages, returns,
             dist = torch.distributions.Categorical(logits=logits)
             new_log_probs = dist.log_prob(batch_actions)
 
-            # PPO 裁剪目标
+            # PPO clipped objective
             ratio = torch.exp(new_log_probs - batch_old_log_probs)
             surr1 = ratio * batch_advantages
             surr2 = torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * batch_advantages
             policy_loss = -torch.min(surr1, surr2).mean()
 
-            # 价值函数损失
+            # Value function loss
             value_loss = ((values - batch_returns) ** 2).mean()
 
-            # 熵奖励（鼓励探索）
+            # Entropy bonus (encourages exploration)
             entropy = dist.entropy().mean()
 
             loss = policy_loss + 0.5 * value_loss - 0.0 * entropy
@@ -242,10 +242,10 @@ def ppo_update(model, optimizer, transitions, advantages, returns,
             nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             optimizer.step()
 
-            # 统计指标
+            # Track metrics
             with torch.no_grad():
                 log_ratio = new_log_probs - batch_old_log_probs
-                # 非负 KL 近似，与 SB3 的 approx_kl 计算一致。
+                # Non-negative KL approximation, matching SB3's approx_kl computation.
                 total_kl += ((log_ratio.exp() - 1) - log_ratio).mean().item()
                 total_clip_frac += ((ratio - 1.0).abs() > clip_eps).float().mean().item()
 
@@ -264,26 +264,26 @@ def ppo_update(model, optimizer, transitions, advantages, returns,
 
 
 # ==========================================
-# 第五部分：训练循环
+# Part 5: Training loop
 # ==========================================
 def parse_args():
-    parser = argparse.ArgumentParser(description="纯 PyTorch PPO CartPole 训练")
+    parser = argparse.ArgumentParser(description="Pure PyTorch PPO CartPole training")
     parser.add_argument(
         "--gui", action="store_true",
-        help="训练结束后弹出 GUI 窗口演示智能体（默认关闭，仅输出得分）",
+        help="Pop up a GUI window to demo the agent after training finishes (off by default, only prints scores)",
     )
-    parser.add_argument("--seed", type=int, default=42, help="训练随机种子")
-    parser.add_argument("--iterations", type=int, default=40, help="PPO 迭代轮数")
-    parser.add_argument("--steps-per-rollout", type=int, default=2048, help="每轮采样步数")
+    parser.add_argument("--seed", type=int, default=42, help="Training random seed")
+    parser.add_argument("--iterations", type=int, default=40, help="Number of PPO iterations")
+    parser.add_argument("--steps-per-rollout", type=int, default=2048, help="Steps sampled per iteration")
     parser.add_argument(
         "--log-csv", default="output/training_metrics.csv",
-        help="原始训练指标 CSV 的保存位置",
+        help="Where to save the raw training-metrics CSV",
     )
     parser.add_argument(
         "--swanlab-mode",
         choices=["local", "cloud", "disabled"],
         default="local",
-        help="SwanLab 记录模式；复现实验但不需要看板时可设为 disabled",
+        help="SwanLab logging mode; set to disabled to reproduce runs without a dashboard",
     )
     return parser.parse_args()
 
@@ -303,16 +303,16 @@ def train():
     env.action_space.seed(args.seed)
     obs, _ = env.reset(seed=args.seed)
 
-    # 打印环境信息（状态空间、动作空间、边界阈值）
+    # Print environment info (observation space, action space, termination thresholds)
     print("=" * 50)
-    print("CartPole-v1 环境信息")
+    print("CartPole-v1 environment info")
     print("=" * 50)
-    print(f"  观测空间:  {env.observation_space}")
-    print(f"  动作空间:  {env.action_space}")
-    print(f"  观测上限:  {env.observation_space.high}")
-    print(f"  观测下限:  {env.observation_space.low}")
-    print(f"  终止条件:  位置 > ±{env.unwrapped.x_threshold}, "
-          f"角度 > ±{env.unwrapped.theta_threshold_radians:.4f} rad "
+    print(f"  Observation space:  {env.observation_space}")
+    print(f"  Action space:  {env.action_space}")
+    print(f"  Observation upper bound:  {env.observation_space.high}")
+    print(f"  Observation lower bound:  {env.observation_space.low}")
+    print(f"  Termination condition:  position > ±{env.unwrapped.x_threshold}, "
+          f"angle > ±{env.unwrapped.theta_threshold_radians:.4f} rad "
           f"(≈ ±{np.degrees(env.unwrapped.theta_threshold_radians):.0f}°)")
     print("=" * 50)
 
@@ -322,7 +322,7 @@ def train():
     total_iterations = args.iterations
     steps_per_rollout = args.steps_per_rollout
 
-    # 初始化 SwanLab
+    # Initialize SwanLab
     swanlab.init(
         project="cartpole-pytorch",
         experiment_name="PPO-PyTorch-CartPole-v1",
@@ -341,7 +341,7 @@ def train():
         },
     )
 
-    print("开始训练（纯 PyTorch PPO + SwanLab）...")
+    print("Starting training (pure PyTorch PPO + SwanLab)...")
     print("-" * 60)
 
     total_timesteps = 0
@@ -354,7 +354,7 @@ def train():
     ongoing_episode_length = 0
 
     for iteration in range(total_iterations):
-        # 收集数据
+        # Collect data
         (
             transitions,
             obs,
@@ -373,26 +373,26 @@ def train():
 
         total_timesteps += len(transitions)
 
-        # 计算优势和 Critic 的未归一化回报目标
+        # Compute advantages and the Critic's unnormalized return targets
         advantages, returns = compute_gae(transitions)
 
-        # 在本轮更新前设置学习率。
+        # Set the learning rate before this iteration's update.
         frac = 1.0 - iteration / total_iterations
         lr = 3e-4 * frac
         for param_group in optimizer.param_groups:
             param_group["lr"] = lr
 
-        # PPO 更新
+        # PPO update
         metrics = ppo_update(
             model, optimizer, transitions, advantages, returns
         )
 
-        # 解释方差要对比收集 rollout 时的价值预测与回报目标。
+        # Explained variance compares the value predictions made during rollout collection against the return targets.
         return_values = returns.numpy()
         rollout_values = np.array([t["value"] for t in transitions])
         var_returns = np.var(return_values)
         if var_returns < 1e-6:
-            # 所有回报相同（如全部 500 分），EV 无意义，置为 0
+            # All returns are identical (e.g. every episode scored 500), EV is meaningless, set to 0
             explained_variance = 0.0
         else:
             explained_variance = 1 - np.var(return_values - rollout_values) / var_returns
@@ -400,7 +400,7 @@ def train():
         mean_reward = np.mean(ep_rewards) if ep_rewards else 0
         mean_ep_len = np.mean(ep_lengths) if ep_lengths else 0
 
-        # 记录到 SwanLab（与 SB3 指标对齐）
+        # Log to SwanLab (aligned with SB3's metrics)
         swanlab.log({
             "rollout/ep_rew_mean": mean_reward,
             "rollout/ep_len_mean": mean_ep_len,
@@ -434,9 +434,9 @@ def train():
         })
 
         print(
-            f"  迭代 {iteration + 1:2d}/{total_iterations} | "
-            f"回合数: {len(ep_rewards):3d} | "
-            f"平均奖励: {mean_reward:6.1f} | "
+            f"  Iteration {iteration + 1:2d}/{total_iterations} | "
+            f"Episodes: {len(ep_rewards):3d} | "
+            f"Mean reward: {mean_reward:6.1f} | "
             f"KL: {metrics['approx_kl']:.4f} | "
             f"clip%: {metrics['clip_fraction']:.1%}"
         )
@@ -450,9 +450,9 @@ def train():
         writer.writeheader()
         writer.writerows(metric_rows)
     os.replace(temporary_csv, args.log_csv)
-    print(f"原始训练指标已保存到 {args.log_csv}")
+    print(f"Raw training metrics saved to {args.log_csv}")
 
-    # 最终评估
+    # Final evaluation
     eval_rewards = []
     for _ in range(20):
         obs, _ = env.reset(seed=args.seed + 10_000 + len(eval_rewards))
@@ -467,22 +467,22 @@ def train():
 
     mean_reward = np.mean(eval_rewards)
     std_reward = np.std(eval_rewards)
-    print(f"\n训练完成！20 回合评估: {mean_reward:.1f} +/- {std_reward:.1f}")
+    print(f"\nTraining complete! 20-episode evaluation: {mean_reward:.1f} +/- {std_reward:.1f}")
 
     swanlab.log({
         "eval/mean_reward": mean_reward,
         "eval/std_reward": std_reward,
     })
 
-    # 保存模型
+    # Save the model
     torch.save(model.state_dict(), model_path)
-    print(f"模型已保存到 {model_path}")
+    print(f"Model saved to {model_path}")
 
-    # GUI 演示
+    # GUI demo
     if args.gui:
         try:
             vis_env = gym.make("CartPole-v1", render_mode="human")
-            print("\n正在演示学习成果（5 个回合）...")
+            print("\nDemoing what the agent learned (5 episodes)...")
             for ep in range(5):
                 obs, _ = vis_env.reset(seed=args.seed + 20_000 + ep)
                 done, truncated, score = False, False, 0
@@ -492,18 +492,18 @@ def train():
                         action, _, _ = model.get_action(obs_tensor, deterministic=True)
                     obs, reward, done, truncated, _ = vis_env.step(action.item())
                     score += reward
-                print(f"  演示回合 {ep + 1} 得分: {score}")
+                print(f"  Demo episode {ep + 1} score: {score}")
             vis_env.close()
-            print("\nGUI 演示结束。")
+            print("\nGUI demo finished.")
         except Exception:
-            print("(跳过 GUI 演示，无图形界面)")
+            print("(Skipping GUI demo, no display available)")
     else:
-        print("\n提示: 加 --gui 可弹出小车动画窗口查看演示效果。")
+        print("\nTip: add --gui to pop up the cart animation window and watch the demo.")
 
     env.close()
     swanlab.finish()
 
-    print("SwanLab 实验看板: swanlab watch swanlog")
+    print("SwanLab experiment dashboard: swanlab watch swanlog")
 
 
 if __name__ == "__main__":
