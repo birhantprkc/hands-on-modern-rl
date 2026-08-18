@@ -16,6 +16,11 @@ SPACE = {
         "zh": "让 DQN 从 Atari 像素画面中学习，观察检查点评估，并在 ALE 模拟器中生成本次策略回放。",
     },
     "badge": "EXPERIMENT 03 · ARCADE",
+    "training_guide": {
+        "success": {"en": "The evaluation reward should rise above early checkpoints, and the replay should sustain useful play or improve the game score. Training complete only confirms the run ended normally.", "zh": "评估奖励应高于早期检查点，回放中应能持续做出有效动作或提高游戏得分；“训练完成”只表示运行正常结束。"},
+        "preview": {"en": "The first clip shows the selected Atari game. The completed run replaces it with a replay rendered by this run's learned DQN policy.", "zh": "初始画面展示所选 Atari 游戏；训练完成后会替换为本次 DQN 策略在模拟器中生成的回放。"},
+        "time": {"en": "Default CPU runs usually take 1–5 minutes; harder games need a larger budget to show stable improvement.", "zh": "默认 CPU 训练通常需要 1–5 分钟；难度更高的游戏需要更大预算才能看到稳定提升。"},
+    },
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/chapter07_dqn/dqn-family",
     "source_url": "https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment03-atari/file/view/master/space_runtime.py",
     "notebook_url": "https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/"

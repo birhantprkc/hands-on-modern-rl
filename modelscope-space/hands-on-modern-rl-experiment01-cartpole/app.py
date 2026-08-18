@@ -89,6 +89,14 @@ UI_TEXT = {
         "initialization": "PPO 初始化",
         "collecting": "正在收集第一批环境交互",
         "finished": "训练完成",
+        "guide_title": "怎样判断本次训练结果",
+        "guide_copy": "同时检查分数、回放和耗时，不要只看“训练完成”。",
+        "guide_success": "怎样算训练成功",
+        "guide_success_copy": "最终 5 回合平均奖励达到 475 分以上表示 CartPole 已解决；接近 500 分并在回放中持续立杆，说明策略稳定。",
+        "guide_preview": "怎样查看 Preview",
+        "guide_preview_copy": "训练结束后，下方“训练结果”会显示本次策略动画。观察小车是否用小幅左右移动让杆保持直立，而不是只看奖励曲线。",
+        "guide_time": "大约需要多久",
+        "guide_time_copy": "默认 30,000 步通常在 CPU 上需要 30–60 秒；容器刚启动时可能稍慢。",
     },
     "English": {
         "course": "Hands-On Modern RL · Chapter 1 companion",
@@ -133,6 +141,14 @@ UI_TEXT = {
         "initialization": "PPO initialization",
         "collecting": "collecting the first rollout",
         "finished": "training completed",
+        "guide_title": "How to judge this training run",
+        "guide_copy": "Check the score, replay, and elapsed time together—not only the completed status.",
+        "guide_success": "What counts as success",
+        "guide_success_copy": "CartPole is solved when the final 5-episode mean reward reaches at least 475. A score near 500 plus a stable upright replay indicates a robust policy.",
+        "guide_preview": "How to read Preview",
+        "guide_preview_copy": "After training, Training results shows this run's policy animation. Check that small left/right corrections keep the pole upright instead of relying on the curve alone.",
+        "guide_time": "Typical time",
+        "guide_time_copy": "The default 30,000 steps usually take 30–60 seconds on CPU; a newly started container may be slightly slower.",
     },
 }
 DEFAULT_LANGUAGE = "English"
@@ -426,11 +442,26 @@ def footer_html(language: str) -> str:
     return f'<div class="footer-note">{copy["footer"]} · <a href="{COURSE_URL}" target="_blank" rel="noreferrer">Hands-On Modern RL</a> · WalkingLab</div>'
 
 
+def training_guide_html(language: str) -> str:
+    copy = text_for(language)
+    return f"""
+    <section class="training-guide">
+      <div class="training-guide__intro"><span>RESULT CHECKLIST</span><h2>{copy['guide_title']}</h2><p>{copy['guide_copy']}</p></div>
+      <div class="training-guide__grid">
+        <article><b>01</b><h3>{copy['guide_success']}</h3><p>{copy['guide_success_copy']}</p></article>
+        <article><b>02</b><h3>{copy['guide_preview']}</h3><p>{copy['guide_preview_copy']}</p></article>
+        <article><b>03</b><h3>{copy['guide_time']}</h3><p>{copy['guide_time_copy']}</p></article>
+      </div>
+    </section>
+    """
+
+
 def switch_language(language: str):
     """Update all visible interface copy when the language changes."""
     copy = text_for(language)
     return (
         hero_html(language),
+        training_guide_html(language),
         panel_html(copy["settings_title"], copy["settings_copy"]),
         gr.Slider(label=copy["steps_label"], info=copy["steps_info"]),
         gr.Button(value=copy["start"]),
@@ -621,6 +652,7 @@ CSS = """
   box-shadow: 0 6px 20px rgba(18, 25, 43, .035);
 }
 .lab-strip strong { margin-left: 5px; color: var(--ink); font-weight: 750; }
+.training-guide{display:grid;grid-template-columns:minmax(210px,.62fr) minmax(0,1.8fr);gap:22px;margin:0 0 18px;padding:20px 22px;border:1px solid #dfe4f4;border-radius:17px;background:linear-gradient(135deg,#f8f9ff,#fff);box-shadow:0 9px 26px rgba(20,28,48,.045)}.training-guide__intro{padding:5px 2px}.training-guide__intro>span{display:block;margin-bottom:7px;color:var(--brand);font-size:10px;font-weight:850;letter-spacing:.13em}.training-guide__intro h2{margin:0 0 5px;color:var(--ink);font-size:18px}.training-guide__intro p,.training-guide article p{margin:0;color:var(--muted);font-size:12px;line-height:1.55}.training-guide__grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.training-guide article{padding:14px;border:1px solid #e0e5f0;border-radius:12px;background:#fff}.training-guide article>b{display:block;margin-bottom:8px;color:var(--brand);font-size:10px;letter-spacing:.12em}.training-guide article h3{margin:0 0 6px;color:var(--ink);font-size:13px}.training-guide article p{font-size:11px}
 .panel-title { margin: 0 0 5px; color: var(--ink); font-size: 19px; font-weight: 780; letter-spacing: -.015em; }
 .panel-copy { margin: 0 0 17px; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .control-card, .chart-card, .output-card {
@@ -755,6 +787,7 @@ CSS = """
   .hero { padding: 70px 22px 25px; border-radius: 19px; }
   .hero-topline { align-items: flex-start; flex-direction: column; gap: 8px; }
   .lab-strip { gap: 8px 16px; }
+  .training-guide, .training-guide__grid { grid-template-columns: 1fr; }
 }
 """
 
@@ -820,6 +853,8 @@ with gr.Blocks(title="Experiment 01 · CartPole Online Training") as demo:
                 elem_classes="language-switch",
             )
 
+    guide = gr.HTML(training_guide_html(DEFAULT_LANGUAGE))
+
     with gr.Row():
         with gr.Column(scale=1, min_width=300, elem_classes="control-card"):
             settings_header = gr.HTML(panel_html(DEFAULT_COPY["settings_title"], DEFAULT_COPY["settings_copy"]))
@@ -865,6 +900,7 @@ with gr.Blocks(title="Experiment 01 · CartPole Online Training") as demo:
         inputs=language,
         outputs=[
             hero,
+            guide,
             settings_header,
             timesteps,
             start,

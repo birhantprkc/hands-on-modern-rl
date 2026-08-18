@@ -16,6 +16,11 @@ SPACE = {
         "zh": "在包含门、钥匙、障碍和部分可观测信息的小型迷宫中训练智能体，并回放策略学到的探索行为。",
     },
     "badge": "EXPERIMENT 06 · EXPLORATION",
+    "training_guide": {
+        "success": {"en": "Success rate or episode return should improve, and the replay should reach the goal or complete the required key, door, and obstacle sequence.", "zh": "成功率或回合回报应提高，回放中应抵达目标，或正确完成钥匙、门和障碍物组成的交互顺序。"},
+        "preview": {"en": "After training, Preview becomes this run's MiniGrid replay. Follow the agent's field of view and check whether exploration leads to the task goal.", "zh": "训练后，Preview 会变为本次 MiniGrid 回放；请跟随智能体的局部视野，检查探索是否最终到达任务目标。"},
+        "time": {"en": "Default CPU runs usually take 20 seconds–2 minutes; obstructed and multi-room tasks need longer budgets.", "zh": "默认 CPU 运行通常需要 20 秒到 2 分钟；复杂障碍和多房间任务需要更长预算。"},
+    },
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/chapter14_exploration_marl_hierarchical/intrinsic-motivation-exploration",
     "source_url": "https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment06-minigrid-adventure/file/view/master/space_runtime.py",
     "notebook_url": "https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/"

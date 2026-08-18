@@ -28,6 +28,9 @@ HUGGY_BUNDLE_URL = f"{UNITY_DATASET_RESOLVE}/linux/huggy/Huggy.zip"
 UNITY_BUNDLE_SHA256 = "80e2322215fb7ff5c192e34bd67d63edc80d8cf24e66f8af858010b84a250a5d"
 HUGGY_BUNDLE_SHA256 = "6b35692b1d867f74fdf8987a911700e06ff24d40b95b935460ccd175e3712d28"
 UNITY_CACHE = Path(os.environ.get("UNITY_MLAGENTS_CACHE", "/mnt/workspace/hands-on-modern-rl/unity-mlagents-1.1.0"))
+CAPTURE_FPS = 12
+LIVE_PREVIEW_FPS = 8
+REPLAY_FPS = 12
 
 SPACE = {
     "title": {"en": "Unity ML-Agents xGPU Arena", "zh": "Unity ML-Agents xGPU 训练场"},
@@ -36,6 +39,11 @@ SPACE = {
         "zh": "在可直接运行的 Unity ML-Agents Linux 场景中训练 PPO，包括小狗 Huggy，并回放本次训练画面。",
     },
     "badge": "EXPERIMENT 11 · UNITY",
+    "training_guide": {
+        "success": {"en": "The final mean reward should improve over the initial checkpoint, and the replay should show the intended coordinated behavior. Training complete confirms the pipeline, not that the task is solved.", "zh": "最终平均奖励应高于初始检查点，回放中应出现任务要求的协调行为；“训练完成”表示流程结束，不等于任务已经学会。"},
+        "preview": {"en": "Before training it shows an authentic scene capture; during training it streams up to 8 sampled frames/s; after training it becomes this run's 12 fps replay GIF. The trainer runs independently of the sampled browser preview.", "zh": "训练前显示真实场景画面，训练中最多推送每秒 8 个采样帧，训练后变为本次运行的 12 FPS 回放 GIF；训练器运行速度不受网页采样帧率代表。"},
+        "time": {"en": "Huggy at the default 100k budget usually takes about 2–4 minutes after the scene is ready. A first scene download/start can add 1–2 minutes; larger scenes may take 2–8 minutes.", "zh": "Huggy 默认 10 万步在场景就绪后通常需要约 2–4 分钟；首次下载和启动可能额外增加 1–2 分钟，较大场景约需 2–8 分钟。"},
+    },
     "device": "xGPU",
     "organization_url": "https://modelscope.cn/organization/walkinglab",
     "dataset_url": UNITY_DATASET_URL,
@@ -272,11 +280,11 @@ def _start_capture(target: Path, frames_dir: Path) -> subprocess.Popen[str]:
     ffmpeg = _ffmpeg_executable()
     frames_dir.mkdir(parents=True, exist_ok=True)
     return subprocess.Popen([
-        ffmpeg, "-y", "-loglevel", "error", "-f", "x11grab", "-framerate", "12",
+        ffmpeg, "-y", "-loglevel", "error", "-f", "x11grab", "-framerate", str(CAPTURE_FPS),
         "-video_size", "960x540", "-i", os.environ["DISPLAY"],
-        "-filter_complex", "[0:v]split=2[record][preview];[preview]fps=4,scale=480:-1:flags=lanczos[live]",
+        "-filter_complex", f"[0:v]split=2[record][preview];[preview]fps={LIVE_PREVIEW_FPS},scale=420:-1:flags=lanczos[live]",
         "-map", "[record]", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", str(target),
-        "-map", "[live]", "-q:v", "5", str(frames_dir / "frame-%06d.jpg"),
+        "-map", "[live]", "-q:v", "7", str(frames_dir / "frame-%06d.jpg"),
     ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True, start_new_session=True)
 
 
@@ -345,7 +353,7 @@ def _trim_blank_gif_tail(output: Path, replay_filter: str, fps: int) -> None:
 
 
 def _make_gif(video: Path, output: Path) -> str:
-    replay_fps = 10
+    replay_fps = REPLAY_FPS
     replay_filter = (
         f"[0:v]fps={replay_fps},scale=480:-1:flags=lanczos,split[palette_source][replay];"
         "[palette_source]palettegen=max_colors=96:stats_mode=diff[palette];"
@@ -389,7 +397,10 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         )
     yield {
         "phase": "initializing", "step": 0,
-        "log": f"Replay mode: real Unity window · Xvfb={xvfb_path} · ffmpeg={ffmpeg_path}",
+        "log": (
+            f"Replay mode: real Unity window · live preview={LIVE_PREVIEW_FPS} sampled fps · "
+            f"final replay={REPLAY_FPS} fps · Xvfb={xvfb_path} · ffmpeg={ffmpeg_path}"
+        ),
     }
     config = _scaled_config(task, int(budget), float(learning_rate), float(gamma), float(epsilon), int(seed), executable, run_id, True)
     video, replay = ARTIFACTS / f"{run_id}-training.mp4", ARTIFACTS / f"{key}-learned-policy.gif"
@@ -431,7 +442,7 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         while not stream_finished:
             step_match = match = None
             try:
-                line = output_queue.get(timeout=0.25)
+                line = output_queue.get(timeout=0.125)
             except queue.Empty:
                 line = ""
             if line is None:
@@ -455,7 +466,7 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
             if capture is not None and capture.poll() is not None:
                 raise RuntimeError("ffmpeg stopped before it captured the Unity window")
             live_frame = None
-            if now - last_preview_emit >= 0.25:
+            if now - last_preview_emit >= 1.0 / LIVE_PREVIEW_FPS:
                 live_frame = _latest_preview_frame(frames_dir)
                 last_preview_emit = now
                 rendered_frame_seen = rendered_frame_seen or live_frame is not None

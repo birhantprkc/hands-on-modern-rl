@@ -16,6 +16,11 @@ SPACE = {
         "zh": "使用 JAX 在 CPU 上编译像素游戏策略，在紧凑的 MinAtar 世界中训练，并回放学习后的语义游戏状态。",
     },
     "badge": "EXPERIMENT 07 · JAX",
+    "training_guide": {
+        "success": {"en": "Mean return should improve after compilation, and the semantic replay should show the learned policy taking useful game actions.", "zh": "编译完成后平均回报应提高，语义画面回放中应能看到策略做出有效的游戏动作。"},
+        "preview": {"en": "The final Preview is rendered from this run's compact semantic game state, not a decorative screenshot. Compare its behavior with the learning curve.", "zh": "最终 Preview 由本次运行的紧凑语义游戏状态渲染，并非装饰截图；请将回放行为与学习曲线结合判断。"},
+        "time": {"en": "The first run usually takes 30 seconds–2 minutes including JAX compilation; warm runs are often 10–60 seconds.", "zh": "首次运行包含 JAX 编译，通常需要 30 秒到 2 分钟；完成预热后一般为 10–60 秒。"},
+    },
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/chapter07_dqn/dqn-family",
     "source_url": "https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment07-jax-games/file/view/master/space_runtime.py",
     "notebook_url": "https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/"

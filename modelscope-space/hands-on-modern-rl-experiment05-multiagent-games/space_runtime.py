@@ -26,6 +26,11 @@ SPACE = {
         "zh": "在 PettingZoo 合作与竞争游戏中训练共享策略，观察团队奖励，并在同一回放中展示所有智能体。",
     },
     "badge": "EXPERIMENT 05 · MULTI-AGENT",
+    "training_guide": {
+        "success": {"en": "Team return or win rate should improve over early checkpoints, and the replay should show coordinated behavior rather than one agent acting alone.", "zh": "团队回报或胜率应高于早期检查点，回放中还应出现多智能体协作，而不是只有单个智能体行动。"},
+        "preview": {"en": "The final Preview replays all agents from this run together. Watch spacing, collision avoidance, pursuit, and role coordination for the selected task.", "zh": "最终 Preview 会同时回放本次运行中的所有智能体，请根据任务观察站位、避碰、追逐和角色协作。"},
+        "time": {"en": "Default CPU recipes usually take 30 seconds–3 minutes; pixel-based multi-agent tasks are slower than vector tasks.", "zh": "默认 CPU 配方通常需要 30 秒到 3 分钟；像素观测的多智能体任务会比向量观测任务更慢。"},
+    },
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/chapter14_exploration_marl_hierarchical/marl",
     "source_url": "https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment05-multiagent-games/file/view/master/space_runtime.py",
     "notebook_url": "https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/"

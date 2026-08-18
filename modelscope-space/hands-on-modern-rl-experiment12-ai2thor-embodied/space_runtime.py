@@ -43,6 +43,11 @@ SPACE = {
         "zh": "在 AI2-THOR 渲染的可交互厨房、客厅和卧室中训练视觉目标导航策略。",
     },
     "badge": "EXPERIMENT 12 · AI2-THOR",
+    "training_guide": {
+        "success": {"en": "The evaluation log should report success=True or a clearly improved return, and the replay should bring the target object into a close, visible state.", "zh": "评估日志应出现 success=True 或明显更高的回报，回放中目标物体应变得清晰可见并处于较近距离。"},
+        "preview": {"en": "Preview starts with an authentic AI2-THOR room capture and ends with this run's embodied navigation replay through the selected scene.", "zh": "Preview 起初显示真实 AI2-THOR 房间画面，训练结束后显示本次运行在所选场景中的具身导航回放。"},
+        "time": {"en": "First-run Unity scene download and Xvfb startup usually take 5–15 minutes; warm runs are typically 2–8 minutes.", "zh": "首次下载 Unity 场景并启动 Xvfb 通常需要 5–15 分钟；预热后的运行一般为 2–8 分钟。"},
+    },
     "device": "xGPU · CUDA PPO + Xvfb OpenGL",
     "organization_url": "https://modelscope.cn/organization/walkinglab",
     "project_url": "https://github.com/walkinglabs/hands-on-modern-rl",

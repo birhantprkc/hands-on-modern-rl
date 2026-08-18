@@ -66,6 +66,11 @@ SPACE = {
         "zh": "使用 CUDA PPO 与经过验证的 PhysX/Vulkan 运行时训练 ManiSkill 机器人策略，并回放学习结果。",
     },
     "badge": "EXPERIMENT 08 · MANISKILL",
+    "training_guide": {
+        "success": {"en": "The final evaluation should improve over the initial checkpoint and the replay should move the object toward the manipulation goal. Training complete alone means only that the pipeline finished.", "zh": "最终评估应高于初始检查点，回放中机器人应把物体推向操作目标；仅显示“训练完成”只说明流程结束。"},
+        "preview": {"en": "Preview begins with an authentic task capture. After training it is replaced by this run's camera replay, or a task-space replay when the renderer cannot expose camera frames.", "zh": "Preview 起初显示真实任务画面；训练后会替换为本次相机回放，渲染器无法提供相机帧时则显示任务空间回放。"},
+        "time": {"en": "Default xGPU recipes usually take 2–8 minutes. First-run PhysX and Vulkan preparation can add 1–4 minutes.", "zh": "默认 xGPU 配方通常需要 2–8 分钟；首次 PhysX 与 Vulkan 准备可能额外增加 1–4 分钟。"},
+    },
     "device": "xGPU · CUDA PPO + PhysX",
     "organization_url": "https://modelscope.cn/organization/walkinglab",
     "project_url": "https://github.com/walkinglabs/hands-on-modern-rl",

@@ -36,6 +36,11 @@ SPACE = {
         "zh": "启动真实 Minecraft 模拟器，训练紧凑的视觉 PPO 策略，查看每次更新，并回放学习后的运行过程。",
     },
     "badge": "EXPERIMENT 10 · MINESTUDIO",
+    "training_guide": {
+        "success": {"en": "The task reward event should occur and the final replay should perform the requested Minecraft interaction. Training complete alone only confirms that the engine and trainer exited normally.", "zh": "任务奖励事件应实际触发，最终回放应完成指定的 Minecraft 交互；仅显示“训练完成”只表示引擎和训练器正常退出。"},
+        "preview": {"en": "Preview starts with a real MineStudio capture and ends with this run's first-person Minecraft replay. Inspect movement and object interaction, not just the reward curve.", "zh": "Preview 起初显示真实 MineStudio 画面，结束后显示本次运行的第一人称 Minecraft 回放；需要同时观察移动和物体交互。"},
+        "time": {"en": "A first run usually takes 8–20 minutes for engine/JRE preparation; warm runs are typically 3–10 minutes.", "zh": "首次运行需要准备引擎和 JRE，通常为 8–20 分钟；预热后的运行一般需要 3–10 分钟。"},
+    },
     "device": "xGPU · visual PPO",
     "organization_url": "https://modelscope.cn/organization/walkinglab",
     "project_url": "https://github.com/walkinglabs/hands-on-modern-rl",

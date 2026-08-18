@@ -81,6 +81,14 @@ TEXT = {
         "download": "Download run summary",
         "wait_title": "Training is active",
         "wait_detail": "Preparing the environment, updating the policy, evaluating it, and rendering the learned result.",
+        "guide_title": "How to judge this training run",
+        "guide_copy": "Read these three signals before increasing the training budget.",
+        "guide_success": "What counts as success",
+        "guide_preview": "How to read Preview",
+        "guide_time": "Typical time",
+        "guide_success_default": "Training complete confirms that the pipeline finished. Learning is demonstrated when the final evaluation improves over early checkpoints and the learned behavior matches the task goal.",
+        "guide_preview_default": "Before training, Preview shows the task. During or after training it changes to this run's live frames, replay GIF, policy map, or result visualization.",
+        "guide_time_default": "Most default recipes take 30 seconds to 5 minutes. First-run downloads, compilation, or 3D rendering can add several minutes.",
         "reference": "Environment reference",
     },
     "中文": {
@@ -133,6 +141,14 @@ TEXT = {
         "download": "下载运行摘要",
         "wait_title": "训练正在运行",
         "wait_detail": "正在准备环境、更新策略、执行评估并渲染学习结果。",
+        "guide_title": "怎样判断本次训练结果",
+        "guide_copy": "增加训练预算前，先看下面三个信号。",
+        "guide_success": "怎样算训练成功",
+        "guide_preview": "怎样查看 Preview",
+        "guide_time": "大约需要多久",
+        "guide_success_default": "“训练完成”表示流程已经正常结束；最终评估高于早期检查点，并且学习后的行为符合任务目标，才说明策略确实学到了东西。",
+        "guide_preview_default": "训练前，Preview 显示任务画面；训练中或训练后，它会切换为本次运行的实时帧、回放 GIF、策略图或结果图。",
+        "guide_time_default": "默认配方通常需要 30 秒到 5 分钟；首次下载、编译或三维渲染可能额外增加数分钟。",
         "reference": "环境资料",
     },
 }
@@ -255,7 +271,29 @@ def hero_html(space: dict[str, Any], tasks: list[Any], task: Any, language: str,
     """
 
 
-def task_brief(root: Path, task: Any, language: str) -> str:
+def training_guide(space: dict[str, Any], language: str) -> str:
+    copy = copy_for(language)
+    guide = space.get("training_guide", {})
+    success = local_value(guide.get("success", copy["guide_success_default"]), language)
+    preview = local_value(guide.get("preview", copy["guide_preview_default"]), language)
+    duration = local_value(guide.get("time", copy["guide_time_default"]), language)
+    return f"""
+    <section class="training-guide">
+      <div class="training-guide__intro">
+        <span class="task-kicker">RESULT CHECKLIST</span>
+        <h3>{copy['guide_title']}</h3>
+        <p>{copy['guide_copy']}</p>
+      </div>
+      <div class="training-guide__grid">
+        <article><b>01</b><h4>{copy['guide_success']}</h4><p>{html.escape(success)}</p></article>
+        <article><b>02</b><h4>{copy['guide_preview']}</h4><p>{html.escape(preview)}</p></article>
+        <article><b>03</b><h4>{copy['guide_time']}</h4><p>{html.escape(duration)}</p></article>
+      </div>
+    </section>
+    """
+
+
+def task_brief(root: Path, task: Any, language: str, space: dict[str, Any]) -> str:
     copy = copy_for(language)
     preview = embedded_image(preview_path(root, task))
     reference_url = task_value(task, "reference_url")
@@ -279,7 +317,7 @@ def task_brief(root: Path, task: Any, language: str) -> str:
         </div>
         <p class="task-hint">{copy['hint']}</p>{reference}
       </div>
-    </section>
+    </section>{training_guide(space, language)}
     """
 
 
@@ -433,7 +471,7 @@ def build_demo(space_module: Any):
         return (
             task_value(task, "key"),
             hero_html(space, tasks, task, language, runtime_status),
-            task_brief(root, task, language),
+            task_brief(root, task, language, space),
             gr.Slider(minimum=budget[0], maximum=budget[1], value=budget[2], step=budget[3], label=copy["budget"], info=copy["budget_info"]),
             gr.Slider(minimum=lr[0], maximum=lr[1], value=lr[2], step=lr[3], label=copy["lr"]),
             gr.Slider(minimum=gamma[0], maximum=gamma[1], value=gamma[2], step=gamma[3], label=copy["gamma"]),
@@ -452,7 +490,7 @@ def build_demo(space_module: Any):
             hero_html(space, tasks, task, language, runtime_status),
             panel_html(copy["choose"], copy["choose_copy"]),
             gr.Gallery(value=gallery_items(language)),
-            task_brief(root, task, language),
+            task_brief(root, task, language, space),
             panel_html(copy["setup"], copy["setup_copy"]),
             gr.Textbox(value=key, label=copy["selected"]),
             gr.Number(value=seed, label=copy["seed"], precision=0),
@@ -599,7 +637,7 @@ def build_demo(space_module: Any):
             catalog_header = gr.HTML(panel_html(copy["choose"], copy["choose_copy"]))
             gallery = gr.Gallery(value=gallery_items(default_language), show_label=False, columns=3, rows=2, object_fit="cover", height="auto", allow_preview=False, buttons=[], elem_classes="experiment-gallery")
 
-        task_info = gr.HTML(task_brief(root, default_task, default_language), elem_id="selected-task-detail")
+        task_info = gr.HTML(task_brief(root, default_task, default_language, space), elem_id="selected-task-detail")
 
         with gr.Row():
             with gr.Column(scale=1, min_width=310, elem_classes="control-card"):
@@ -647,11 +685,12 @@ CSS = r"""
 .catalog-card,.control-card,.chart-card,.output-card>div,.task-brief{border:1px solid #e1e6ef!important;border-radius:17px!important;background:#fff!important;box-shadow:0 14px 34px rgba(31,42,77,.055)!important}.catalog-card{padding:24px!important;margin-bottom:18px!important}.panel-title{margin:0 0 5px!important;color:var(--ink);font-size:18px!important}.panel-copy,.artifact-note{margin:0 0 18px!important;color:var(--muted)!important;font-size:13px!important;line-height:1.55!important}
 .experiment-gallery{margin-top:6px!important;border:0!important;background:transparent!important}.experiment-gallery .grid-wrap{height:auto!important;min-height:0!important}.experiment-gallery .grid-container{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:13px!important}.experiment-gallery button,.experiment-gallery .thumbnail-item{position:relative!important;height:auto!important;aspect-ratio:16/9!important;overflow:hidden!important;border:2px solid transparent!important;border-radius:14px!important;background:#101532!important;transition:transform .16s ease,border-color .16s ease!important}.experiment-gallery button:hover{transform:translateY(-2px);border-color:#7778eb!important}.experiment-gallery img{width:100%!important;height:100%!important;object-fit:cover!important}.experiment-gallery .caption-label{position:absolute!important;z-index:2!important;inset:auto 0 0!important;padding:34px 13px 12px!important;color:#fff!important;background:linear-gradient(transparent,rgba(4,8,28,.92))!important;font-size:12px!important;font-weight:800!important;line-height:1.35!important;white-space:pre-line!important;text-align:left!important}
 .task-brief{display:grid;grid-template-columns:minmax(270px,.9fr) minmax(0,1.7fr);gap:26px;margin:18px 0!important;padding:13px!important;background:linear-gradient(135deg,#fff,#f7f9ff)!important}.task-brief__visual{overflow:hidden;border-radius:12px;background:#101532}.task-brief__visual img{display:block;width:100%;height:100%;min-height:205px;object-fit:cover}.task-brief__body{padding:12px 12px 8px 0}.task-kicker{display:block;margin-bottom:7px;color:#5b5ce2;font-size:10px;font-weight:900;letter-spacing:.13em}.task-brief h3{margin:0 0 5px;color:var(--ink);font-size:23px}.task-brief p{margin:0;color:var(--muted);font-size:13px;line-height:1.55}.task-facts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}.task-facts span{padding:9px 11px;border:1px solid #e1e6ef;border-radius:9px;background:rgba(255,255,255,.88);color:var(--ink);font-size:11px}.task-facts b{display:block;margin-bottom:3px;color:#7a879d;font-size:8px;letter-spacing:.12em;text-transform:uppercase}.task-hint{font-weight:650;color:#465166!important}.task-reference{display:inline-flex;margin-top:10px;padding:7px 10px;border:1px solid #d9def4;border-radius:8px;color:#4f51ce!important;background:#fff;text-decoration:none!important;font-size:11px;font-weight:800}
+.training-guide{display:grid;grid-template-columns:minmax(210px,.62fr) minmax(0,1.8fr);gap:22px;margin:-4px 0 18px;padding:20px 22px;border:1px solid #dfe4f4;border-radius:17px;background:linear-gradient(135deg,#f8f9ff,#fff);box-shadow:0 12px 28px rgba(31,42,77,.045)}.training-guide__intro{padding:5px 2px}.training-guide__intro h3{margin:0 0 5px;color:var(--ink);font-size:18px}.training-guide__intro p,.training-guide article p{margin:0;color:var(--muted);font-size:12px;line-height:1.55}.training-guide__grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.training-guide article{position:relative;padding:14px 14px 13px;border:1px solid #e0e5f0;border-radius:12px;background:#fff}.training-guide article>b{display:block;margin-bottom:8px;color:#5b5ce2;font-size:10px;letter-spacing:.12em}.training-guide article h4{margin:0 0 6px;color:var(--ink);font-size:13px}.training-guide article p{font-size:11px}
 .control-card,.chart-card{padding:25px!important}.primary-btn{min-height:46px!important;border:0!important;border-radius:10px!important;background:linear-gradient(135deg,#5b5ce2,#7c4dff)!important;font-weight:850!important}.run-state,.live-metric{display:flex;gap:11px;align-items:center;margin-top:10px;padding:14px 15px;border:1px solid #e3e7ef;border-radius:12px;background:#fafbfe}.run-state__dot{width:9px;height:9px;border-radius:50%;background:#8b95a8;box-shadow:0 0 0 5px rgba(139,149,168,.12)}.run-state--running .run-state__dot{background:#8b5cf6;animation:pulse 1.2s infinite}.run-state--complete .run-state__dot{background:#13a36f}.run-state--error .run-state__dot{background:#e05252}.summary-label{display:block;margin-bottom:2px;color:#7b879c;font-size:8px;font-weight:850;letter-spacing:.12em;text-transform:uppercase}.run-state strong,.live-metric strong{display:block;color:var(--ink);font-size:14px}.run-state small,.live-metric small{display:block;margin-top:2px;color:var(--muted);font-size:11px}.metric-reading{display:flex;gap:9px;align-items:baseline}.metric-reading strong{font-size:20px}
 .console-panel{overflow:hidden;margin-top:14px;border:1px solid #29315e;border-radius:12px;background:#11162d}.console-head{padding:9px 13px;border-bottom:1px solid #28305b;color:#dbe1ff;font-size:11px;font-weight:800}.console-dot{display:inline-block;width:7px;height:7px;margin-right:8px;border-radius:50%;background:#31d39b}.console-text{height:300px!important;margin:0!important;padding:13px!important;overflow:auto!important;color:#d5dcf4!important;background:#11162d!important;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace!important;white-space:pre-wrap!important}.run-wait{display:flex;gap:12px;align-items:center;margin:0 0 13px;padding:13px 15px;border:1px solid #d6d8ff;border-radius:11px;background:#f8f7ff;color:#313774}.run-wait strong,.run-wait small,.run-wait em{display:block}.run-wait small{margin-top:2px;color:#68748a;font-size:11px}.run-wait em{margin-top:4px;color:#5b5ce2;font-size:10px;font-style:normal;font-weight:800}.run-wait__spinner{width:20px;height:20px;border:2px solid #d7d9ff;border-top-color:#5b5ce2;border-radius:50%;animation:spin .75s linear infinite}
 .output-card{margin-top:18px!important}.output-card>div{padding:24px!important}.policy-preview,.policy-preview .image-container,.policy-preview img{min-height:320px!important}.policy-preview img{max-height:520px!important;object-fit:contain!important;background:#0f1430}.footer-note{padding:27px 0 0;text-align:center;color:#8390a6;font-size:11px}.footer-note a{color:#5b5ce2!important;font-weight:750}
 @keyframes spin{to{transform:rotate(360deg)}}@keyframes pulse{50%{box-shadow:0 0 0 8px rgba(139,92,246,.08)}}
-@media(max-width:900px){.lab-strip{grid-template-columns:1fr 1fr}.experiment-gallery .grid-container{grid-template-columns:repeat(2,minmax(0,1fr))!important}.task-brief{grid-template-columns:1fr}.task-brief__body{padding:7px}.language-bar{position:static!important;margin:-58px 12px 16px auto!important}.brand-lockup{max-width:calc(100% - 220px)}.hero{padding-top:24px}}
+@media(max-width:900px){.lab-strip{grid-template-columns:1fr 1fr}.experiment-gallery .grid-container{grid-template-columns:repeat(2,minmax(0,1fr))!important}.task-brief,.training-guide{grid-template-columns:1fr}.training-guide__grid{grid-template-columns:1fr}.task-brief__body{padding:7px}.language-bar{position:static!important;margin:-58px 12px 16px auto!important}.brand-lockup{max-width:calc(100% - 220px)}.hero{padding-top:24px}}
 @media(max-width:620px){.gradio-container{padding:10px!important}.hero{padding:22px 20px 24px;border-radius:18px 18px 0 0}.brand-lockup{max-width:100%;font-size:10px;letter-spacing:.045em}.experiment-gallery .grid-container{grid-template-columns:1fr!important}.task-facts{grid-template-columns:1fr}.lab-strip{grid-template-columns:1fr}.language-switch{width:190px!important;min-width:190px!important}}
 """
 

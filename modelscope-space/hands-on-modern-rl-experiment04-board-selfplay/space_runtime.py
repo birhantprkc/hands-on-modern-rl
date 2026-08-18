@@ -19,6 +19,11 @@ SPACE = {
         "zh": "在真实 OpenSpiel 游戏中训练表格自博弈和反事实遗憾最小化策略，并逐步回放策略决策。",
     },
     "badge": "EXPERIMENT 04 · SELF-PLAY",
+    "training_guide": {
+        "success": {"en": "Look for lower exploitability, lower regret, or a stronger evaluation win rate, depending on the game. The final board or policy visualization should show legal, coherent decisions.", "zh": "根据游戏类型观察可利用度或遗憾值下降，或者评估胜率提高；最终棋盘或策略图还应表现出合法且连贯的决策。"},
+        "preview": {"en": "Preview starts with the board game. After training it shows this run's policy map or a move-by-move trajectory, so inspect decisions as well as the curve.", "zh": "Preview 起初展示棋盘；训练后会显示本次策略图或逐步对局轨迹，需要同时检查决策过程和曲线。"},
+        "time": {"en": "Default tabular and CFR recipes usually finish in 10–90 seconds on CPU.", "zh": "默认表格算法和 CFR 配方通常可在 CPU 上用 10–90 秒完成。"},
+    },
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/chapter32_selfplay/",
     "source_url": "https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment04-board-selfplay/file/view/master/space_runtime.py",
     "notebook_url": "https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/"
