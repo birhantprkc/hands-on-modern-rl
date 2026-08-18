@@ -152,7 +152,7 @@ $$G_t = R_{t+1} + \gamma R_{t+2} + \gamma^2 R_{t+3} + \cdots = \sum_{k=0}^{\inft
 
 $G_t$ is the return from time $t$. $R_{t+1}$ is the reward received after the current action, $k$ counts how many steps into the future a reward lies, and $\sum$ means to add all of these terms.
 
-### The Role of the Discount Factor γ
+### The Role of the Discount Factor $\gamma$
 
 $\gamma \in [0, 1]$ is the **discount factor**. It determines how much weight future rewards retain. Smaller values reduce the weight quickly; values close to $1$ preserve more of the distant reward.
 
@@ -192,13 +192,13 @@ $$
 
 With enough repetitions, this average approaches the expected return from the state under the policy. A **value function** estimates this average future return before the future trajectory has actually happened.
 
-### State Value V(s)
+### State Value $V(s)$
 
 $$V^\pi(s) = \mathbb{E}_\pi\left[G_t \mid s_t = s\right] = \mathbb{E}_\pi\left[\sum_{k=0}^{\infty} \gamma^k R_{t+k+1} \mid s_t = s\right]$$
 
 $V$ stands for value, and the superscript $\pi$ reminds us that the value depends on the policy followed afterward. The vertical bar $\mid$ means “given.” Thus, $V^\pi(s)$ is the average of $G_t$ given that the current state is $s_t=s$ and future actions follow policy $\pi$.
 
-### Action Value Q(s, a)
+### Action Value $Q(s, a)$
 
 $$Q^\pi(s, a) = \mathbb{E}_\pi\left[G_t \mid s_t = s, a_t = a\right]$$
 

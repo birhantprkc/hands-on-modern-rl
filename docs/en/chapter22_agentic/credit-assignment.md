@@ -221,7 +221,7 @@ These scores add up to approximately the final successful reward. During RL trai
 
 SPA-RL also adds a grounding signal $g_t$ (whether the action is actually executable in the environment), and the final intermediate reward is $r_t^{\text{fused}} = \alpha c_t + \beta g_t$ — an action must be both "useful" and "executable."
 
-#### AgentPRM: Treating PRM as the Agent's Q(s,a)
+#### AgentPRM: Treating PRM as the Agent's $Q(s,a)$
 
 [AgentPRM](https://arxiv.org/abs/2502.10325) is more aligned with the actor-critic framework in classical RL. It treats the process reward model as a state-action value function:
 
@@ -382,7 +382,7 @@ This implementation is identical to the $G_t$ calculation in Chapter 6 for REINF
 | HGPO           | k-step context             | Resolves historical inconsistency      | Web navigation, context-sensitive tasks         |
 | Group-Graph PO | Trajectory DAG             | Long-term + shared prefix              | Long-term tasks (≥ 10 steps)                    |
 | SPA-RL         | Progress estimator         | Reward redistribution                  | Any multi-step task                             |
-| AgentPRM       | MC return + soft BCE       | PRM as Q(s,a)                          | Requires Best-of-N reasoning                    |
+| AgentPRM       | MC return + soft BCE       | PRM as $Q(s,a)$                        | Requires Best-of-N reasoning                    |
 | ARPO           | Entropy spike              | Localized branch sampling              | Tool call-intensive tasks                       |
 | IGPO           | Correct answer log-prob    | Information gain                       | Tasks with ground truth                         |
 | AEM            | Adaptive entropy           | No additional supervision              | General-purpose, prone to collapse scenarios    |

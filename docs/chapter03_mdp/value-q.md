@@ -77,7 +77,7 @@ $$
 
 <span id="q-function"></span>
 
-## 动作价值函数 Q(s,a)
+## 动作价值函数 $Q(s,a)$
 
 ::: info 辨析：动作（Action）与策略（Policy）
 
