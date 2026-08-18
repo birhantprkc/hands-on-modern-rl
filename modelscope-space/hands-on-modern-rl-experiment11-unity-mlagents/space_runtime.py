@@ -42,7 +42,7 @@ SPACE = {
     "training_guide": {
         "success": {"en": "The final mean reward should improve over the initial checkpoint, and the replay should show the intended coordinated behavior. Training complete confirms the pipeline, not that the task is solved.", "zh": "最终平均奖励应高于初始检查点，回放中应出现任务要求的协调行为；“训练完成”表示流程结束，不等于任务已经学会。"},
         "preview": {"en": "Before training it shows an authentic scene capture; during training it streams up to 8 sampled frames/s; after training it becomes this run's 12 fps replay GIF. The trainer runs independently of the sampled browser preview.", "zh": "训练前显示真实场景画面，训练中最多推送每秒 8 个采样帧，训练后变为本次运行的 12 FPS 回放 GIF；训练器运行速度不受网页采样帧率代表。"},
-        "time": {"en": "Huggy at the default 100k budget usually takes about 2–4 minutes after the scene is ready. A first scene download/start can add 1–2 minutes; larger scenes may take 2–8 minutes.", "zh": "Huggy 默认 10 万步在场景就绪后通常需要约 2–4 分钟；首次下载和启动可能额外增加 1–2 分钟，较大场景约需 2–8 分钟。"},
+        "time": {"en": "Huggy at the default 100k budget usually takes about 4–6 minutes after Unity connects. The first download and process startup can add about 1 minute; larger scenes may take 5–10 minutes.", "zh": "Huggy 默认 10 万步在 Unity 连接后通常需要约 4–6 分钟；首次下载和进程启动可能额外增加约 1 分钟，较大场景约需 5–10 分钟。"},
     },
     "device": "xGPU",
     "organization_url": "https://modelscope.cn/organization/walkinglab",
