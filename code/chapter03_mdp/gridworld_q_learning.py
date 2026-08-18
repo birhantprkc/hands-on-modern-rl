@@ -1,18 +1,18 @@
-"""4 x 4 GridWorld：价值迭代与 Q-Learning 的可复现实验。
+"""4 x 4 GridWorld: a reproducible value-iteration and Q-Learning experiment.
 
-脚本只使用 Python 标准库，运行后生成：
+The script uses only the Python standard library. Running it produces:
 
-- ``results.json``：环境、价值表、最优策略和多随机种子统计；
-- ``learning_curves.csv``：每回合奖励的跨种子均值与标准差；
-- ``gridworld-environment.svg``：实验环境、动作与奖励约定；
-- ``gridworld-value-iteration.svg``：价值传播过程与最优策略；
-- ``gridworld-q-learning.svg``：Q-Learning 曲线与探索率对照实验。
+- ``results.json``: environment, value table, optimal policy, and multi-seed statistics;
+- ``learning_curves.csv``: cross-seed mean and standard deviation of per-episode reward;
+- ``gridworld-environment.svg``: the experiment environment, actions, and reward conventions;
+- ``gridworld-value-iteration.svg``: value propagation and the optimal policy;
+- ``gridworld-q-learning.svg``: Q-Learning curves and the exploration-rate comparison.
 
-运行方式：
+How to run:
 
     python3 gridworld_q_learning.py --output-dir output/value-experiment
 
-教材图片可用 ``--assets-dir`` 同时导出到指定目录。
+Textbook figures can be exported to an additional directory with ``--assets-dir``.
 """
 
 from __future__ import annotations
@@ -36,12 +36,12 @@ TRAP: State = (1, 1)
 GOAL: State = (3, 3)
 TERMINALS = {TRAP, GOAL}
 
-# 动作编号与显示顺序始终保持一致。
+# Action indices and display order are always kept consistent.
 ACTIONS: tuple[tuple[str, State], ...] = (
-    ("上", (-1, 0)),
-    ("下", (1, 0)),
-    ("左", (0, -1)),
-    ("右", (0, 1)),
+    ("up", (-1, 0)),
+    ("down", (1, 0)),
+    ("left", (0, -1)),
+    ("right", (0, 1)),
 )
 ARROWS = ("↑", "↓", "←", "→")
 
@@ -60,10 +60,11 @@ def all_states() -> list[State]:
 
 
 def transition(state: State, action: int) -> tuple[State, float, bool]:
-    """执行一步确定性转移。
+    """Take one deterministic transition step.
 
-    奖励写在“进入下一状态”的转移上。进入目标或陷阱后回合结束，
-    因而终止状态没有后续价值；这避免把终点奖励计算两次。
+    The reward is attached to the transition *into* the next state. Entering the goal or the
+    trap ends the episode, so terminal states have no successor value; this avoids counting
+    the terminal reward twice.
     """
 
     if state in TERMINALS:
@@ -87,7 +88,7 @@ def action_value(values: dict[State, float], state: State, action: int) -> float
 
 
 def value_iteration(tolerance: float = 1e-12) -> tuple[dict[State, float], list[dict[State, float]]]:
-    """同步价值迭代，history[0] 是全零初始化。"""
+    """Synchronous value iteration; history[0] is the all-zero initialization."""
 
     values = {state: 0.0 for state in all_states()}
     history = [values.copy()]
@@ -106,7 +107,7 @@ def value_iteration(tolerance: float = 1e-12) -> tuple[dict[State, float], list[
         if delta < tolerance:
             break
     else:
-        raise RuntimeError("价值迭代未在 1000 轮内收敛")
+        raise RuntimeError("Value iteration did not converge within 1000 sweeps")
 
     return values, history
 
@@ -183,7 +184,7 @@ def train_q_learning(seed: int, epsilon_schedule: Callable[[int], float]) -> Tra
 
 
 def greedy_evaluation(q_values: list[list[list[float]]]) -> dict[str, float]:
-    """确定性环境中的一次贪心评估；并列动作按动作编号稳定选择。"""
+    """One greedy evaluation in the deterministic environment; ties broken stably by action index."""
 
     state = START
     total_reward = 0.0
@@ -279,7 +280,7 @@ def draw_grid(
 
 
 def render_environment_svg(path: Path) -> None:
-    """绘制教材开场使用的纯环境图。"""
+    """Draw the plain environment figure used to open the chapter."""
 
     width, height = 1120, 430
     grid_x, grid_y, cell = 330, 70, 72
@@ -314,7 +315,7 @@ def render_environment_svg(path: Path) -> None:
             elif state == GOAL:
                 parts.append(svg_text(x + cell / 2, y + 45, "G", 24, text_anchor="middle", font_weight="800", fill="#15803d"))
 
-    # 图只定义状态空间和动作空间。奖励与折扣放在正文中。
+    # The figure defines only the state and action spaces. Rewards and discounting are covered in the prose.
     parts.append(svg_text(grid_x + 4 * cell + 92, grid_y + 152, "↑", 34, text_anchor="middle", font_weight="600", fill="#334155"))
     parts.append(svg_text(grid_x + 4 * cell + 92, grid_y + 230, "↓", 34, text_anchor="middle", font_weight="600", fill="#334155"))
     parts.append(svg_text(grid_x + 4 * cell + 52, grid_y + 191, "←", 34, text_anchor="middle", font_weight="600", fill="#334155"))
@@ -490,15 +491,15 @@ def main() -> None:
     )
     copy_assets(args.output_dir, args.assets_dir)
 
-    print(f"价值迭代在 {len(history) - 1} 轮后收敛")
+    print(f"Value iteration converged after {len(history) - 1} sweeps")
     print(f"V*(0,0) = {values[START]:.6f}")
     for result in schedule_results:
         print(
-            f"{result['name']}: 末100回合奖励={result['last_100_reward']:.3f}, "
-            f"贪心成功率={result['success_rate'] * 100:.0f}%, "
-            f"贪心步数={result['evaluation_steps']:.1f}"
+            f"{result['name']}: last-100-episode reward={result['last_100_reward']:.3f}, "
+            f"greedy success rate={result['success_rate'] * 100:.0f}%, "
+            f"greedy steps={result['evaluation_steps']:.1f}"
         )
-    print(f"结果已写入 {args.output_dir}")
+    print(f"Results written to {args.output_dir}")
 
 
 if __name__ == "__main__":

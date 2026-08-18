@@ -1,14 +1,14 @@
 /**
- * 按 VitePress 侧栏（config.mjs）写回 Markdown：统一节号与侧栏一致。
+ * Write section numbers back into Markdown from the VitePress sidebar (config.mjs), keeping the two in sync.
  *
- * - mismatch：将正文中「旧节号」整体换为侧栏节号，并同步所有以 #+ oldMajor.oldMinor
- *   开头的标题行（如 ### 1.3.1 → ### 1.1.1），避免只改 H1 子标题仍用旧号。
- * - missing：将正文第一个一级标题行改为 `# X.Y` + 侧栏标题（与 text 中节号后文案一致）。
+ * - mismatch: replace the old section number in the body with the sidebar's, and update every heading line
+ *   starting with #+ oldMajor.oldMinor (e.g. ### 1.3.1 → ### 1.1.1), so sub-headings don't keep the old number.
+ * - missing: rewrite the body's first H1 as `# X.Y` + the sidebar title (matching the text after the number in `text`).
  *
  * Usage:
  *   npm run fix:headings
  *   node scripts/fix-heading-numbers.mjs --dry-run
- * 可选复查：node scripts/check-heading-numbers.mjs
+ * Optional re-check: node scripts/check-heading-numbers.mjs
  */
 import fs from 'fs'
 import path from 'path'
@@ -121,7 +121,7 @@ let totalEdits = 0
 for (const ent of entries) {
   const mdPath = resolveDocMd(ent.link)
   if (!fs.existsSync(mdPath)) {
-    console.warn(`[skip] 文件不存在：${path.relative(repoRoot, mdPath)}`)
+    console.warn(`[skip] file not found: ${path.relative(repoRoot, mdPath)}`)
     continue
   }
 
@@ -145,7 +145,7 @@ for (const ent of entries) {
     }
   } else {
     newBody = applyMissingFix(body, ent.major, ent.minor, ent.titleRest)
-    reason = `缺少 # X.Y，设为 ${expect}`
+    reason = `missing # X.Y, set to ${expect}`
   }
 
   if (!newBody) continue
@@ -167,7 +167,7 @@ for (const ent of entries) {
 }
 
 console.log(
-  `\n${dryRun ? '（未写入）' : '已写入 '} ${changedFiles} 个文件（侧栏中带 X.Y 的条目共 ${entries.length}）`
+  `\n${dryRun ? '(not written)' : 'wrote '} ${changedFiles} file(s) (sidebar entries with X.Y: ${entries.length})`
 )
 
-// dry-run 仅打印计划，退出码 0，便于本地预览
+// dry-run only prints the plan and exits 0, for local preview

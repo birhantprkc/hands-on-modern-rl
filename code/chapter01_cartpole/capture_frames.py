@@ -1,4 +1,4 @@
-"""用训练好的策略从 Gymnasium CartPole-v1 捕获真实渲染帧。"""
+"""Capture real rendered frames from Gymnasium CartPole-v1 using a trained policy."""
 
 import argparse
 import os
@@ -23,7 +23,7 @@ def load_actor_critic(script_path):
 
 def parse_args():
     here = os.path.dirname(os.path.abspath(__file__))
-    parser = argparse.ArgumentParser(description="捕获 CartPole 评估回合帧")
+    parser = argparse.ArgumentParser(description="Capture CartPole evaluation episode frames")
     parser.add_argument(
         "--model",
         default=os.path.join(here, "output", "pytorch_ppo_cartpole.pth"),
