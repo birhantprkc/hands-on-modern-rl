@@ -188,7 +188,7 @@ print(f"Done! Saved to {save_path}.")
 
 During training, `DPOTrainer` does something subtle: it does not explicitly train a separate reward model. Instead, it uses a particular reformulation of cross-entropy to maximize the probability of $y_w$ relative to $y_l$.
 
-On a typical GPU, this whole run can finish in a few minutes for a small model. The [supplementary derivation](./principles#_15-1-4-2-loss-function-derivation) develops the loss step by step.
+On a typical GPU, this whole run can finish in a few minutes for a small model. The [supplementary derivation](./dpo-theory-and-family#deriving-dpo-in-three-steps) develops the loss step by step.
 
 Expected training logs (illustrative):
 
