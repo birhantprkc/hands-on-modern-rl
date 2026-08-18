@@ -4,6 +4,8 @@
 
 This section begins with sparse rewards. We first explain why random exploration fails, then construct intrinsic rewards from ICM prediction error, use RND to estimate state novelty, and finally examine how NGU and Agent57 manage short- and long-term exploration together.
 
+<OnlineTraining studios="minigrid" />
+
 ## 1. Why Sparse Rewards Require Intrinsic Motivation
 
 [Chapter 2's exploration-exploitation problem](../chapter03_mdp/bandit) introduced this trade-off in a stateless setting: because the expected return of each arm is unknown, the agent must divide its budget between pulling the currently best arm (exploitation) and uncertain arms (exploration). UCB encodes uncertainty directly in action values with the upper confidence bound $U_t(a) = \hat{\mu}_t(a) + c\sqrt{\ln t / N_t(a)}$.

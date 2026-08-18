@@ -4,6 +4,8 @@
 
 这就是**具身智能（Embodied Intelligence）** 要解决的问题：让 AI 拥有"身体"，在物理世界中感知、决策和行动。
 
+<OnlineTraining studios="maniskill,minestudio,unity,ai2thor" />
+
 ## 什么是具身智能？
 
 具身智能是指**智能体通过物理身体与环境交互，在感知-决策-行动的闭环中完成任务的 AI 系统**。它不是纯粹在数字空间中处理数据的"离身智能"，而是强调智能必须通过身体与真实世界的交互来产生和体现。

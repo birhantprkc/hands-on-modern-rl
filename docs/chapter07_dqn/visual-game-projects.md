@@ -11,6 +11,8 @@ outline:
 
 > **本节代码与资源**：[训练脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/dqn_atari_sb3.py) · [曲线导出](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/export_dqn_curves.py) · [回放渲染](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/render_atari.py) · [依赖](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/requirements.txt)
 
+<OnlineTraining studios="gymnasium,vizdoom,atari,jax" />
+
 上一节的 LunarLander 会直接给出位置、速度和角度等 8 个数字，Q 网络只需根据这些物理量选择动作。Pong 只提供游戏画面：球在哪里、正向哪边飞、球拍是否来得及移动，都要由网络从像素中判断。
 
 DQN 的更新规则没有改变。输入端需要增加图像预处理、帧堆叠和 CNN，训练端则需要更长的探索、周期评估和 checkpoint 保存。下面先说明屏幕怎样变成状态，再运行一套完整的 Pong 训练。

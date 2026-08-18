@@ -8,6 +8,8 @@ In the previous eight chapters, our agents lived in the "digital world" -- CartP
 
 This is the problem **Embodied Intelligence** aims to solve: giving AI a "body" to perceive, decide, and act in the physical world.
 
+<OnlineTraining studios="maniskill,minestudio,unity,ai2thor" />
+
 ## What Is Embodied Intelligence?
 
 Embodied intelligence refers to **AI systems that interact with the environment through a physical body, completing tasks within a perception-decision-action closed loop**. It is not "disembodied intelligence" that purely processes data in digital space, but rather emphasizes that intelligence must arise from and be manifested through a body's interaction with the real world.

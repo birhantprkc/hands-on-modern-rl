@@ -10,6 +10,8 @@ title: '7.4 Hands-On: Reproducing AlphaGo'
 
 > **Code and resources**: This page presents the board environment, policy network, value network, MCTS, and self-play code in execution order.
 
+<OnlineTraining studios="board" />
+
 After learning policy gradients and Actor-Critic, we already have two weapons in hand:
 the **policy network** (deciding where to play next; review: [policy $\pi_\theta(a|s)$](../chapter08_policy_gradient/reinforce))
 and the **value network** (judging which side has the better prospects; review: [Critic $V(s)$](./critic-training)).

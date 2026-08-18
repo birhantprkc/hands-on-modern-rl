@@ -4,6 +4,8 @@
 
 This section first formalizes this nonstationarity, then introduces how CTDE separates training information from execution information, derives MADDPG's centralized critic, and finally examines how MAPPO stabilizes multiple policies with PPO's clipped update.
 
+<OnlineTraining studios="multiagent" />
+
 ## 1. Why Multiple Agents Make the Environment Nonstationary
 
 When several agents learn simultaneously in one environment, the next state from agent $i$'s perspective depends not only on its own action $a_i$, but also on the joint actions of the other agents, $a_{-i}$. After the other policies update, the next-state distribution may change even when $s$ and $a_i$ remain the same. Old data therefore become stale more quickly, and the learning target of independent Q-learning keeps moving.

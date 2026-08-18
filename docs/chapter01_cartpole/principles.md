@@ -16,10 +16,11 @@ CartPole 是强化学习入门的经典任务。一根杆子通过关节连在�
 
 <div class="figure-caption">图 1-1：CartPole-v1 环境。智能体控制小车左右移动，使杆子保持竖直。图源：<a href="https://gymnasium.farama.org/environments/classic_control/cart_pole/" target="_blank" rel="noopener noreferrer">Gymnasium</a></div>
 
-下面三种方式都能完成训练，按门槛从低到高排列：
+<OnlineTraining studios="cartpole" />
+
+如果希望逐单元查看代码，或者在终端里完整运行脚本，可以使用下面两种方式：
 
 <NavGrid>
-  <NavCard href="https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment01-cartpole" title="浏览器一键训练" description="无需安装环境，点击「开始训练」即可在浏览器中观察奖励曲线和策略动画。" />
   <NavCard href="https://modelscope.cn/my/mynotebook" title="在线开发环境" description="启动 CPU 环境，拉取课程仓库后打开 notebooks/cartpole-ppo.ipynb，逐单元运行。" />
   <NavCard href="https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment01-cartpole/file/view/master/train.py" title="本地或云端终端" description="执行 python train.py --timesteps 30000。本地环境安装和运行流程见 1.3 节。" />
 </NavGrid>
