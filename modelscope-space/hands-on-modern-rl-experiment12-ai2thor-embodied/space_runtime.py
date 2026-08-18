@@ -67,10 +67,10 @@ def _task(key: str, title: str, zh: str, scene: str, target: str, room: str, roo
 
 
 TASKS = [
-    _task("find-mug", "Find a Mug · Kitchen", "寻找杯子 · 厨房", "FloorPlan1", "Mug", "kitchen", "厨房", "assets/thor-kitchen.svg"),
-    _task("find-apple", "Find an Apple · Kitchen", "寻找苹果 · 厨房", "FloorPlan2", "Apple", "kitchen", "厨房", "assets/thor-apple.svg"),
-    _task("find-tv", "Find a Television · Living Room", "寻找电视 · 客厅", "FloorPlan201", "Television", "living room", "客厅", "assets/thor-living.svg"),
-    _task("find-bed", "Find a Bed · Bedroom", "寻找床 · 卧室", "FloorPlan301", "Bed", "bedroom", "卧室", "assets/thor-bedroom.svg"),
+    _task("find-mug", "Find a Mug · Kitchen", "寻找杯子 · 厨房", "FloorPlan1", "Mug", "kitchen", "厨房", "assets/thor-kitchen.jpg"),
+    _task("find-apple", "Find an Apple · Kitchen", "寻找苹果 · 厨房", "FloorPlan2", "Apple", "kitchen", "厨房", "assets/thor-apple.jpg"),
+    _task("find-tv", "Find a Television · Living Room", "寻找电视 · 客厅", "FloorPlan201", "Television", "living room", "客厅", "assets/thor-living.jpg"),
+    _task("find-bed", "Find a Bed · Bedroom", "寻找床 · 卧室", "FloorPlan301", "Bed", "bedroom", "卧室", "assets/thor-bedroom.jpg"),
 ]
 
 

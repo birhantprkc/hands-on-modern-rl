@@ -90,10 +90,10 @@ def _task(key: str, env_id: str, title: str, zh: str, description: str, descript
 
 
 TASKS = [
-    _task("push-cube", "PushCube-v1", "PushCube · Panda", "PushCube · 熊猫机械臂", "Push the cube to the marked goal position.", "将方块推到标记的目标位置。", "7D end-effector delta pose", "assets/maniskill-push.svg", 100_000, 0.8),
-    _task("pick-cube", "PickCube-v1", "PickCube · Panda", "PickCube · 熊猫机械臂", "Grasp a cube and lift it to a target pose.", "抓住方块并将其抬升到目标位姿。", "7D end-effector delta pose + gripper", "assets/maniskill-pick.svg", 150_000, 0.9),
-    _task("stack-cube", "StackCube-v1", "StackCube · Panda", "StackCube · 熊猫机械臂", "Pick up one cube and stack it stably on another.", "拾取一个方块，并将它稳定叠放在另一个方块上。", "7D end-effector delta pose + gripper", "assets/maniskill-stack.svg", 250_000, 0.95),
-    _task("peg-insertion", "PegInsertionSide-v1", "PegInsertionSide · Panda", "PegInsertionSide · 熊猫机械臂", "Align a peg and insert it into a horizontal socket.", "对齐插销，并把它插入水平插座。", "7D end-effector delta pose + gripper", "assets/maniskill-peg.svg", 300_000, 0.95),
+    _task("push-cube", "PushCube-v1", "PushCube · Panda", "PushCube · 熊猫机械臂", "Push the cube to the marked goal position.", "将方块推到标记的目标位置。", "7D end-effector delta pose", "assets/maniskill-push.jpg", 100_000, 0.8),
+    _task("pick-cube", "PickCube-v1", "PickCube · Panda", "PickCube · 熊猫机械臂", "Grasp a cube and lift it to a target pose.", "抓住方块并将其抬升到目标位姿。", "7D end-effector delta pose + gripper", "assets/maniskill-pick.jpg", 150_000, 0.9),
+    _task("stack-cube", "StackCube-v1", "StackCube · Panda", "StackCube · 熊猫机械臂", "Pick up one cube and stack it stably on another.", "拾取一个方块，并将它稳定叠放在另一个方块上。", "7D end-effector delta pose + gripper", "assets/maniskill-stack.jpg", 250_000, 0.95),
+    _task("peg-insertion", "PegInsertionSide-v1", "PegInsertionSide · Panda", "PegInsertionSide · 熊猫机械臂", "Align a peg and insert it into a horizontal socket.", "对齐插销，并把它插入水平插座。", "7D end-effector delta pose + gripper", "assets/maniskill-peg.jpg", 300_000, 0.95),
 ]
 
 
