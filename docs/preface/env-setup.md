@@ -137,6 +137,8 @@ pip install numpy scipy matplotlib seaborn pandas
 pip install tqdm tensorboard wandb
 ```
 
+<OnlineTraining studios="gymnasium" compact />
+
 ## 仿真环境安装
 
 不同章节用到不同的仿真环境，可以按需安装。
@@ -210,6 +212,8 @@ python -c "from mlagents_envs.environment import UnityEnvironment; print('ML-Age
 ::: tip Unity ML-Agents 适用场景
 ML-Agents 的独特价值在于**3D 空间推理**：Atari 是 2D 像素，CartPole 是低维向量，而 ML-Agents 提供完整的 3D 物理环境（重力、碰撞、遮挡）。如果你的研究涉及视觉导航、空间推理或多智能体 3D 协作，ML-Agents 是 Gymnasium/PyBullet 之外的有力补充。
 :::
+
+<OnlineTraining studios="unity" compact />
 
 ## LLM 训练框架
 

@@ -6,7 +6,7 @@
 
 > **本节代码与资源**：本页按棋盘环境、策略网络、价值网络、MCTS 和自我对弈的顺序给出完整代码。
 
-<OnlineTraining studios="board" />
+<OnlineTraining studios="board" compact />
 
 本页代码按组件分块展示，需要依次放入同一个 Python 文件后再运行。它是 6×6 棋盘上的教学实现，验收目标是合法自我对弈和 MCTS 数据流，不代表标准 AlphaGo 的训练规模或棋力。
 

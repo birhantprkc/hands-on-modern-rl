@@ -11,8 +11,6 @@ outline:
 
 > **Code and resources**: [training script](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/dqn_atari_sb3.py) · [curve export](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/export_dqn_curves.py) · [replay rendering](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/render_atari.py) · [dependencies](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/requirements.txt)
 
-<OnlineTraining studios="gymnasium,vizdoom,atari,jax" />
-
 The previous sections have discussed DQN's three core components separately: the Q-network estimates action values, experience replay breaks sample correlation, and the target network stabilizes TD targets. Section 5.4 placed these components into a LunarLander experiment: observing real training, evaluation returns, replay animations, training curves, Q-values, and ablation studies. By this point, low-dimensional state tasks have served their pedagogical purpose: they let us see clearly how DQN learns action values between 8 numbers and 4 discrete actions.
 
 This section addresses the next question: when the state is no longer a clean set of numbers but raw game frames, what else does DQN need to change?
@@ -155,6 +153,8 @@ What turned Atari into a standard deep RL benchmark is ALE (Arcade Learning Envi
 In this chapter, Atari serves as a "pixel version of CartPole," but at a higher difficulty level: CartPole gives you the state as 4 numbers; Atari only gives you the screen — where the ball is, which direction it's flying, how far the paddle is from the ball, all must be learned from 84×84 grayscale frames.
 
 ALE contains dozens of games with widely varying difficulty. This section chooses Pong as the main experiment: two paddles, one ball, first to 21 points wins. Few objects on screen, actions are only up and down, extremely short feedback — catching the ball or losing a point happens almost immediately. Simple visuals and a very short feedback chain make Pong the most natural starting point for pixel DQN.
+
+<OnlineTraining studios="atari,jax" compact />
 
 ### Where Are Other Atari Games
 
@@ -411,6 +411,8 @@ If the agent fails to learn an effective policy, the reason can usually be trace
 
 ![Gymnasium custom GridWorld environment example animation: agent, target, movement, and termination conditions all defined by the environment interface (Source: Gymnasium Environment Creation tutorial)](../../chapter07_dqn/images/gymnasium-gridworld.gif)
 
+<OnlineTraining studios="gymnasium" compact />
+
 Stepping up, any task with action space `gym.spaces.Discrete(n_actions)` can try DQN. Low-dimensional vectors use `MlpPolicy`; images use `CnnPolicy`. But "discrete actions" is only a necessary condition — if rewards are extremely sparse, observations severely lack information, or random exploration almost never produces useful feedback, vanilla DQN still struggles to converge.
 
 In summary, DQN is suited for tasks with discrete actions, observable rewards, finite episode lengths, and where exploration can produce effective transitions. When tasks exhibit strong partial observability, extremely sparse rewards, or long-horizon planning needs, improvements like Double DQN, Dueling DQN, prioritized replay, n-step returns, or memory networks are needed.
@@ -418,6 +420,8 @@ In summary, DQN is suited for tasks with discrete actions, observable rewards, f
 The appendices below explore this boundary: ViZDoom mainly exposes partial observability issues, Pokemon mainly exposes sparse reward and long-horizon planning issues, and Minecraft further pushes open-world, hierarchical goals, and long-range exploration to a more difficult position.
 
 ViZDoom's original paper trained agents on simplified scenarios using convolutional networks + Q-learning + experience replay.[^vizdoom-paper] DQN can train, but depends on several constraints: scenarios designed for learning, controlled action sets, rewards close to target behavior, and moderate episode length.
+
+<OnlineTraining studios="vizdoom" compact />
 
 ![ViZDoom Basic scenario: single room, few enemies, close shooting feedback, suitable as a DQN basic training check (Source: ViZDoom official environment documentation)](../../chapter07_dqn/images/vizdoom-basic.gif)
 
@@ -536,6 +540,8 @@ Therefore, the precise answer to "can DQN beat Pokemon?" is: DQN can train early
 ## 5.5.6 Boundaries of Minecraft Tasks
 
 Minecraft is an open-world sandbox game where the objective is not a single action skill, but a chain of interdependent long-term tasks: chop trees → wooden pickaxe → stone → stone pickaxe → iron ore → iron ingot → iron pickaxe → diamonds.
+
+<OnlineTraining studios="minestudio" compact />
 
 ![MineDojo tech-tree task example: from wood all the way to diamond sword, the task chain includes gathering, processing, crafting, and resource upgrading (Source: MineDojo task suite)](../../chapter07_dqn/images/minecraft-minedojo-diamond-sword.png)
 

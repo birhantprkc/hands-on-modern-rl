@@ -11,8 +11,6 @@ outline:
 
 > **本节代码与资源**：[训练脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/dqn_atari_sb3.py) · [曲线导出](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/export_dqn_curves.py) · [回放渲染](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/render_atari.py) · [依赖](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter04_dqn/requirements.txt)
 
-<OnlineTraining studios="gymnasium,vizdoom,atari,jax" />
-
 上一节的 LunarLander 会直接给出位置、速度和角度等 8 个数字，Q 网络只需根据这些物理量选择动作。Pong 只提供游戏画面：球在哪里、正向哪边飞、球拍是否来得及移动，都要由网络从像素中判断。
 
 DQN 的更新规则没有改变。输入端需要增加图像预处理、帧堆叠和 CNN，训练端则需要更长的探索、周期评估和 checkpoint 保存。下面先说明屏幕怎样变成状态，再运行一套完整的 Pong 训练。
@@ -152,6 +150,8 @@ ALE 里有几十款游戏，难度差异很大。
 本节选 Pong 做主实验：两个球拍、一个球，先到 21 分获胜。
 画面里物体少，动作只有上下，反馈极短——接住球或丢分几乎立刻发生。
 简洁的画面和极短的反馈链，让 Pong 成为像素 DQN 最自然的起点。
+
+<OnlineTraining studios="atari,jax" compact />
 
 ### 其他 Atari 游戏在哪里
 
@@ -485,6 +485,8 @@ GridWorld 提供了最透明的任务设计方式。
 
 ![Gymnasium 自定义 GridWorld 环境示例动画：agent、target、移动和终止条件都由环境接口定义（来源：Gymnasium Environment Creation 教程）](./images/gymnasium-gridworld.gif)
 
+<OnlineTraining studios="gymnasium" compact />
+
 再往上走一步，任何动作空间为 `gym.spaces.Discrete(n_actions)` 的任务都可以尝试 DQN。
 
 低维向量用 `MlpPolicy`，图像用 `CnnPolicy`。但"动作离散"只是必要条件——如果奖励极其稀疏、观测严重缺少信息，或者随机探索几乎无法得到有效反馈，朴素 DQN 仍然难以收敛。
@@ -496,6 +498,8 @@ GridWorld 提供了最透明的任务设计方式。
 下面的附录沿着这条边界展开：ViZDoom 主要暴露部分可观测问题，宝可梦主要暴露稀疏奖励和长时规划问题，Minecraft 则进一步把开放世界、层级目标和长程探索推到更困难的位置。
 
 ViZDoom 原始论文就在简化场景上用卷积网络 + Q-learning + 经验回放训练了智能体。[^vizdoom-paper] DQN 可以训练，但依赖几个约束：场景专为学习设计、动作集合受控、奖励离目标行为较近、episode 长度适中。
+
+<OnlineTraining studios="vizdoom" compact />
 
 ![ViZDoom Basic 场景：单房间、少量敌人、射击反馈较近，适合作为 DQN 基础训练检查（来源：ViZDoom 官方环境文档）](./images/vizdoom-basic.gif)
 
@@ -614,6 +618,8 @@ tensorboard --logdir output/dqn_pokemon_red/tb
 ## 5.5.6 我的世界任务的边界
 
 Minecraft 是开放世界沙盒游戏，目标不是单一动作技能，而是一串相互依赖的长期任务链：砍树 → 木镐 → 石头 → 石镐 → 铁矿 → 铁锭 → 铁镐 → 钻石。
+
+<OnlineTraining studios="minestudio" compact />
 
 ![MineDojo 技术树任务示例：从木头一路合成到钻石剑，任务链条包含采集、加工、合成和资源升级（来源：MineDojo task suite）](./images/minecraft-minedojo-diamond-sword.png)
 

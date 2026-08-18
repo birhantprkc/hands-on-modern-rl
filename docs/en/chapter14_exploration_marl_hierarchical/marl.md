@@ -4,7 +4,7 @@
 
 This section first formalizes this nonstationarity, then introduces how CTDE separates training information from execution information, derives MADDPG's centralized critic, and finally examines how MAPPO stabilizes multiple policies with PPO's clipped update.
 
-<OnlineTraining studios="multiagent" />
+<OnlineTraining studios="multiagent" compact />
 
 ## 1. Why Multiple Agents Make the Environment Nonstationary
 

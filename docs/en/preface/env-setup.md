@@ -135,6 +135,8 @@ pip install numpy scipy matplotlib seaborn pandas
 pip install tqdm tensorboard wandb
 ```
 
+<OnlineTraining studios="gymnasium" compact />
+
 ## Simulator Environments
 
 Different chapters use different simulators. Install them as needed.
@@ -208,6 +210,8 @@ Using ML-Agents also requires downloading or building Unity environments (`.exe`
 ::: tip Unity ML-Agents use cases
 The unique value of ML-Agents is **3D spatial reasoning**: Atari uses 2D pixels, CartPole uses low-dimensional vectors, while ML-Agents provides a complete 3D physics environment (gravity, collisions, occlusion). If your research involves visual navigation, spatial reasoning, or multi-agent 3D coordination, ML-Agents is a strong complement to Gymnasium/PyBullet.
 :::
+
+<OnlineTraining studios="unity" compact />
 
 ## LLM Training Frameworks
 

@@ -4,8 +4,6 @@
 
 这就是**具身智能（Embodied Intelligence）** 要解决的问题：让 AI 拥有"身体"，在物理世界中感知、决策和行动。
 
-<OnlineTraining studios="maniskill,minestudio,unity,ai2thor" />
-
 ## 什么是具身智能？
 
 具身智能是指**智能体通过物理身体与环境交互，在感知-决策-行动的闭环中完成任务的 AI 系统**。它不是纯粹在数字空间中处理数据的"离身智能"，而是强调智能必须通过身体与真实世界的交互来产生和体现。
@@ -54,6 +52,8 @@
   - **ObjectGoal Navigation**：目标是语义概念（“找到厨房里的冰箱”），要求智能体具备常识推理和场景理解能力。
 - **技术原理**：传统方法依赖于 SLAM（同步定位与建图）建图后再进行 A\* 等路径规划。而在具身 RL 中，流行**端到端（End-to-End）学习**：直接输入 RGB-D 摄像头和 LiDAR 数据，通过 CNN/Transformer 提取特征，输出离散（前进、左转、右转）或连续的底盘速度指令。
 - **难点**：视觉特征与几何空间的映射（Mapping）、长时间记忆（探索过的死胡同不能再去）。
+
+<OnlineTraining studios="ai2thor" compact />
 
 ### 2. 抓取（Grasping）
 
@@ -311,6 +311,8 @@ Isaac 系列的核心价值是**把仿真从 CPU 瓶颈解放出来**。PPO + Is
 </div>
 
 [ManiSkill](https://maniskill.readthedocs.io/)（基于 [Sapien](https://sapien.ucsd.edu/) 仿真器）是专注**机器人操作（Manipulation）** 的仿真基准。它提供了一系列标准化的操作任务——从简单的推物体到复杂的多步骤组装——以及统一的评测接口。如果你做的是抓取、放置、组装类任务，ManiSkill 是目前最成熟的 benchmark。
+
+<OnlineTraining studios="maniskill" compact />
 
 | 仿真器                | 核心优势                     | 最适合的场景                  |
 | --------------------- | ---------------------------- | ----------------------------- |

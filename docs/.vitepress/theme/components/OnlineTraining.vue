@@ -10,6 +10,10 @@ const props = defineProps({
   lang: {
     type: String,
     default: ''
+  },
+  compact: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -183,7 +187,11 @@ const selectedStudios = computed(() =>
 </script>
 
 <template>
-  <aside class="online-training" aria-label="Online training resources">
+  <aside
+    class="online-training"
+    :class="{ 'online-training--compact': props.compact }"
+    aria-label="Online training resources"
+  >
     <div class="online-training__intro">
       <span class="online-training__eyebrow">
         <i aria-hidden="true"></i>
@@ -374,6 +382,59 @@ const selectedStudios = computed(() =>
 
 .online-training__card:hover .online-training__action i {
   transform: translate(2px, -2px);
+}
+
+.online-training--compact {
+  margin: 18px 0 22px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.05);
+}
+
+.online-training--compact .online-training__eyebrow {
+  margin-bottom: 4px;
+}
+
+.online-training--compact .online-training__intro strong {
+  font-size: 16px;
+}
+
+.online-training--compact .online-training__intro p {
+  margin-top: 4px;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.online-training--compact .online-training__grid {
+  gap: 9px;
+  margin-top: 12px;
+}
+
+.online-training--compact .online-training__card {
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 11px;
+  padding: 12px;
+  border-radius: 13px;
+}
+
+.online-training--compact .online-training__badge {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  font-size: 10px;
+}
+
+.online-training--compact .online-training__title {
+  font-size: 14px;
+}
+
+.online-training--compact .online-training__description {
+  margin-top: 5px;
+  font-size: 12px;
+}
+
+.online-training--compact .online-training__action {
+  margin-top: 7px;
 }
 
 .dark .online-training {

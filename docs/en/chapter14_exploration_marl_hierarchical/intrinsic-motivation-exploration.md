@@ -4,7 +4,7 @@
 
 This section begins with sparse rewards. We first explain why random exploration fails, then construct intrinsic rewards from ICM prediction error, use RND to estimate state novelty, and finally examine how NGU and Agent57 manage short- and long-term exploration together.
 
-<OnlineTraining studios="minigrid" />
+<OnlineTraining studios="minigrid" compact />
 
 ## 1. Why Sparse Rewards Require Intrinsic Motivation
 

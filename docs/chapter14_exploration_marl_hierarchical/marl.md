@@ -10,7 +10,7 @@
 - 理解 MAPPO 为什么能成为多智能体合作任务的强基线：PPO 的裁剪更新天然适合多智能体，稳定、好调参、效果好。
 - 对比不同 CTDE 算法的适用场景，知道什么时候用价值分解、什么时候用 Actor-Critic。
 
-<OnlineTraining studios="multiagent" />
+<OnlineTraining studios="multiagent" compact />
 
 上一节 [12.1](./intrinsic-motivation-exploration) 我们解决了稀疏奖励下怎么让单个智能体自己"好奇探索"的问题。现在我们把问题再推进一步：如果环境里不止一个智能体呢？
 

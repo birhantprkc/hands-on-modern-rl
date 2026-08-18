@@ -16,7 +16,7 @@ CartPole 是强化学习入门的经典任务。一根杆子通过关节连在�
 
 <div class="figure-caption">图 1-1：CartPole-v1 环境。智能体控制小车左右移动，使杆子保持竖直。图源：<a href="https://gymnasium.farama.org/environments/classic_control/cart_pole/" target="_blank" rel="noopener noreferrer">Gymnasium</a></div>
 
-<OnlineTraining studios="cartpole" />
+<OnlineTraining studios="cartpole" compact />
 
 如果希望逐单元查看代码，或者在终端里完整运行脚本，可以使用下面两种方式：
 

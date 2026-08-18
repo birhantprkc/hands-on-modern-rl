@@ -8,8 +8,6 @@ In the previous eight chapters, our agents lived in the "digital world" -- CartP
 
 This is the problem **Embodied Intelligence** aims to solve: giving AI a "body" to perceive, decide, and act in the physical world.
 
-<OnlineTraining studios="maniskill,minestudio,unity,ai2thor" />
-
 ## What Is Embodied Intelligence?
 
 Embodied intelligence refers to **AI systems that interact with the environment through a physical body, completing tasks within a perception-decision-action closed loop**. It is not "disembodied intelligence" that purely processes data in digital space, but rather emphasizes that intelligence must arise from and be manifested through a body's interaction with the real world.
@@ -58,6 +56,8 @@ Embodied intelligence tasks vary widely, but by how the agent interacts with the
   - **ObjectGoal Navigation**: The target is a semantic concept ("find the refrigerator in the kitchen"), requiring the agent to have commonsense reasoning and scene understanding.
 - **Technical principles**: Traditional methods rely on SLAM (Simultaneous Localization and Mapping) for map construction followed by A\* path planning. In embodied RL, **end-to-end learning** is popular: directly input RGB-D camera and LiDAR data, extract features through CNN/Transformer, and output discrete (forward, turn left, turn right) or continuous chassis velocity commands.
 - **Challenges**: Mapping between visual features and geometric space, long-term memory (explored dead ends should not be revisited).
+
+<OnlineTraining studios="ai2thor" compact />
 
 ### 2. Grasping
 
@@ -320,6 +320,8 @@ The core value of the Isaac series is **freeing simulation from the CPU bottlene
 </div>
 
 [ManiSkill](https://maniskill.readthedocs.io/) (based on the [Sapien](https://sapien.ucsd.edu/) simulator) is a simulation benchmark focused on **robot manipulation**. It provides a series of standardized manipulation tasks -- from simple pushing to complex multi-step assembly -- and a unified evaluation interface. If you work on grasping, placing, or assembly tasks, ManiSkill is currently the most mature benchmark.
+
+<OnlineTraining studios="maniskill" compact />
 
 | Simulator             | Core Advantage                                            | Best Suited For                                            |
 | --------------------- | --------------------------------------------------------- | ---------------------------------------------------------- |
