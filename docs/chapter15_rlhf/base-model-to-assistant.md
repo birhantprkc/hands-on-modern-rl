@@ -87,15 +87,16 @@ $$
 
 ## 本章路线图
 
-| 小节                                                            | 核心问题                                                | 产物                           |
-| --------------------------------------------------------------- | ------------------------------------------------------- | ------------------------------ |
-| [为什么 base model 还不是 assistant](./base-model-to-assistant) | pretrained checkpoint 能做什么、缺什么？                | base / SFT / RLHF 三阶段对照   |
-| [SFT：教模型按指令回答](./imitation-learning-pipeline)          | SFT 数据和偏好数据怎么构造，偏好如何变成奖励？          | SFT 模型、偏好数据与 RM 损失   |
-| [AI 反馈与安全原则](../chapter21_cai_rlvr/hhh-practice)         | 偏好数据如何从人工标注扩展到 AI 反馈？                  | Constitution 与 RLAIF 流程     |
-| [强化学习微调](./standard-rlhf-pipeline)                       | Reward Model、Actor、Reference、Critic 如何协作？       | 标准流程图与 artifact 清单     |
-| [扩展实战：Reward Hacking 与数据飞轮](./extended-practice)      | 坏奖励如何被 hack？失败样本如何进入迭代闭环？           | 可复现 reward hacking 实验     |
-| [评估与奖励黑客](./evaluation)                                  | 如何证明模型变好且没有 reward hacking？数据飞轮怎么做？ | 评估闭环 + 受控实验 + 飞轮模板 |
-| [动手：veRL PPO 训练 GSM8K](./verl-ppo-gsm8k)                   | 工业级 LLM RL 框架如何跑通 PPO？                        | veRL 外部索引 + 本仓库适配脚本 |
+| 小节                                                            | 核心问题                                                | 产物                             |
+| --------------------------------------------------------------- | ------------------------------------------------------- | -------------------------------- |
+| [为什么 base model 还不是 assistant](./base-model-to-assistant) | pretrained checkpoint 能做什么、缺什么？                | base / SFT / RLHF 三阶段对照     |
+| [SFT：教模型按指令回答](./imitation-learning-pipeline)          | SFT 数据和偏好数据怎么构造，偏好如何变成奖励？          | SFT 模型、偏好数据与 RM 损失     |
+| [AI 反馈与安全原则](../chapter21_cai_rlvr/hhh-practice)         | 偏好数据如何从人工标注扩展到 AI 反馈？                  | Constitution 与 RLAIF 流程       |
+| [强化学习微调](./standard-rlhf-pipeline)                        | Reward Model、Actor、Reference、Critic 如何协作？       | 标准流程图与 artifact 清单       |
+| [大规模训练工程](./scaling-to-large-models)                     | 同一条流水线怎么从小参数放大到大参数？                  | TRL/OpenRLHF/NeMo 映射与检查清单 |
+| [评估与奖励黑客](./evaluation)                                  | 如何证明模型变好且没有 reward hacking？数据飞轮怎么做？ | 评估闭环 + 受控实验 + 飞轮模板   |
+| [扩展实战：Reward Hacking 与数据飞轮](./extended-practice)      | 坏奖励如何被 hack？失败样本如何进入迭代闭环？           | 可复现 reward hacking 实验       |
+| [动手：veRL PPO 训练 GSM8K](./verl-ppo-gsm8k)                   | 工业级 LLM RL 框架如何跑通 PPO？                        | veRL 外部索引 + 本仓库适配脚本   |
 
 ## 为什么必须做评估
 

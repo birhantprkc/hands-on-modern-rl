@@ -2,11 +2,11 @@
 
 > **本节目标**：把代码执行验证器接入 veRL，用测试通过率训练代码模型，并完成数据准备、沙箱检查、PPO 训练和训练前后评测。
 
-> **学习路径**：[15.3 RLVR 奖励](./rlvr) → [13.7 veRL 训练 GSM8K](../chapter15_rlhf/verl-ppo-gsm8k) → **15.8 veRL 训练代码生成**
+> **学习路径**：[15.3 RLVR 奖励](./rlvr) → [13.8 veRL 训练 GSM8K](../chapter15_rlhf/verl-ppo-gsm8k) → **15.8 veRL 训练代码生成**
 
 > **本节代码与资源**：[数据准备](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter18_grpo/verl_code_rlvr/prepare_data.py) · [代码奖励](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter18_grpo/verl_code_rlvr/code_reward.py) · [单卡训练脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter18_grpo/verl_code_rlvr/run_qwen_coder_ppo_single_gpu.sh)
 
-13.7 节已经用 veRL 训练数学模型，只需抽取最终数字并与标准答案比较。代码任务多了一步：模型生成的程序必须进入隔离环境，经过语法检查、执行和单元测试，测试通过率再变成奖励。下面沿用同一套 veRL 训练框架，只替换数据处理和奖励链路。
+13.8 节已经用 veRL 训练数学模型，只需抽取最终数字并与标准答案比较。代码任务多了一步：模型生成的程序必须进入隔离环境，经过语法检查、执行和单元测试，测试通过率再变成奖励。下面沿用同一套 veRL 训练框架，只替换数据处理和奖励链路。
 
 本节参考了火山引擎的 veRL Code Sandbox 教程[^volcengine-verl-code-sandbox]，具体参考了以下内容：
 
@@ -73,11 +73,11 @@ assert two_sum([3, 3], 6) == [0, 1]
 | Qwen2.5-Coder-1.5B | 1.5B   | LoRA + vLLM | ~20 GB（单卡）            |
 | Qwen2.5-Coder-7B   | 7B     | 全参训练    | ~80 GB（A100 单卡或多卡） |
 
-和 13.7 节一样，PPO 需要同时加载 Actor、Critic（可训练）和 Reference（冻结），加上 vLLM 推理引擎，所以显存压力比纯 SFT 大。0.5B 代码模型 + 全参训练是最安全的单卡起点。
+和 13.8 节一样，PPO 需要同时加载 Actor、Critic（可训练）和 Reference（冻结），加上 vLLM 推理引擎，所以显存压力比纯 SFT 大。0.5B 代码模型 + 全参训练是最安全的单卡起点。
 
 ### 安装 veRL
 
-如果已经按 13.7 节安装过 veRL，可以跳过。否则：
+如果已经按 13.8 节安装过 veRL，可以跳过。否则：
 
 ```bash
 # 创建环境
@@ -146,9 +146,9 @@ python code/chapter18_grpo/verl_code_rlvr/prepare_data.py
 
 ## 15.8.3 Reward 函数设计
 
-13.7 节的 GSM8K reward 只需要从模型输出中提取最终数字，做一次数值比较。代码任务完全不同：需要从 markdown 中提取代码块，放到隔离环境中执行测试，处理编译错误、运行异常和超时。
+13.8 节的 GSM8K reward 只需要从模型输出中提取最终数字，做一次数值比较。代码任务完全不同：需要从 markdown 中提取代码块，放到隔离环境中执行测试，处理编译错误、运行异常和超时。
 
-这是本节和 13.7 节最大的工程差异。下面逐模块讲解 reward 函数的设计。
+这是本节和 13.8 节最大的工程差异。下面逐模块讲解 reward 函数的设计。
 
 ### 从模型输出中提取代码
 
@@ -178,7 +178,7 @@ def extract_code(response: str) -> str:
 
 ### 运行 stdin/stdout 测试（I/O 验证）
 
-这里是本节和 13.7 节最大的差异。Eurus-2-RL-Data 的 code 样本**没有 `tests`（assert 语句）**，`reward_model.ground_truth` 是 JSON 字符串 `{"inputs": [...], "outputs": [...]}`——也就是**把生成的代码当独立程序跑**：对每个 input 喂入 stdin，比对 stdout 和期望 output。
+这里是本节和 13.8 节最大的差异。Eurus-2-RL-Data 的 code 样本**没有 `tests`（assert 语句）**，`reward_model.ground_truth` 是 JSON 字符串 `{"inputs": [...], "outputs": [...]}`——也就是**把生成的代码当独立程序跑**：对每个 input 喂入 stdin，比对 stdout 和期望 output。
 
 `subprocess` 可以隔离解释器状态并设置超时，但它仍继承当前用户的文件、网络和环境变量权限。下面的执行器只适合放在已经隔离的容器或虚拟机中运行；代码默认拒绝执行，只有设置 `HOMRL_ALLOW_UNSAFE_CODE_EXECUTION=1` 才会启用：
 
@@ -305,16 +305,16 @@ Eurus-2-RL-Data 的 code 样本是"读 stdin、写 stdout"的竞赛题，**没�
 
 ## 15.8.5 单卡训练脚本
 
-基于 13.7 节的 veRL PPO 脚本结构，适配代码生成任务。整体框架不变，关键差异有三处：数据集换成 Eurus-2-RL-Data（只取 code 样本）、reward 函数换成代码验证、`max_response_length` 从 256 增大到 512（代码回答通常比数学推理更长）。
+基于 13.8 节的 veRL PPO 脚本结构，适配代码生成任务。整体框架不变，关键差异有三处：数据集换成 Eurus-2-RL-Data（只取 code 样本）、reward 函数换成代码验证、`max_response_length` 从 256 增大到 512（代码回答通常比数学推理更长）。
 
-脚本的设计思路和 13.7 节完全一致：所有参数通过环境变量设置默认值，需要调整时不用改脚本，直接在命令行覆盖就行。完整脚本见 [code/chapter18_grpo/verl_code_rlvr/run_qwen_coder_ppo_single_gpu.sh](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter18_grpo/verl_code_rlvr/run_qwen_coder_ppo_single_gpu.sh)。
+脚本的设计思路和 13.8 节完全一致：所有参数通过环境变量设置默认值，需要调整时不用改脚本，直接在命令行覆盖就行。完整脚本见 [code/chapter18_grpo/verl_code_rlvr/run_qwen_coder_ppo_single_gpu.sh](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter18_grpo/verl_code_rlvr/run_qwen_coder_ppo_single_gpu.sh)。
 
-和 13.7 节 GSM8K 脚本相比，本节新增的关键配置是 **Reward 接线**——不配 `custom_reward_function` 的话 reward 根本不会生效（这是文档早期版本漏掉的）：
+和 13.8 节 GSM8K 脚本相比，本节新增的关键配置是 **Reward 接线**——不配 `custom_reward_function` 的话 reward 根本不会生效（这是文档早期版本漏掉的）：
 
 ```bash
 # ---- Reward 配置 ----
 # 用 code_reward.py 做规则奖励（跑 stdin/stdout 测试），不训练 Reward Model
-# 这是本节和 13.7 节最大的不同：reward 来自代码执行验证，而不是预训练的 RM
+# 这是本节和 13.8 节最大的不同：reward 来自代码执行验证，而不是预训练的 RM
 REWARD=(
     reward_model.enable=False
     custom_reward_function.path="$REWARD_FILE"
@@ -330,13 +330,13 @@ python3 -m verl.trainer.main_ppo \
     "${REF[@]}" "${CRITIC[@]}" "${REWARD[@]}" "${TRAINER[@]}" "$@"
 ```
 
-脚本其余部分（数据、模型、Actor/Reference/Critic、Trainer 配置）和 13.7 节基本一致。
+脚本其余部分（数据、模型、Actor/Reference/Critic、Trainer 配置）和 13.8 节基本一致。
 
 ### 配置解读
 
-和 13.7 节 GSM8K 的 PPO 配置相比，几个关键差异：
+和 13.8 节 GSM8K 的 PPO 配置相比，几个关键差异：
 
-| 配置项                | GSM8K（13.7 节） | 代码生成（本节）                | 原因                                   |
+| 配置项                | GSM8K（13.8 节） | 代码生成（本节）                | 原因                                   |
 | --------------------- | ---------------- | ------------------------------- | -------------------------------------- |
 | 数据集                | GSM8K 数学题     | Eurus-2-RL-Data（仅 code 样本） | 代码任务需要可验证的测试用例           |
 | reward 函数           | `gsm8k_reward`   | `code_reward`                   | 代码需要提取 + 运行 stdin/stdout 测试  |
@@ -344,20 +344,20 @@ python3 -m verl.trainer.main_ppo \
 | 基座模型              | Qwen2.5-0.5B     | Qwen2.5-Coder                   | 代码生成用 coder 变体效果更好          |
 | reward 接线           | —                | `custom_reward_function`        | 代码 reward 是自定义函数，必须显式接线 |
 
-其他参数（学习率、clip_ratio、GAE 等）和 13.7 节保持一致——它们是 PPO 的算法参数，不随任务类型变化。
+其他参数（学习率、clip_ratio、GAE 等）和 13.8 节保持一致——它们是 PPO 的算法参数，不随任务类型变化。
 
-### 和 13.7 节四模型结构的对应
+### 和 13.8 节四模型结构的对应
 
-和 13.7 节一样，PPO 训练涉及四个模型角色：
+和 13.8 节一样，PPO 训练涉及四个模型角色：
 
-| 13.7 节角色 | 本节对应                       | 说明                                        |
+| 13.8 节角色 | 本节对应                       | 说明                                        |
 | ----------- | ------------------------------ | ------------------------------------------- |
 | Actor       | `actor_rollout_ref.actor.*`    | 可训练策略，生成候选代码并更新              |
 | Reference   | `actor_rollout_ref.ref.*`      | 冻结的 SFT 模型，计算 KL 约束               |
 | Critic      | `critic.*`                     | 可训练价值函数，GAE 估计 advantage          |
 | RM/Reward   | `code_reward.py:compute_score` | 代码验证：提取 + 子进程跑 stdin/stdout 测试 |
 
-关键区别是最后一行：13.7 节用数学答案匹配（抽取数字做数值比较），本节用代码执行验证（提取代码 → 子进程运行 → 比对输入输出）。reward 信号按测试通过率给 0~1 的分数，但代码 reward 的工程复杂度更高。
+关键区别是最后一行：13.8 节用数学答案匹配（抽取数字做数值比较），本节用代码执行验证（提取代码 → 子进程运行 → 比对输入输出）。reward 信号按测试通过率给 0~1 的分数，但代码 reward 的工程复杂度更高。
 
 ## 15.8.6 启动训练
 
@@ -508,7 +508,7 @@ evalscope eval \
 | 15.8 本节 | veRL | 把代码 verifier 接进 PPO/GRPO 训练框架    |
 | 19.8      | rLLM | 用 DeepCoder cookbook 跑完整 Agentic 实验 |
 
-初次接触端到端训练时，可以先完成 13.7 节的 GSM8K 实验。已经熟悉 veRL 后，可以沿本节的数据、奖励和训练器三个接口把数学 RLVR 扩展到代码任务。
+初次接触端到端训练时，可以先完成 13.8 节的 GSM8K 实验。已经熟悉 veRL 后，可以沿本节的数据、奖励和训练器三个接口把数学 RLVR 扩展到代码任务。
 
 ## 15.8.11 实验检查清单
 

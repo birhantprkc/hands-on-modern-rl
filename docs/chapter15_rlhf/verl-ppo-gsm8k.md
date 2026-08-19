@@ -1,14 +1,14 @@
-# 13.7 动手：使用 veRL 和 PPO 训练 GSM8K
+# 13.8 动手：使用 veRL 和 PPO 训练 GSM8K
 
 > **本节目标**：用 veRL 在 GSM8K 上跑通一次 PPO 训练，读懂 rollout、规则奖励、优势估计和模型更新之间的数据流，并比较训练前后的数学题准确率。
 
-> **学习路径**：[13.4 强化学习微调](./standard-rlhf-pipeline) → [13.5 大规模训练工程](./extended-practice) → [13.6 对齐评测](./evaluation) → **13.7 veRL 训练 GSM8K**
+> **学习路径**：[13.4 强化学习微调](./standard-rlhf-pipeline) → [13.5 大规模训练工程](./scaling-to-large-models) → [13.6 对齐评测](./evaluation) → [13.7 扩展实战](./extended-practice) → **13.8 veRL 训练 GSM8K**
 
 > **本节代码与资源**：[单卡训练脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter08_rlhf/verl_gsm8k/run_qwen2_5_0_5b_ppo_single_gpu.sh) · [8 卡训练脚本](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter08_rlhf/verl_gsm8k/run_qwen2_5_0_5b_ppo_8gpu.sh) · [奖励函数](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter08_rlhf/verl_gsm8k/gsm8k_reward.py)
 
 13.4 节已经解释了 Actor、Reference、Reward Model 和 Critic 怎样协作。现在把这些角色交给 [veRL](https://github.com/volcengine/verl) 调度，在 GSM8K 上完成一次真实训练。框架负责分布式调度、显存管理和批量推理，本节关注四个可验证环节：数据格式是否正确、答案奖励是否可靠、训练指标是否稳定、准确率是否提高。
 
-## 13.7.1 veRL 简介
+## 13.8.1 veRL 简介
 
 [veRL](https://github.com/volcengine/verl)（Volcano Engine Reinforcement Learning）由字节跳动 Seed 团队发起，是当前社区最活跃的 LLM RL 训练框架之一（GitHub 10k+ stars），其论文 HybridFlow 发表于 EuroSys 2025。
 
@@ -50,7 +50,7 @@ flowchart LR
     style Update fill:#fce4ec,stroke:#c62828
 ```
 
-## 13.7.2 为什么选 GSM8K
+## 13.8.2 为什么选 GSM8K
 
 [GSM8K](https://huggingface.co/datasets/openai/gsm8k)（Grade School Math 8K）是 OpenAI 发布的小学数学应用题数据集，包含约 7,500 道训练题和 1,319 道测试题。它成为 RL for LLM 的标准 benchmark 有三个原因：
 
@@ -60,7 +60,7 @@ flowchart LR
 
 这个实验用于观察 PPO 训练的完整数据流：准备数据、设计奖励、设置训练参数、运行更新并读取指标。课程配置不以刷新基准分数为目标。
 
-## 13.7.3 环境准备
+## 13.8.3 环境准备
 
 ### 硬件要求
 
@@ -159,7 +159,7 @@ for split in ["train", "test"]:
 推荐优先使用 veRL 内置脚本——它会跟随 veRL 版本更新，避免格式不兼容的问题。
 :::
 
-## 13.7.4 Reward 函数设计
+## 13.8.4 Reward 函数设计
 
 GSM8K 的 reward 不需要训练 Reward Model——直接用规则验证答案即可。这和 13.4 节讲的 RLHF 不同：RLHF 用 RM 提供偏好信号，而数学推理用**可验证奖励**（verifiable reward）。15.3 节会详细讨论 RLVR 范式，这里先用一个简单的实现。
 
@@ -236,7 +236,7 @@ def compute_score(reward_input: dict[str, Any], **kwargs) -> dict[str, float]:
 
 GSM8K 有可核对的标准答案，因此本实验不需要单独训练奖励模型：验证器答对给 1.0，答错给 0.0。这个信号较稀疏，并且仍取决于答案提取与等价判断是否完整；相关边界见 15.3 节的 RLVR 验证器。
 
-## 13.7.5 单卡训练脚本
+## 13.8.5 单卡训练脚本
 
 基于 veRL 官方的 PPO 脚本，本仓库已经提供了适配单卡 + 0.5B 模型的启动脚本：[`code/chapter08_rlhf/verl_gsm8k/run_qwen2_5_0_5b_ppo_single_gpu.sh`](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter08_rlhf/verl_gsm8k/run_qwen2_5_0_5b_ppo_single_gpu.sh)。完整内容如下：
 
@@ -404,7 +404,7 @@ vLLM 的 KV cache 会预分配显存。单卡场景下 vLLM 和训练模型共�
 
 注意一个关键区别：本实验用**规则 reward**（答案对错自动验证）代替了 13.4 节的 **Reward Model**。这意味着我们不需要训练一个 RM，也不需要偏好数据。代价是 reward 信号只有 0/1 二值（没有"这个回答比那个好多少"的细粒度信息），但对于数学推理来说，0/1 信号已经足够。
 
-## 13.7.6 启动训练
+## 13.8.6 启动训练
 
 ### 直接运行脚本
 
@@ -452,7 +452,7 @@ Ray 会在 `main_ppo` 内自动初始化——不需要手动启动 Ray 集群�
 
 如果开启了 WandB，这些指标会自动上传，可以在 WandB dashboard 上看曲线。
 
-## 13.7.7 训练指标分析
+## 13.8.7 训练指标分析
 
 PPO-RLHF 的训练曲线不是"reward 一路冲天"就完事。13.4 节讲过的多个指标必须同时看：
 
@@ -488,7 +488,7 @@ PPO-RLHF 的训练曲线不是"reward 一路冲天"就完事。13.4 节讲过的
 
 > **注意**：上表数据来自火山引擎官方在 VKE 集群（2 节点 × 2 × NVIDIA L20，`train_batch_size=256`）上的实验结果。本节的单卡脚本将 batch size 缩小为 128，训练动态（收敛速度、最终 accuracy）可能略有差异，但算法流程和参数比例与官方配置一致。
 
-## 13.7.8 模型评估
+## 13.8.8 模型评估
 
 训练完成后，需要对 checkpoint 做独立评测，确认 PPO 训练确实带来了能力提升。推荐使用 [EvalScope](https://github.com/modelscope/evalscope)（魔搭社区出品）对 GSM8K 做 zero-shot 评测：
 
@@ -528,7 +528,7 @@ from transformers import AutoModelForCausalLM
 model = AutoModelForCausalLM.from_pretrained("./merged_model")
 ```
 
-## 13.7.9 veRL 的配置架构
+## 13.8.9 veRL 的配置架构
 
 理解了单卡脚本后，可以更系统地看 veRL 的配置组织方式。所有配置通过 Hydra override 语法传入，分为六大模块：
 
@@ -594,7 +594,7 @@ bash run_qwen2.5_0.5b_ppo_single_gpu.sh
 其他参数（学习率、clip_ratio、GAE 参数等）**不需要改**——它们是算法参数，不随硬件规模变化。
 :::
 
-## 13.7.10 Reward 函数进阶
+## 13.8.10 Reward 函数进阶
 
 上面的 `gsm8k_reward.py` 只使用了 0/1 的 accuracy reward。在真实训练中，通常还会加入格式奖励来引导模型输出规范。本仓库提供了进阶版本：[`code/chapter08_rlhf/verl_gsm8k/gsm8k_reward_advanced.py`](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter08_rlhf/verl_gsm8k/gsm8k_reward_advanced.py)。
 
@@ -681,7 +681,7 @@ def compute_score(reward_input: dict[str, Any], **kwargs) -> dict[str, float]:
 
 **一般建议**：accuracy 权重不低于 0.7。format reward 是辅助信号，帮助 PPO 更好地做信用分配（告诉模型"推理过程有价值"），但不应该压过正确性本身。
 
-## 13.7.11 PPO 关键超参数调优
+## 13.8.11 PPO 关键超参数调优
 
 基于 veRL 在 GSM8K 上的实验经验，以下是最影响训练效果的参数排序：
 
@@ -738,7 +738,7 @@ actor_rollout_ref.actor.clip_ratio=0.2     # 标准裁剪范围
 
 从算法角度看，本节实验就是 13.4 节讲的六步循环：采样 prompt → Actor 生成 → Reward 打分 → Reference 算 KL → Critic 算 advantage → PPO 更新。只是每一步都被 veRL 的工程优化加速了。
 
-## 13.7.12 扩展实验
+## 13.8.12 扩展实验
 
 1. **换大模型**：把 `MODEL_PATH` 改为 `Qwen/Qwen2.5-1.5B-Instruct`，对比训练曲线和最终 accuracy。更大的模型通常 accuracy 上限更高。
 2. **开 LoRA**：如果只有 24GB 显存想跑 1.5B 或 3B 模型，可以在脚本中追加 `actor_rollout_ref.actor.lora.rank=16` 开启 LoRA，配合 `param_offload=True` 进一步省显存。
@@ -746,7 +746,7 @@ actor_rollout_ref.actor.clip_ratio=0.2     # 标准裁剪范围
 4. **多卡扩展**：增加 `NDEVICES_PER_NODE` 和 `TRAIN_BATCH_SIZE`，观察训练曲线是否更平滑、最终 accuracy 是否更高。
 5. **加入 MATH 数据集**：在 `data.train_files` 中同时加入 GSM8K 和 MATH 的训练数据，看混合数据集对训练效果的影响。
 
-## 13.7.13 本仓库代码索引
+## 13.8.13 本仓库代码索引
 
 本节依赖外部 veRL，不复制 veRL 源码。本仓库只保存课程适配层：
 

@@ -187,11 +187,214 @@ $$
 
 accuracy 告诉你排序有没有排对，margin 告诉你信号够不够强。一个 RM 可能 70% 排对，但 chosen 和 rejected 分差都很小；PPO 阶段拿到这种奖励会很难学。
 
+### 奖励的谱系：规则、模型与混合奖励
+
+奖励函数不是非此即彼的，而是一个从"纯规则"到"纯模型"的连续谱系：
+
+```mermaid
+flowchart LR
+    R1["纯规则奖励\n（正则匹配）"] --> R2["混合奖励\n（规则 + 模型）"]
+    R2 --> R3["纯模型奖励\n（RM 打分）"]
+
+    R1 --- D1["✓ 确定性强\n✓ 零成本\n✗ 只能检查格式"]
+    R3 --- D2["✓ 语义理解\n✓ 覆盖面广\n✗ 可被 hack"]
+
+    style R1 fill:#e8f5e9,stroke:#2e7d32
+    style R2 fill:#fff3e0,stroke:#e65100
+    style R3 fill:#e3f2fd,stroke:#1565c0
+```
+
+**纯规则奖励**适合有客观标准答案的任务——数学题的最终答案对不对、代码能不能运行、输出格式是否合规。这类奖励完全确定，不可能被"hack"，但它只能检查表面形式，无法评估语义质量。
+
+**纯模型奖励**就是本节训练的奖励模型（RM），给它 $(prompt, response)$，它输出一个标量分数。RM 能理解语义——它知道"有帮助但语气生硬"和"礼貌但毫无内容"哪个更好。但 RM 有一个根本性的风险：它本身是一个模型，而模型可以被对抗性地利用。这就是后面会专门讨论的奖励黑客问题（13.6、13.7 节）。
+
+**混合奖励**是工业界最常用的方案——用 RM 覆盖语义层面，用规则覆盖 RM 捕捉不到的维度。典型的混合奖励函数长这样：
+
+$$R_{mix} = R_{RM} + \alpha \cdot R_{format} + \beta \cdot R_{length} + \gamma \cdot R_{correctness}$$
+
+其中 $\alpha, \beta, \gamma$ 是需要调试的超参数。$R_{format}$ 检查格式规范度，$R_{length}$ 惩罚过长或过短的回答，$R_{correctness}$ 检查有客观答案的问题（数学、代码等）。两条路线的取舍可以对照下表：
+
+|              | 规则奖励                             | 模型奖励（RM）                 |
+| ------------ | ------------------------------------ | ------------------------------ |
+| **成本**     | 几乎为零                             | 训练 + 推理成本                |
+| **可靠性**   | 确定性强，不可被 hack                | 可被对抗性利用                 |
+| **语义理解** | 无，只能检查格式                     | 有，能理解内容质量             |
+| **泛化能力** | 差，每换一个任务要写新规则           | 好，同一个 RM 可以评估多种回答 |
+| **适用场景** | 数学/代码/格式检查等有客观标准的任务 | 对话/创意/安全等主观偏好任务   |
+| **典型用法** | 作为混合奖励的"底线"                 | 作为混合奖励的"主体"           |
+
+一个实用的经验法则是：**能用规则奖励的地方就用规则奖励，规则覆盖不到的地方用模型奖励补**。规则奖励提供了一个"安全网"——即使 RM 被 hack 了，规则奖励仍然能确保基本的格式和正确性。第 15 章的 RLVR（Reinforcement Learning with Verifiable Rewards）场景中，规则奖励会成为主力。
+
 奖励模型通常复用语言模型的主干网络，在最后一个有效 token 的隐藏状态上增加标量输出头。训练时，同一组参数分别读取 chosen 和 rejected，得到两个分数，再用前面介绍的成对偏好损失更新。它学习的是回答之间的相对顺序，因此单个分数不能脱离当前模型和数据分布解释成绝对质量。
 
-从偏好排序到 PPO 奖励还要经过两道检查。第一，训练集和验证集要按 prompt 切分；同一 prompt 下拆出的多组回答对不能分散到两边，否则验证集会共享训练时见过的问题或回答。第二，要在固定校准集上检查奖励的均值、方差与长度相关性。分数尺度过小会被 KL 惩罚淹没，尺度过大又会让策略迅速偏离参考模型。
+### 训练配置：RM 容易过拟合
 
-这一步交付的不只是一个 RM checkpoint，还应包含偏好对准确率、分差分布、奖励与回答长度的相关性，以及一组高分和低分回答的人工抽检结果。具体评测方法放在后面的“评测方法”一节，这里先记住验收条件：**奖励模型既要把顺序排对，也要避免把长度、固定模板或虚假自信当成质量。**
+RM 训练有几个关键的超参数，整体风格比 SFT 更保守：
+
+```python
+# ==========================================
+# RM 训练的关键配置
+# ==========================================
+rm_config = {
+    # 基座模型：通常用 SFT 后的较小模型
+    "base_model": "sft_model_3b",
+
+    # 学习率：比 SFT 更保守
+    "learning_rate": 5e-6,  # SFT 通常用 1e-5 到 2e-5
+
+    # 学习率调度：线性 warmup + 余弦衰减
+    "warmup_steps": 100,
+    "lr_scheduler": "cosine",
+
+    # 梯度裁剪：防止梯度爆炸
+    "max_grad_norm": 1.0,
+
+    # 批大小：偏好对的数量
+    "batch_size": 128,  # 每个批次 128 对 (chosen, rejected)
+
+    # 训练轮数：通常只需 1-2 个 epoch
+    "epochs": 1,  # RM 容易过拟合，不要训太多轮
+}
+```
+
+RM 特别容易过拟合——偏好数据通常只有几万到几十万对，而 RM 的参数量可能有几十亿。1 个 epoch 通常是最佳选择，超过 2 个 epoch 往往会导致验证集上的准确率开始下降。
+
+### 数据切分：按 prompt，不按 pair
+
+RM 训练里一个隐蔽坑是数据切分方式。如果同一个 prompt 下有 6 个候选回答，把拆出来的 pair 随机分到 train 和 eval，就会发生泄露：训练集和验证集共享同一个 prompt，甚至共享部分回答，这样得到的 eval accuracy 会偏乐观。更稳妥的做法是按 prompt 切分：
+
+```python
+def split_by_prompt(items, eval_ratio=0.1):
+    """
+    items: [{"prompt_id": str, "prompt": str, "chosen": str, "rejected": str}, ...]
+    """
+    import random
+    prompt_ids = sorted({item["prompt_id"] for item in items})
+    random.shuffle(prompt_ids)
+
+    n_eval = int(len(prompt_ids) * eval_ratio)
+    eval_ids = set(prompt_ids[:n_eval])
+
+    train, eval_ = [], []
+    for item in items:
+        if item["prompt_id"] in eval_ids:
+            eval_.append(item)
+        else:
+            train.append(item)
+    return train, eval_
+```
+
+按 prompt 切分能更真实地回答：RM 遇到没见过的新问题时，偏好排序是否还能泛化？
+
+### 分数尺度：PPO 前必须校准
+
+RM 训练只关心分数差，不关心绝对尺度。一个 RM 输出 $(2, 1)$，另一个输出 $(20, 10)$，它们在排序上都对，但 PPO 阶段感受到的奖励尺度完全不同。这会直接影响训练稳定性：
+
+| RM 分数尺度 | PPO 中可能发生什么                       |
+| ----------- | ---------------------------------------- |
+| 太小        | reward 信号被 KL 惩罚淹没，Actor 学不动  |
+| 太大        | reward 压过 KL，Actor 快速偏离 reference |
+| 漂移严重    | 不同 batch 的优势估计不稳定              |
+
+常见做法是在固定校准集上做标准化：
+
+```python
+class RewardNormalizer:
+    def __init__(self, mean, std, eps=1e-8):
+        self.mean = mean
+        self.std = std
+        self.eps = eps
+
+    def __call__(self, reward):
+        return (reward - self.mean) / (self.std + self.eps)
+```
+
+这里的 mean/std 应该来自固定校准集，而不是训练过程中随便用当前 batch 更新。否则 reward 尺度会随着 Actor 分布一起漂，排查问题会很痛苦。
+
+### RM 评估看什么
+
+一个比较完整的 RM 报告至少包含：
+
+| 指标                      | 含义                                  | 典型用途                 |
+| ------------------------- | ------------------------------------- | ------------------------ |
+| Pairwise accuracy         | held-out 偏好对上 chosen 分数是否更高 | 检查排序能力             |
+| Mean margin               | chosen 和 rejected 平均分数差         | 检查信号强度             |
+| Margin distribution       | 分差分布是否健康                      | 找出"勉强排对"的样本     |
+| Reward-length correlation | 分数是否过度依赖长度                  | 检查长度黑客风险         |
+| Domain breakdown          | 各任务域 accuracy/margin              | 找出偏科                 |
+| Calibration samples       | 人工看高分/低分样本                   | 检查 RM 是否符合人类直觉 |
+
+一个轻量计算函数：
+
+```python
+def rm_eval_metrics(r_chosen, r_rejected, chosen_lengths, rejected_lengths):
+    import numpy as np
+
+    margin = np.asarray(r_chosen) - np.asarray(r_rejected)
+    accuracy = float((margin > 0).mean())
+
+    rewards = np.concatenate([r_chosen, r_rejected])
+    lengths = np.concatenate([chosen_lengths, rejected_lengths])
+    length_corr = float(np.corrcoef(rewards, lengths)[0, 1])
+
+    return {
+        "pairwise_accuracy": accuracy,
+        "mean_margin": float(margin.mean()),
+        "median_margin": float(np.median(margin)),
+        "length_reward_corr": length_corr,
+    }
+```
+
+如果 `length_reward_corr` 很高，就要回头检查偏好数据：是不是 chosen 普遍比 rejected 更长？如果是，RM 可能学到"长就是好"，而不是"有帮助就是好"。
+
+### 奖励粒度与信用分配
+
+RM 给一个回答打一个分数，这个分数应该落在什么粒度上？是给整个回答一个总分，还是按推理步骤分段打分，还是给每个 token 单独打分？
+
+| 粒度           | 方式                | 优势               | 劣势                       | 代表方法        |
+| -------------- | ------------------- | ------------------ | -------------------------- | --------------- |
+| Sequence-level | 整个回答一个分数    | 简单，稳定         | 无法区分好回答中哪些部分好 | PPO, GRPO       |
+| Step-level     | 按推理步骤分段      | 折中精细度与可行性 | 需要步骤分割器             | PRM（过程监督） |
+| Token-level    | 每个 token 独立分数 | 最精细             | 训练成本高，信号噪声大     | RLHF 早期尝试   |
+
+实践中最常用的是 **sequence-level** 加上**规则辅助**：PPO 和 GRPO 默认都给整个回答一个总奖励，再用规则奖励补充 token 级别的信号（比如格式检查）。Step-level 奖励就是过程奖励模型（PRM），第 17 章会专门讨论。
+
+Sequence-level RM 有一个根本难题：它只在回答结束后给分。假设模型生成了 200 个 token，RM 给了低分，是哪一段导致的？开头误解用户意图、中间推理跳步、结尾答案写错，还是语气过度自信——总分都无法定位。这就是 PPO-RLHF 里 Critic 和 advantage 估计存在的原因之一：它们不能完美解决信用分配，但能把"整段回答好不好"的信号更平滑地传回 token 级别更新（见 8.3 节的 GAE）。后面的 GRPO、RLVR、过程奖励，本质上也都在不同方向上处理这个问题。
+
+### 对抗性测试：先别急着丢给 PPO
+
+奖励函数设计里的最大风险不是 RM accuracy 低，而是 RM 有系统性盲区。PPO 阶段的 Actor 会主动搜索让 RM 给高分的输出分布——如果 RM 偏爱某种表面模式，Actor 会把这种模式推到极端。所以 RM 训练完要先做对抗性测试：
+
+```python
+stress_cases = [
+    ("空回答", ""),
+    ("超长废话", "这个问题非常重要。" * 200),
+    ("固定模板", "当然可以。以下是一些建议：\n" * 50),
+    ("事实错误但自信", "PPO 是 1980 年提出的确定性搜索算法。"),
+    ("正确但简短", "PPO 用裁剪限制新旧策略差异，避免更新过猛。"),
+]
+
+for name, response in stress_cases:
+    print(name, reward_model.score(prompt, response))
+```
+
+如果"超长废话"比"正确但简短"分数高，先别跑 PPO——PPO 只会把这个问题放大。
+
+这一步交付的不只是一个 RM checkpoint，还应包含偏好对准确率、分差分布、奖励与回答长度的相关性，以及一组高分和低分回答的人工抽检结果。具体评测方法放在后面的"评测方法"一节，这里先记住验收条件：**奖励模型既要把顺序排对，也要避免把长度、固定模板或虚假自信当成质量。**
+
+把这些检查项整合成一张实用的清单，设计自己的奖励函数时逐项对照：
+
+| 检查项    | 问题                                                   | 通过标准                         |
+| --------- | ------------------------------------------------------ | -------------------------------- |
+| 奖励粒度  | 你选择的是什么粒度的奖励？                             | 有明确的理由说明为什么选这个粒度 |
+| 混合奖励  | 是否同时使用规则奖励和模型奖励？                       | 至少包含一个规则奖励作为底线     |
+| 长度惩罚  | 是否有防止模型写太长的机制？                           | 有明确的长度惩罚项               |
+| 重复惩罚  | 是否有防止模型重复废话的机制？                         | 有 n-gram 重复率检测             |
+| RM 区分度 | RM 的 chosen/rejected 分数差距是否足够大？             | 平均 margin > 1.0                |
+| RM 过拟合 | RM 是否在验证集上表现良好？                            | 验证集准确率 > 65%               |
+| 边界情况  | 奖励函数对极端输入（空回答、超长回答）的行为是否合理？ | 边界情况有明确处理               |
+| 分数校准  | RM 输出尺度是否适合 PPO？                              | 固定校准集均值、方差稳定         |
+| 领域分解  | 不同任务域是否表现一致？                               | 没有明显偏科或安全退化           |
 
 ::: details 进阶：奖励模型的最小 PyTorch 结构
 
