@@ -148,9 +148,13 @@ def train_sb3(
         model_path = artifacts / f"{getattr(task, 'key', task.get('key'))}-model"
         model.save(str(model_path))
         record_env = make_record_env()
-        preview = record_episode(model, record_env, artifacts, seed + 10_000)
+        # The first replay deliberately uses the training seed.  That makes the
+        # default preview reproducible and lets the UI describe one unambiguous
+        # pair: saved model + rollout seed.  Further preview seeds are handled
+        # by space_runtime.render_preview without retraining.
+        preview = record_episode(model, record_env, artifacts, seed)
         metadata = artifacts / f"{getattr(task, 'key', task.get('key'))}-model.json"
-        metadata.write_text(json.dumps({"algorithm": algorithm_name, "policy": policy, "budget": budget, "seed": seed}, indent=2), encoding="utf-8")
+        metadata.write_text(json.dumps({"algorithm": algorithm_name, "policy": policy, "budget": budget, "seed": seed, "default_preview_seed": seed}, indent=2), encoding="utf-8")
         yield {
             "phase": "complete",
             "step": completed,
@@ -158,6 +162,8 @@ def train_sb3(
             "x": x,
             "y": y,
             "preview": preview,
+            "model": str(model_path.with_suffix(".zip")),
+            "preview_seed": seed,
             "log": f"Saved model and generated learned-policy replay: {Path(preview).name}",
         }
     finally:

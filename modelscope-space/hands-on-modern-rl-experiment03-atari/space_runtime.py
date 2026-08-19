@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 
 import numpy as np
 
@@ -90,7 +91,7 @@ def _make_vec_env(environment: str, seed: int):
     return VecFrameStack(env, n_stack=4)
 
 
-def _record(model, env, artifacts: Path, seed: int, task):
+def _record(model, env, artifacts: Path, seed: int, task, output_path: Path | None = None):
     env.seed(seed)
     observation = env.reset()
     frames: list[np.ndarray] = []
@@ -105,7 +106,41 @@ def _record(model, env, artifacts: Path, seed: int, task):
         if len(frames) >= 500:
             break
     env.close()
-    return save_gif(frames, artifacts / f"{task['key']}-learned-policy.gif", fps=20)
+    return save_gif(frames, output_path or artifacts / f"{task['key']}-learned-policy.gif", fps=20)
+
+
+def render_preview(key: str, seed: int):
+    """Run the latest saved model for ``key`` with an independent rollout seed."""
+    task = next(item for item in TASKS if item["key"] == key)
+    artifacts = ROOT / "artifacts"
+    model_path = artifacts / f"{key}-model.zip"
+    if not model_path.is_file():
+        raise FileNotFoundError(f"No trained model is saved for {task['title']['en']}. Start training first.")
+
+    from stable_baselines3 import DQN
+
+    rollout_seed = max(0, min(int(seed), 2**32 - 1))
+    model = DQN.load(str(model_path), device="cpu")
+    environment = _make_vec_env(task["environment"], rollout_seed)
+    # A new path forces Gradio/the browser to load the newly rendered GIF rather
+    # than reusing a cached file with the same name.
+    version = model_path.stat().st_mtime_ns
+    output = artifacts / f"{key}-rollout-m{version}-s{rollout_seed}-{time.time_ns()}.gif"
+    preview = _record(model, environment, artifacts, rollout_seed, task, output)
+
+    old_replays = sorted(artifacts.glob(f"{key}-rollout-m*-s*.gif"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for stale in old_replays[12:]:
+        try:
+            stale.unlink()
+        except OSError:
+            pass
+    return {
+        "preview": preview,
+        "seed": rollout_seed,
+        "model": model_path.name,
+        "model_version": str(version),
+        "detail": f"{task['title']['en']} · {model_path.name} · deterministic rollout seed {rollout_seed}",
+    }
 
 
 def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int):
@@ -116,7 +151,7 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         task=task,
         make_train_env=lambda: _make_vec_env(environment, seed),
         make_eval_env=lambda: _make_vec_env(environment, seed + 1_000),
-        make_record_env=lambda: _make_vec_env(environment, seed + 10_000),
+        make_record_env=lambda: _make_vec_env(environment, seed),
         budget=budget,
         learning_rate=learning_rate,
         gamma=gamma,
