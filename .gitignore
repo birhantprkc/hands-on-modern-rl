@@ -63,3 +63,6 @@ docs/public/sitemap.xml
 *.blg
 scripts/*.pdf
 swanlog/
+
+# Qoder local skills
+.qoder/
