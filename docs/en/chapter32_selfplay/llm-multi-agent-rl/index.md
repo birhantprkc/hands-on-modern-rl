@@ -1,10 +1,14 @@
 ---
-title: 26.3 LLM Multi-Agent Reinforcement Learning
+title: '26.3 How Multiple LLMs Learn Together: Credit Assignment and Stable Training'
 ---
 
-# 26.3 LLM Multi-Agent Reinforcement Learning
+# 26.3 How Multiple LLMs Learn Together: Credit Assignment and Stable Training
 
-Before discussing LLM-driven multi-agent systems, let us quickly review the core framework of traditional multi-agent RL (MARL). The biggest challenge in MARL is **non-stationarity**: when you learn a new policy, your teammates are also learning -- the "environment" you face is constantly changing. The current mainstream paradigm is **CTDE (Centralized Training with Decentralized Execution)**: during training, a "God's-eye view" global Critic sees all agents' observations and actions; during execution, each agent can only make decisions based on its local observations.
+Consider a three-agent coding team. A planner decomposes the task, a coder edits the repository, and a reviewer runs tests. The final program passes, so the team receives reward 1. We still do not know which action deserves credit: the plan may have been wrong, the coder may have repaired it, or the reviewer may have exposed the decisive bug.
+
+Now update all three models at once. The coder's next training batch comes from a different planner, and the reviewer's inputs come from a different coder. Each learner experiences a moving environment. These two difficulties—**credit assignment** and **non-stationarity**—are what turn a multi-model workflow into a multi-agent reinforcement-learning problem.
+
+Traditional multi-agent RL often uses centralized training with decentralized execution (CTDE). During training, a global critic can inspect all agents' observations and actions. During execution, each policy acts from its local information. The diagram gives us a baseline vocabulary before language actions, heterogeneous roles, and multi-turn transcripts make the problem larger.
 
 ```mermaid
 flowchart TD
@@ -41,26 +45,40 @@ flowchart TD
   <em>Figure: CTDE (Centralized Training with Decentralized Execution) paradigm. This is the foundation of RL algorithms like MAPPO and MADDPG. In LLM scenarios, the global Critic is typically served by a powerful model that can review all agents' dialogue history (e.g., GPT-4) or an outcome-based verifier.</em>
 </div>
 
-| Algorithm  | Core Idea                                                        | Applicable Scenarios                              |
-| ---------- | ---------------------------------------------------------------- | ------------------------------------------------- |
-| **IPPO**   | Each agent runs PPO independently, no communication              | Baseline method, identical roles                  |
-| **MAPPO**  | PPO + global value function (CTDE)                               | Team tasks requiring coordination                 |
-| **QMIX**   | Mixing network ensures monotonicity between local Q and global Q | Cooperative tasks                                 |
-| **MADDPG** | Each agent uses DDPG + global Critic                             | Continuous actions, mixed cooperation/competition |
+- **Algorithm — IPPO**
+  - Core Idea: Each agent runs PPO independently, no communication
+  - Applicable Scenarios: Baseline method, identical roles
+- **Algorithm — MAPPO**
+  - Core Idea: PPO + global value function (CTDE)
+  - Applicable Scenarios: Team tasks requiring coordination
+- **Algorithm — QMIX**
+  - Core Idea: Mixing network ensures monotonicity between local Q and global Q
+  - Applicable Scenarios: Cooperative tasks
+- **Algorithm — MADDPG**
+  - Core Idea: Each agent uses DDPG + global Critic
+  - Applicable Scenarios: Continuous actions, mixed cooperation/competition
 
-These algorithms perform well in robot collaboration, multi-vehicle scheduling, and similar scenarios. But when we switch to **LLM-driven multi-agent systems**, we face entirely new challenges -- you cannot directly apply MAPPO to LLMs:
+These algorithms provide useful baselines in robot collaboration and scheduling. LLM-driven multi-agent systems change the action space, role structure, and episode length, so MAPPO cannot be transferred without redefining observations, actions, rewards, and rollout storage:
 
-| Dimension              | Traditional MARL                                                       | LLM Multi-Agent RL                                                               |
-| ---------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| **Action space**       | Low-dimensional continuous/discrete (movement direction, acceleration) | Natural language (generating token sequences)                                    |
-| **Role heterogeneity** | Usually homogeneous (multiple taxis, multiple robots)                  | Highly heterogeneous (Coder and Reviewer have completely different capabilities) |
-| **Episode structure**  | Fixed steps or fixed termination conditions                            | Multi-turn dialogue, wildly varying lengths                                      |
-| **Communication**      | Parameterized message vectors                                          | Natural language dialogue (interpretable but high-dimensional)                   |
-| **Human involvement**  | Usually none                                                           | Human-AI collaboration is a core scenario                                        |
+- **Dimension — Action space**
+  - Traditional MARL: Low-dimensional continuous/discrete (movement direction, acceleration)
+  - LLM Multi-Agent RL: Natural language (generating token sequences)
+- **Dimension — Role heterogeneity**
+  - Traditional MARL: Usually homogeneous (multiple taxis, multiple robots)
+  - LLM Multi-Agent RL: Highly heterogeneous (Coder and Reviewer have completely different capabilities)
+- **Dimension — Episode structure**
+  - Traditional MARL: Fixed steps or fixed termination conditions
+  - LLM Multi-Agent RL: Multi-turn dialogue, wildly varying lengths
+- **Dimension — Communication**
+  - Traditional MARL: Parameterized message vectors
+  - LLM Multi-Agent RL: Natural language dialogue (interpretable but high-dimensional)
+- **Dimension — Human involvement**
+  - Traditional MARL: Usually none
+  - LLM Multi-Agent RL: Human-AI collaboration is a core scenario
 
 Let us now break down the core problems, typical architectures, and frontier advances of multi-agent RL in the LLM era.
 
-## Three Typical Architectures
+## 26.3.1 First Separate Multi-Model Workflows from Multi-Agent Training
 
 ### Architecture 1: Role-Playing Collaboration
 
@@ -134,11 +152,11 @@ From an RL perspective, this brings several unique challenges:
 
 The core RL value of open-ended environments is: they test whether agents can **emerge meaningful collaborative behaviors through interaction without explicit reward shaping** -- this is an important testbed on the path to general intelligence.
 
-## Core Challenges of LLM Multi-Agent RL
+## 26.3.2 Two Core Difficulties: Teammates Change and Reward Is Shared
 
 ### Challenge 1: Amplified Non-Stationarity
 
-Traditional MARL already has non-stationarity problems -- when you learn a new policy, your teammates are also changing. LLM multi-agent amplifies this challenge:
+Traditional MARL already has non-stationarity problems: when one policy is updated, its teammates may also change. LLM multi-agent training amplifies this challenge:
 
 - **Role heterogeneity causes unsynchronized updates**: The Coder model and Reviewer model may have different learning rates and update frequencies. When the Coder upgrades its code style, the Reviewer's review strategy needs to re-adapt.
 - **Language action space exacerbates instability**: Traditional MARL actions are low-dimensional vectors, and policy changes are usually gradual. LLM actions are language; a single policy update may cause completely different output styles (e.g., suddenly switching from Python to Java), making it hard for teammates to adapt quickly.
@@ -184,9 +202,9 @@ flowchart LR
 
 The RL training of memory mechanisms faces a special challenge: **memory updates themselves also need RL optimization**. Simply "remembering all history" is not effective -- memory capacity is limited, and the system must learn "what to remember, what to forget." This can be modeled as a **meta-learning problem**: the outer loop optimizes the memory strategy (what to remember, how to use it), and the inner loop optimizes the task strategy (how to make decisions based on memory).
 
-## Representative Works
+## 26.3.3 What Representative Methods Change
 
-### MAPoRL: A New Paradigm for Multi-Agent Collaborative Training
+### MAPoRL: Multi-Agent Collaborative Training
 
 ![MAPoRL Architecture](../../../chapter32_selfplay/llm-multi-agent-rl/images/maporl.png)
 
@@ -214,20 +232,18 @@ MARTI [^marti] improves reasoning quality through multi-agent debate. The core i
 
 ## Connections to Previous Chapters
 
-| Previous Chapter                                                  | Correspondence in LLM Multi-Agent RL                            |
-| ----------------------------------------------------------------- | --------------------------------------------------------------- |
-| CTDE global Critic                                                | Theoretical foundation for cross-role credit assignment         |
-| [Self-play Generator-Judge (Section 26.1)](../self-play-outlook/) | Direct predecessor of debate/competition architecture           |
-| Multi-turn credit assignment ORM/PRM (Section 19.3)               | Methodological foundation for cross-role credit assignment      |
-| GRPO within-group comparison (Chapter 15)                         | M-GRPO extends within-group comparison to multi-agent           |
-| DQN experience replay (Chapter 5)                                 | Memory mechanisms: from raw reuse to preference distillation    |
-| PPO (Chapter 8)                                                   | Foundation algorithm for multi-agent policy optimization        |
-| Training stability (Chapter 8)                                    | Amplified non-stationarity requires stronger stability controls |
-| Bespoke Labs KL=0.001 (Section 19.6)                              | KL constraints are equally critical in multi-agent scenarios    |
+- **Previous Chapter — CTDE global Critic:** Theoretical foundation for cross-role credit assignment
+- **Previous Chapter — [Self-play Generator-Judge (Section 26.1)](../self-play-outlook/):** Direct predecessor of debate/competition architecture
+- **Previous Chapter — Multi-turn credit assignment ORM/PRM (Section 19.3):** Methodological foundation for cross-role credit assignment
+- **Previous Chapter — GRPO within-group comparison (Chapter 15):** M-GRPO extends within-group comparison to multi-agent
+- **Previous Chapter — DQN experience replay (Chapter 5):** Memory mechanisms: from raw reuse to preference distillation
+- **Previous Chapter — PPO (Chapter 8):** Foundation algorithm for multi-agent policy optimization
+- **Previous Chapter — Training stability (Chapter 8):** Amplified non-stationarity requires stronger stability controls
+- **Previous Chapter — Bespoke Labs KL=0.001 (Section 19.6):** KL constraints are equally critical in multi-agent scenarios
 
 The deepest connection may be: **LLM multi-agent RL is the "highest-difficulty comprehensive application" of all core concepts in this book**. It requires simultaneously handling multi-turn credit assignment (Section 19.3), policy gradient optimization (Chapters 6-8), training stability (Chapter 8), reward design (Section 19.6) -- only extended from single-agent to multi-agent, where each problem's difficulty increases by an order of magnitude.
 
-## Training Recipes: From Theory to Practice
+## 26.3.5 Start by Freezing One Role, Then Move Toward Joint Training
 
 We discussed three architectures and three core challenges above. Now let us look at how to actually train a multi-agent RL system in practice.
 
@@ -362,7 +378,7 @@ The core challenge of self-play is **avoiding mode collapse** -- two models may 
 
 ## Engineering Practice: Multi-Agent RL Infrastructure
 
-The engineering complexity of multi-agent RL far exceeds single-agent -- you need to simultaneously manage inference for multiple models, interactions across multiple environments, and complex communication protocols. FlexMARL [^flexmarl] and KD-MARL [^kdmarl] address infrastructure-level challenges from the perspectives of end-to-end training and decentralized deployment, respectively.
+Multi-agent RL must coordinate inference for several roles, interactions across environments, and communication protocols. FlexMARL [^flexmarl] and KD-MARL [^kdmarl] study infrastructure and decentralized deployment questions, respectively.
 
 ### Parallel Sampling Architecture
 
@@ -414,23 +430,33 @@ Key design principles:
 
 **Communication protocol standardization.** The message format passed between roles needs to be unified -- even if roles' internal models differ, message formats should be consistent. A common approach is to define message formats with JSON Schema, similar to the tool-calling format in Section 19.4.
 
-## Model-Based RL: From Blind Trial-and-Error to Mental Simulation
+## 26.3.7 Model-Based RL: Predict Before Planning
 
-The multi-agent approaches above are all **Model-Free** -- agents do not know how the environment works and can only accumulate experience through trial-and-error. Q-Learning, DQN, PPO, DPO, GRPO covered in this book are all Model-Free. But there is another path: **Model-Based RL (MBRL) first learns a "world model," then "imagines" and "plans" within this virtual world.**
+Return to the coding team. Before the coder edits a dependency, it can predict two consequences: whether the build will break and what evidence the reviewer will request. If those predictions are explicit and tested against later observations, the team has added a model of its environment rather than relying only on completed rollouts.
 
-|                           | Model-Free (this book's main thread)       | Model-Based                                         |
-| ------------------------- | ------------------------------------------ | --------------------------------------------------- |
-| Needs environment model   | No                                         | Yes, must first learn a world model                 |
-| Sample efficiency         | Low (requires massive trial-and-error)     | High (can "imagine" countless times internally)     |
-| Policy quality            | Usually higher (directly optimizes policy) | May be suboptimal (limited by world model accuracy) |
-| Representative algorithms | DQN, PPO, DPO, GRPO                        | Dreamer, MuZero, AlphaZero                          |
-| Analogy                   | Learning to drive by experience            | First learn physics, then deduce how to drive       |
+**Model-based RL (MBRL)** learns or uses a transition model, then plans with predicted consequences. [Dreamer](https://arxiv.org/abs/1912.01603) learns latent dynamics for imagined rollouts; [MuZero](https://arxiv.org/abs/1911.08265) learns the quantities needed for search without reconstructing every detail of the environment.
 
-The world model $\hat{P}(s_{t+1}|s_t, a_t)$ learns to predict "what happens to the environment if action $a_t$ is taken in state $s_t$." With it, agents can simulate countless interactions in their head, while the real environment only needs to provide a small amount of data to train the world model itself.
+- **Needs environment model**
+  - Model-Free (this book's main thread): No
+  - Model-Based: Yes, must first learn a world model
+- **Sample efficiency**
+  - Model-Free (this book's main thread): Low (requires massive trial-and-error)
+  - Model-Based: High (can "imagine" countless times internally)
+- **Policy quality**
+  - Model-Free (this book's main thread): Usually higher (directly optimizes policy)
+  - Model-Based: May be suboptimal (limited by world model accuracy)
+- **Representative algorithms**
+  - Model-Free (this book's main thread): DQN, PPO, DPO, GRPO
+  - Model-Based: Dreamer, MuZero, AlphaZero
+- **Analogy**
+  - Model-Free (this book's main thread): Learning to drive by experience
+  - Model-Based: First learn physics, then deduce how to drive
+
+For teaching purposes, write the transition model as $\hat{P}(s_{t+1}\mid s_t,a_t)$. Here $s_t$ is the current task state, $a_t$ is an action such as editing a file or sending a message, and $s_{t+1}$ is the predicted next state. The hat marks a learned approximation. Planning compares candidate actions by rolling this approximation forward; model error can therefore mislead the entire team.
 
 ### Why Is MBRL Important for Large Models?
 
-A large language model itself is a **world model** for language. When you ask a large model to perform multi-step reasoning with chain-of-thought (CoT), it is essentially doing some form of "internal planning":
+A language model predicts text and can support planning, but next-token prediction alone does not prove that it represents the task transitions needed for reliable control. Chain-of-thought can be treated as a planning trace only when changing an action or intermediate state leads to testable predictions about later outcomes.
 
 $$\text{CoT reasoning} \approx \text{Planning in a world model}$$
 
@@ -478,13 +504,21 @@ So far, all our experiments have had only one agent. But the real world is rarel
 
 ### From Single-Agent to Multi-Agent: What Changes?
 
-|                           | Single-Agent (Gymnasium)                 | Multi-Agent (PettingZoo)                                              |
-| ------------------------- | ---------------------------------------- | --------------------------------------------------------------------- |
-| Number of agents          | 1                                        | 2 to hundreds                                                         |
-| Environment stationarity  | Stationary (environment rules unchanged) | Non-stationary (other agents are also learning and changing)          |
-| Credit assignment         | Not needed (all good/bad is your own)    | Core challenge (team succeeds, who gets credit?)                      |
-| Exploration strategy      | epsilon-greedy / entropy regularization  | Must also consider whether other agents will exploit your exploration |
-| Representative algorithms | DQN / PPO / SAC                          | QMIX / MAPPO / MADDPG                                                 |
+- **Number of agents**
+  - Single-Agent (Gymnasium): 1
+  - Multi-Agent (PettingZoo): 2 to hundreds
+- **Environment stationarity**
+  - Single-Agent (Gymnasium): Stationary (environment rules unchanged)
+  - Multi-Agent (PettingZoo): Non-stationary (other agents are also learning and changing)
+- **Credit assignment**
+  - Single-Agent (Gymnasium): Not needed because all rewards belong to one policy
+  - Multi-Agent (PettingZoo): Core challenge (team succeeds, who gets credit?)
+- **Exploration strategy**
+  - Single-Agent (Gymnasium): epsilon-greedy / entropy regularization
+  - Multi-Agent (PettingZoo): Must also consider whether other agents exploit exploratory actions
+- **Representative algorithms**
+  - Single-Agent (Gymnasium): DQN / PPO / SAC
+  - Multi-Agent (PettingZoo): QMIX / MAPPO / MADDPG
 
 ### PettingZoo Environment Overview
 
@@ -492,13 +526,26 @@ So far, all our experiments have had only one agent. But the real world is rarel
 pip install pettingzoo
 ```
 
-| Family      | Type                    | Representative Environments                   | Description                                               |
-| ----------- | ----------------------- | --------------------------------------------- | --------------------------------------------------------- |
-| `classic`   | Game theory             | `chess_v3`, `connect_four_v3`, `tictactoe_v3` | Classic board games, turn-based competition               |
-| `butterfly` | Cooperative/Competitive | `cooperative_pong_v5`, `pistonball_v6`        | Multiple agents must collaborate to achieve goals         |
-| `mpe`       | Mixed                   | `simple_adversary_v3`, `simple_spread_v3`     | Multi-particle environments, communication and navigation |
-| `sisl`      | Competitive/Cooperative | `pursuit_v4`, `waterworld_v4`                 | Pursuit-evasion, resource collection                      |
-| `atari`     | Competitive             | `pong_v3`                                     | Multi-agent Atari                                         |
+- **Family — `classic`**
+  - Type: Game theory
+  - Representative Environments: `chess_v3`, `connect_four_v3`, `tictactoe_v3`
+  - Description: Classic board games, turn-based competition
+- **Family — `butterfly`**
+  - Type: Cooperative/Competitive
+  - Representative Environments: `cooperative_pong_v5`, `pistonball_v6`
+  - Description: Multiple agents must collaborate to achieve goals
+- **Family — `mpe`**
+  - Type: Mixed
+  - Representative Environments: `simple_adversary_v3`, `simple_spread_v3`
+  - Description: Multi-particle environments, communication and navigation
+- **Family — `sisl`**
+  - Type: Competitive/Cooperative
+  - Representative Environments: `pursuit_v4`, `waterworld_v4`
+  - Description: Pursuit-evasion, resource collection
+- **Family — `atari`**
+  - Type: Competitive
+  - Representative Environments: `pong_v3`
+  - Description: Multi-agent Atari
 
 ### Quick Start: Connect Four
 
@@ -602,7 +649,7 @@ Multi-agent in PettingZoo means "multiple RL agents in the same environment." Ag
 
 ## References
 
-[^maporl]: Park C, Han S, et al. "[MAPoRL: Multi-Agent Post-Co-Training for Collaborative Large Language Models with Reinforcement Learning](https://arxiv.org/abs/2502.18439)." 2025. -- A new paradigm for multi-LLM Agent collaborative training, introducing collaboration rewards.
+[^maporl]: Park C, Han S, et al. "[MAPoRL: Multi-Agent Post-Co-Training for Collaborative Large Language Models with Reinforcement Learning](https://arxiv.org/abs/2502.18439)." 2025. -- A multi-LLM collaborative training method with collaboration rewards.
 
 [^mgrpo]: Hong H, Yin J, et al. "[Multi-Agent Deep Research: Training Multi-Agent Systems with M-GRPO](https://arxiv.org/abs/2511.13288)." 2025. -- Extends GRPO to multi-agent scenarios while preserving the Critic-free advantage.
 

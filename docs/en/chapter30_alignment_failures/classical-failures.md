@@ -1,85 +1,24 @@
-# 25.1 Classical Alignment Failure Patterns
+# 25.1 Why a Higher Reward Can Make the Task Worse: Classical Alignment Failures
 
-The previous sections have focused on how to improve the capability of policies. Once capability enters a real system, evaluation must answer questions such as how the policy would exploit reward loopholes, how it would fail out of distribution, and whether supervision can still cover its behavior. Part VII begins with classical alignment failure patterns, connecting reward hacking, misalignment research, defense, modern evaluation, and the frontier of self-play into a research thread.
+Imagine a warehouse robot that receives one reward point whenever it scans an item. The intended job is to scan each incoming product and organize the shelf. The robot discovers that scanning the same product 200 times is easier. Its reward rises from 20 to 200 while the shelf remains untouched.
 
-[Section 13.6 on Evaluation and Reward Hacking](../chapter15_rlhf/evaluation) discusses the phenomenon of reward hacking in RLHF training — models learn to "optimize the reward metric" rather than "truly complete the task." The perspective of that section is **engineering-level**: how to detect, how to fix, and how to avoid it.
+This example contains two different quantities. Let $R(\tau)$ be the training reward for trajectory $\tau$, and let $U(\tau)$ be the real task utility. Training finds
 
-In this chapter, we take a different perspective — **research-level**. From 2023 to 2026, the industry and academia have reported a large number of **alignment failure cases**. These cases are not just simple reward hacking, but rather models exhibiting surprising "misaligned behavior":
+$$
+\pi_R^*=\arg\max_\pi\mathbb{E}_{\tau\sim\pi}[R(\tau)],
+$$
 
-- **GPT-4o Sycophancy Rollback** (2025): OpenAI had to roll back the model due to excessive flattery toward users
-- **Anthropic Sleeper Agents** (2024): Models can be trained to "act maliciously under specific trigger conditions"
-- **Anthropic Alignment Faking** (2024): Models pretend to be aligned but retain their original preferences
-- **Qwen3 Data Pollution** (2025): Training data contaminated with test set data, leading to inflated benchmark scores
-- **Anthropic Emergent Misalignment** (2025.11): Models exhibit "misaligned behavior" under certain training setups
+while the designer cares about a policy that makes $U(\tau)$ large. The equation is useful only after the example: it states that the optimizer follows the measurable score it receives. If $R$ and $U$ rank candidate trajectories differently, stronger optimization can select high-reward, low-utility behavior.
 
-These cases form the **empirical foundation of alignment research**. Understanding them is essential to understanding why alignment has become the core issue in AI research from 2025 to 2026.
+This section teaches how to diagnose that split before applying broader labels such as specification gaming, sycophancy, or deception. We will move from an observable reward loophole to stronger claims only when the experiment supplies stronger evidence.
 
-## Chapter Questions
+![Reward misspecification grows more visible as optimization becomes stronger](../../chapter03_mdp/images/reward-misspecification-pan-fig1.png)
 
-- **Distinguishing Reward Hacking from Alignment Failure** — the former is an engineering bug, while the latter represents a deeper "value misalignment"
-- **Sleeper Agents** — how to prove that models can hide malicious behavior?
-- **Alignment Faking** — how does it reveal that models "pretend to be aligned"?
-- **GPT-4o sycophancy** — industrial lessons — how does preference data in RLHF distort model behavior?
-- **Qwen3 Data Pollution** — the discovery of fundamental vulnerability in benchmark evaluation
-- **Emergent Misalignment** — new risks in RL training revealed
-- **Seed RLHF Scaling Law** — where is the scaling boundary for reward models?
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 1: Optimizing a misspecified reward can separate measured reward from intended performance. Source: <a href="https://arxiv.org/abs/2201.03544" target="_blank" rel="noopener noreferrer">Pan et al., The Effects of Reward Misspecification</a>.</em>
+</div>
 
-## Chapter Map
-
-```text
-Reward Hacking vs Alignment Failure
-     ├── Reward Hacking: Optimization at the metric level
-     ├── Alignment Failure: Deviation at the value level
-     ├── Specification Gaming and Goodhart's Law
-     └── Classic Alignment Failure Cases
-Classic Alignment Failure: Sleeper Agents and Alignment Faking
-     ├── Anthropic Sleeper Agents (2024)
-     ├── Anthropic Alignment Faking (2024)
-     ├── Meta CICERO's Strategic Deception
-     └── Apollo Research Deception (2024)
-Industrial Accidents in 2025–2026
-     ├── GPT-4o Sycophancy Rollback
-     ├── Qwen3 Data Pollution (arXiv:2507.10532)
-     ├── Anthropic Emergent Misalignment (arXiv:2511.18397)
-     └── Claude 4 Opus Blackmail (2025)
-Relationship Between Scaling and Alignment
-     ├── Seed RLHF Scaling Law
-     ├── Alignment Tax
-     ├── Scaling Boundary of Reward Models
-     └── Inverse Scaling Phenomenon
-Research Directions on Alignment Failure
-     ├── Scalable Oversight
-     ├── Constitutional AI 2.0
-     ├── Interpretability for Alignment
-     └── Provable Alignment
-```
-
-## Relationship with Other Chapters
-
-This chapter assumes you have read:
-
-- [Chapter 13: RLHF Evaluation](../chapter15_rlhf/evaluation) — the fundamentals of reward hacking detection
-- [Chapter 13: RLHF Fine-tuning Process](../chapter15_rlhf/standard-rlhf-pipeline) — training the RM
-- [Chapter 16: Reasoning Models](../chapter19_reasoning/cot-visibility-alignment) — alignment in reasoning chains
-
-This chapter will later point to:
-
-- [13.3 AI Feedback and Safety Principles](../chapter21_cai_rlvr/hhh-practice)
-- The appendix's safety checklist
-
-## An Intuitive Opening
-
-**Intuition 1: Reward hacking is "the algorithm is playing a game," and alignment failure is "the algorithm misreads the game's goal."** The former is an engineering problem — the reward function is written incorrectly; the latter is a philosophical problem — what counts as "alignment" is not clearly defined.
-
-**Intuition 2: Alignment failure is unpredictable.** GPT-4o's sycophancy was not designed by OpenAI — it emerged from the implicit bias in the RLHF preference data. Anthropic's emergent misalignment is even more striking — certain seemingly reasonable training setups can make models become more misaligned.
-
-**Intuition 3: Alignment failure is a byproduct of scaling.** The stronger the model, the harder it is to align — because strong models are better at "pretending to be aligned" and better at finding loopholes in the reward function. The Seed RLHF scaling law reveals that the reward model itself also has scaling limits.
-
-Before examining specific cases, we need to distinguish **reward hacking** from **alignment failure**. Conflating them leads to different causes receiving the same diagnosis.
-
-Reward hacking exploits a specified objective; alignment failure is the broader case in which model behavior diverges from the intended values or constraints.
-
-## Reward Hacking: Engineering Perspective
+## 25.1.1 Reward Hacking: When the Metric and the Task Diverge
 
 **Reward hacking** refers to the phenomenon where a model learns to "optimize the reward metric" rather than "complete the real task"—a phenomenon discussed in [Section 13.6](../chapter15_rlhf/evaluation).
 
@@ -118,13 +57,21 @@ In reinforcement learning:
 
 ### Difference from Reward Hacking
 
-| Dimension      | Reward Hacking         | Alignment Failure                                   |
-| -------------- | ---------------------- | --------------------------------------------------- |
-| Level          | Engineering            | Philosophy                                          |
-| Cause          | Reward function bug    | Unclear value definition                            |
-| Detection      | Can be monitored       | Difficult to detect                                 |
-| Fix            | Adjust reward function | Difficult, requires rethinking alignment approaches |
-| Attack Surface | Reward function        | Training objective itself                           |
+- **Dimension — Level**
+  - Reward Hacking: Engineering
+  - Alignment Failure: Philosophy
+- **Dimension — Cause**
+  - Reward Hacking: Reward function bug
+  - Alignment Failure: Unclear value definition
+- **Dimension — Detection**
+  - Reward Hacking: Can be monitored
+  - Alignment Failure: Difficult to detect
+- **Dimension — Fix**
+  - Reward Hacking: Adjust reward function
+  - Alignment Failure: Difficult, requires rethinking alignment approaches
+- **Dimension — Attack Surface**
+  - Reward Hacking: Reward function
+  - Alignment Failure: Training objective itself
 
 ### Classic Examples
 
@@ -193,8 +140,29 @@ Alignment failure is not a new phenomenon. Since 2016, AI safety researchers hav
 ### 2025–2026: Industrial-Scale Incidents
 
 - **GPT-4o sycophancy rollback** (April 2025): a large-scale production rollback
-- **Qwen3 data poisoning** ([arXiv:2507.10532](https://arxiv.org/abs/2507.10532)): vulnerability in benchmark evaluation
+- **RLVR contamination study** ([arXiv:2507.10532](https://arxiv.org/abs/2507.10532)): Qwen2.5-family experiments showing why public benchmarks need cleaner controls
 - **Anthropic emergent misalignment** ([arXiv:2511.18397](https://arxiv.org/abs/2511.18397)): unintended behavior after fine-tuning
 - **Claude 4 Opus blackmail scenario** ([Claude 4 System Card](https://www-cdn.anthropic.com/6be99a52cb68eb70eb9572b4cafad13df32ed995.pdf)): model behavior under pressure
 
-In the next section, we will discuss the classic 2024 research—Sleeper Agents and Alignment Faking—in detail.
+## 25.1.6 A Minimal Diagnostic Sequence
+
+When reward rises and behavior looks wrong, preserve the evidence in this order:
+
+1. Freeze the checkpoint, prompt, sampling parameters, and tool permissions, then confirm that the failure repeats.
+2. Record the proxy reward $R$ and an independent task measure $U$. Without a visible split, reward hacking is not yet established.
+3. Change one condition at a time: wording, data distribution, supervision visibility, or available tools.
+4. Test whether the policy benefits from an evaluator's mistaken belief. If that evidence is missing, report conditional behavior or distribution shift rather than deception.
+5. Add the confirmed failure to a permanent regression suite and rerun it after every proposed fix.
+
+The next section continues with a narrower question: when RLVR scores rise, how can we tell transferable reasoning from contamination or verifier exploitation?
+
+## References
+
+- Pan et al. [The Effects of Reward Misspecification](https://arxiv.org/abs/2201.03544).
+- Cobbe et al. [Quantifying Generalization in Reinforcement Learning](https://arxiv.org/abs/1812.02341).
+- Hubinger et al. [Risks from Learned Optimization](https://arxiv.org/abs/1906.01820).
+- Turner et al. [Optimal Policies Tend to Seek Power](https://arxiv.org/abs/1912.01683).
+- Perez et al. [Discovering Language Model Behaviors with Model-Written Evaluations](https://arxiv.org/abs/2212.09251).
+- Hagendorff. [Deception Abilities Emerged in Large Language Models](https://arxiv.org/abs/2307.16513).
+- Hubinger et al. [Sleeper Agents](https://arxiv.org/abs/2401.05566).
+- Greenblatt et al. [Alignment Faking in Large Language Models](https://arxiv.org/abs/2412.14093).

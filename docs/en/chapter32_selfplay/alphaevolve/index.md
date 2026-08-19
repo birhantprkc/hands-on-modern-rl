@@ -1,25 +1,18 @@
-# 26.4 Evolutionary Search and Scientific Discovery
+# 26.4 How LLMs Search for New Algorithms: Evolutionary Search and Scientific Discovery
 
-[The previous sections of this chapter](../self-play-outlook/) discussed the traditional frontiers of reinforcement learning — self-play, multi-agent systems, and scaling. This section turns to a new direction: **LLM-driven scientific discovery**.
+Suppose we want a faster matrix-multiplication kernel. A language model proposes a program, an evaluator compiles it and checks correctness, and a search procedure keeps the strongest candidates. The next proposal is generated from programs that survived the previous round. Here the model is not selecting one action in a fixed episode; it is expanding a population of executable hypotheses.
 
-The characteristics of this direction are:
+This setup works when evaluation is cheap and difficult to game. Code can be executed, proofs can be checked, and hardware performance can be measured. In slower sciences, simulation error and experimental cost become part of the problem. This section follows that boundary through AlphaEvolve, interactive world models, test-time memory, multi-agent search, and recursive self-improvement.
 
-- **LLMs are not just actors** — they are idea generators, code writers, and experiment designers
-- **RL is not just policy optimization** — it is search, evolution, and self-improvement
-- **The goal is not "playing games" or "conversing"** — it is discovering new algorithms, new mathematics, and new science
+## 26.4.1 AlphaEvolve: Put Code Inside an Evolutionary Loop
 
-Representative works from 2024 to 2026:
+[AlphaEvolve](https://arxiv.org/abs/2506.13131) combines language-model program generation with evolutionary selection and automatic evaluators. The system receives an initial program, a task description, and one or more evaluators, then searches for programs that score better while preserving correctness constraints.
 
-- **AlphaEvolve** (DeepMind, 2024.05): LLM + evolutionary algorithms to discover new mathematics
-- **Genie 3** (DeepMind, 2025.08): Generative world model
-- **Titans** (Google, 2024.12): Long-term memory architecture
-- **Multi-Agent Deep Research** (Byte Seed, 2025.11): Training multi-agent search systems with M-GRPO
+![AlphaEvolve system architecture](../../../chapter32_selfplay/alphaevolve/images/alphaevolve-method.png)
 
-These works represent the "next-generation paradigm" of the integration of RL and LLM — from "training a policy" to "training a research system."
-
-## 26.4.1 AlphaEvolve and LLM + Evolution for Mathematical Discovery
-
-[AlphaEvolve](https://deepmind.google/discover/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/) (DeepMind, 2024.05 released, 2025 full version) is a flagship case of LLM-driven scientific discovery.
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 1: AlphaEvolve combines a program database, LLM-generated changes, automatic evaluation, and evolutionary selection. Source: <a href="https://arxiv.org/abs/2506.13131" target="_blank" rel="noopener noreferrer">AlphaEvolve paper</a>.</em>
+</div>
 
 ### Core Idea of AlphaEvolve
 
@@ -65,7 +58,13 @@ AlphaEvolve has made **real new discoveries** in multiple domains:
 
 **Discovery 1: New Algorithm for Matrix Multiplication**
 
-In 1969, Strassen discovered that $4 \times 4$ matrix multiplication can be done in 49 multiplications (previously thought to be 64). AlphaEvolve discovered a new algorithm that uses **48 multiplications** — **surpassing human research for over 50 years**.
+For multiplying $4\times4$ complex matrices, the paper reports a program using 48 scalar multiplications. The previous best construction for this setting used 49, corresponding to Strassen's 1969 method. The improvement is valuable because the candidate can be executed and independently checked.
+
+![Selected mathematical results reported by AlphaEvolve](../../../chapter32_selfplay/alphaevolve/images/alphaevolve-math-results.png)
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 2: Selected mathematical results reported in the AlphaEvolve paper. The 48-multiplication construction is especially easy to state and verify. Source: <a href="https://arxiv.org/abs/2506.13131" target="_blank" rel="noopener noreferrer">AlphaEvolve paper</a>.</em>
+</div>
 
 **Discovery 2: New Bounds in Combinatorics**
 
@@ -207,11 +206,15 @@ Titans use **surprise** as an internal reward—when the input is "surprising," 
 
 On long-horizon tasks, Titans significantly outperform Transformers:
 
-| Task                            | Transformer | Titans                     |
-| ------------------------------- | ----------- | -------------------------- |
-| Language modeling (10M context) | OOM         | 67% perplexity improvement |
-| Long-document QA                | 55%         | 78%                        |
-| Temporal prediction             | 65%         | 82%                        |
+- **Task — Language modeling (10M context)**
+  - Transformer: OOM
+  - Titans: 67% perplexity improvement
+- **Task — Long-document QA**
+  - Transformer: 55%
+  - Titans: 78%
+- **Task — Temporal prediction**
+  - Transformer: 65%
+  - Titans: 82%
 
 Titans demonstrate that **long-term memory is the next direction for scaling**—not just "wider and deeper," but also "better at remembering."
 
@@ -355,20 +358,26 @@ Extend the AlphaEvolve approach to:
 
 Use LLM-driven discovery to personalize education — identifying the most suitable learning path for each student.
 
-### AGI
+## 26.4.7 How to Decide Whether the System Discovered Something New
 
-Recursive self-improvement is one potential path toward AGI — if a model can continuously improve itself, it may surpass human capabilities at some point.
+Before accepting an “AI discovery,” record four facts:
 
-This comes with **serious safety risks** — this is also the core issue of [Alignment research](../../chapter30_alignment_failures/scaling-and-defenses).
+1. What is the candidate object: a program, parameter set, environment, memory, or model weight?
+2. Which constraints does the evaluator check, and how could a candidate exploit it?
+3. How many candidates were tested, including failures, and what was the total compute cost?
+4. Can an independent implementation, proof checker, experiment, or hardware run reproduce the best result?
 
-## Summary
+AlphaEvolve's matrix result is persuasive because these questions have concrete answers. Moving to biology, chemistry, or education makes evaluation slower and introduces simulation bias, safety constraints, and long-term outcomes. Candidate generation is often easier than obtaining a cheap and trustworthy verifier.
 
-LLM-driven discovery is a new frontier of RL in 2025–2026:
+The common discovery loop is bounded: generate candidates, observe consequences, write feedback back into the system, and retain a rollback path. Genie 3 supplies interactive generated environments, Titans studies memory updated at test time, M-GRPO trains hierarchical multi-agent search, and recursive self-improvement expands the object being modified. None removes the need for independent evaluation.
 
-- **AlphaEvolve**: LLM + evolution, discovering new mathematics
-- **Genie 3**: Generative world model, for embodied agents
-- **Titans**: Long-term memory architecture, extending context
-- **M-GRPO**: Multi-agent RL training
-- **RSI**: Recursive self-improvement (partially implemented)
+## References
 
-These works collectively point toward a new paradigm — **from training policies to training research systems**. This is the next-generation direction of the integration between RL and LLMs, and also the most advanced frontier of AGI research.
+- Novikov et al. [AlphaEvolve: A Coding Agent for Scientific and Algorithmic Discovery](https://arxiv.org/abs/2506.13131).
+- Google DeepMind. [AlphaEvolve: A Gemini-Powered Coding Agent for Designing Advanced Algorithms](https://deepmind.google/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/).
+- Google DeepMind. [Original AlphaEvolve announcement URL](https://deepmind.google/discover/blog/alphaevolve-a-gemini-powered-coding-agent-for-designing-advanced-algorithms/).
+- Google DeepMind. [Genie 3](https://deepmind.google/models/genie/).
+- Behrouz, Zhong, and Mirrokni. [Titans: Learning to Memorize at Test Time](https://arxiv.org/abs/2501.00663).
+- Hong et al. [Multi-Agent Deep Research: Training Multi-Agent Systems with M-GRPO](https://arxiv.org/abs/2511.13288).
+- Choi et al. [Self-Improving Robust Preference Optimization](https://arxiv.org/abs/2406.01660).
+- Wang et al. [Voyager: An Open-Ended Embodied Agent with Large Language Models](https://arxiv.org/abs/2305.16291).

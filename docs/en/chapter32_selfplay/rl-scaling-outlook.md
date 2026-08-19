@@ -1,26 +1,51 @@
 ---
-title: 26.2 RL Scaling and Future Outlook
+title: 26.2 Where Should Additional Compute Go? RL and Test-Time Scaling
 ---
 
-# 26.2 RL Scaling Laws and Foundation Model RL
+# 26.2 Where Should Additional Compute Go? RL and Test-Time Scaling
 
-In the previous three sections, we traced the evolution of RL training from PPO to GRPO to DAPO/RLVR. On the strategy side, the Critic was removed; on the reward side, the RM was removed; training costs decreased step by step. But a more fundamental question remains unanswered: **Is there a ceiling to the benefits of RL training? Can we continue improving by investing more compute?**
+Assume a reasoning model answers one problem correctly with probability 0.30. If we sample independently five times and keep a correct answer whenever a verifier finds one, the probability of at least one success is
 
-One of the most exciting discoveries of 2025 is that **the returns from RL training have not yet saturated**. Continuing to increase RL training scale still yields steady improvements in reasoning ability. This section discusses the future of RL from three dimensions: training paradigm choice (Online vs. Offline), three directions of RL Scaling, and Test-time Scaling with process reward models.
+$$
+1-(1-0.30)^5\approx0.83.
+$$
 
-## Comparing Three Training Paradigms
+The model weights did not change; we spent more compute at inference. Alternatively, we could spend that compute during training so that one sample becomes more reliable. These two investments answer different questions, and comparing them requires a shared total-compute budget.
 
-After learning DPO (Offline) and GRPO/DAPO (Online), a natural practical question is: **Which paradigm should you choose?**
+This section separates three axes that are often mixed together: when training data is generated, how much optimization is performed during training, and how many candidates or reasoning steps are used at test time. It also explains when outcome and process reward models provide useful evidence.
 
-|                            | Offline (DPO)                      | Online (PPO/GRPO)                       | Semi-Online                     |
-| -------------------------- | ---------------------------------- | --------------------------------------- | ------------------------------- |
-| **Data source**            | Fixed offline preference dataset   | Generated in real-time by current model | Offline data + periodic updates |
-| **Exploration**            | None (limited by dataset)          | Yes (model explores new strategies)     | Partial                         |
-| **Theoretical ceiling**    | Limited by data quality            | Higher in principle                     | Compromise                      |
-| **Engineering complexity** | Low (standard supervised learning) | High (online sampling loop)             | Medium                          |
-| **Memory requirements**    | Low                                | High                                    | Medium                          |
-| **Representative methods** | DPO, KTO, SimPO, IPO               | PPO, GRPO, DAPO                         | Iterative DPO, RLOO             |
-| **Analogy**                | Learning to drive from videos      | Learning by actually driving            | Videos + occasional practice    |
+## 26.2.1 When Is Training Data Generated: Offline, Online, or Periodically Updated?
+
+After learning [DPO](https://arxiv.org/abs/2305.18290), GRPO, and DAPO, the first decision is when the policy sees new data.
+
+- **Data source**
+  - Offline (DPO): Fixed offline preference dataset
+  - Online (PPO/GRPO): Generated in real-time by current model
+  - Semi-Online: Offline data + periodic updates
+- **Exploration**
+  - Offline (DPO): None (limited by dataset)
+  - Online (PPO/GRPO): Yes (model explores new strategies)
+  - Semi-Online: Partial
+- **Theoretical ceiling**
+  - Offline (DPO): Limited by data quality
+  - Online (PPO/GRPO): Higher in principle
+  - Semi-Online: Compromise
+- **Engineering complexity**
+  - Offline (DPO): Low (standard supervised learning)
+  - Online (PPO/GRPO): High (online sampling loop)
+  - Semi-Online: Medium
+- **Memory requirements**
+  - Offline (DPO): Low
+  - Online (PPO/GRPO): High
+  - Semi-Online: Medium
+- **Representative methods**
+  - Offline (DPO): DPO, KTO, SimPO, IPO
+  - Online (PPO/GRPO): PPO, GRPO, DAPO
+  - Semi-Online: Iterative DPO, RLOO
+- **Analogy**
+  - Offline (DPO): Learning to drive from videos
+  - Online (PPO/GRPO): Learning by actually driving
+  - Semi-Online: Videos + occasional practice
 
 ### Practical Recommendations
 
@@ -63,15 +88,31 @@ print("  Pursuing maximum performance? → DAPO (dynamic sampling + token-level 
 
 The three paradigms discussed above (DPO/GRPO/DAPO) and this chapter's RLVR all focus on one question: **how to make models reason better on math and code**. But a natural follow-up is — can this "think before answering" capability also be applied to general chat, creative writing, and other open-ended scenarios?
 
-A 2025 paper, "Language Models that Think, Chat Better," answers yes, proposing **RLMT (Reinforcement Learning with Model-rewarded Thinking)**.
+A 2025 paper, [Language Models that Think, Chat Better](https://arxiv.org/abs/2509.20357), proposes **RLMT (Reinforcement Learning with Model-Rewarded Thinking)**. It uses an explicit thinking structure for open-ended prompts and lets a preference reward model evaluate the response.
+
+![Reward structures for RLHF, RLVR, and RLMT](../../chapter32_selfplay/images/rlmt-overview.png)
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 1: RLHF, RLVR, and RLMT differ in response structure and reward source. Source: <a href="https://arxiv.org/abs/2509.20357" target="_blank" rel="noopener noreferrer">Language Models that Think, Chat Better</a>.</em>
+</div>
 
 ### The Dilemma of Existing Methods
 
-| Method | Chain of Thought | Reward Source                     | Applicable Domain | Shortcoming                          |
-| ------ | ---------------- | --------------------------------- | ----------------- | ------------------------------------ |
-| RLHF   | None             | Human preference reward model     | General chat      | No thinking, insufficient depth      |
-| RLVR   | Yes              | Rules / ground truth              | Math/Code         | Cannot generalize to open-ended chat |
-| RLMT   | **Yes**          | **Human preference reward model** | **General chat**  | Reward model quality is critical     |
+- **Method — RLHF**
+  - Chain of Thought: None
+  - Reward Source: Human preference reward model
+  - Applicable Domain: General chat
+  - Shortcoming: No thinking, insufficient depth
+- **Method — RLVR**
+  - Chain of Thought: Yes
+  - Reward Source: Rules / ground truth
+  - Applicable Domain: Math/Code
+  - Shortcoming: Cannot generalize to open-ended chat
+- **Method — RLMT**
+  - Chain of Thought: **Yes**
+  - Reward Source: **Human preference reward model**
+  - Applicable Domain: **General chat**
+  - Shortcoming: Reward model quality is critical
 
 RLHF has the model directly output answers without deep reasoning; RLVR forces the model to write long chains of thought, but the reward signal (answer correctness) only applies to tasks with ground-truth answers. RLMT's core insight is: **retain RLVR's "think before answering" structure, but use RLHF's preference reward model for scoring** — so the chain of thought can serve general chat.
 
@@ -92,7 +133,7 @@ No SFT at all; apply RLMT training directly to the base model. The results are s
 - Llama-3.1-8B base + RLMT-Zero
 - Results **exceed** Llama-3.1-8B-Instruct trained with 25 million samples in multiple stages
 
-This shows that the "think before answering" capability does not need to be taught via SFT — RL training itself can elicit it, consistent with DeepSeek-R1's findings.
+This experiment shows that, under the paper's setup, RL can elicit the response structure without an SFT warm-up. It does not establish that every base model or open-ended reward model will behave the same way.
 
 ### Results: Thinking Small Models > Non-Thinking Large Models
 
@@ -103,16 +144,24 @@ Comprehensive validation on Llama-3.1-8B and Qwen-2.5-7B:
 - Llama-3.1-8B-Instruct + RLMT **exceeds GPT-4o** in chat and creative writing, approaching Claude 3.7 Sonnet
 - Significantly better than 10x larger Llama-3.1-70B and Qwen2.5-72B
 
-This result again validates a key finding: **the "thinking ability" brought by RL training can compensate for differences in model scale.**
+These comparisons use one paper's reward models and automated evaluation pipeline. They show that post-training can substantially change the behavior of a fixed base model; comparisons across model sizes also mix pretraining data, instruction tuning, and evaluator preference, so they do not imply that small models generally outperform large models.
+
+![RLMT and mathematics-oriented reasoning models on open-ended chat evaluations](../../chapter32_selfplay/images/rlmt-vs-math.png)
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 2: Reported open-ended chat comparisons in the RLMT paper. Read these as results under the paper's evaluator and prompt distribution, not as a universal model ranking. Source: <a href="https://arxiv.org/abs/2509.20357" target="_blank" rel="noopener noreferrer">RLMT paper</a>.</em>
+</div>
 
 ### What Kind of "Thinking" Does the Model Learn?
 
 The paper analyzes changes in the model's thinking patterns before and after RLMT training:
 
-| Phase      | Thinking Characteristics                                    | Analogy                                             |
-| ---------- | ----------------------------------------------------------- | --------------------------------------------------- |
-| SFT phase  | Linear listing, bullet points, rigid planning               | A clerk filling out a form                          |
-| After RLMT | Organize constraints → group → weigh perspectives → iterate | An experienced consultant reasoning at a whiteboard |
+- **Phase — SFT phase**
+  - Thinking Characteristics: Linear listing, bullet points, rigid planning
+  - Analogy: A clerk filling out a form
+- **Phase — After RLMT**
+  - Thinking Characteristics: Organize constraints → group → weigh perspectives → iterate
+  - Analogy: An experienced consultant reasoning at a whiteboard
 
 Meanwhile, the model automatically increases chain-of-thought and answer length — not artificially set, but naturally emerging during RL optimization: longer thinking → better answers → higher rewards.
 
@@ -132,11 +181,11 @@ Meanwhile, the model automatically increases chain-of-thought and answer length 
 # ---- RLMT (new in this section) ----
 # Reward = preference reward model score (general chat quality)
 # def rlmt_reward(response, question):
-#     # response contains <think thinking process</think + final answer
+#     # response contains <think>thinking process</think> + final answer
 #     return preference_reward_model(question, response)
 
 # Key differences:
-# 1. RLMT response structure = <think thinking</think + answer
+# 1. RLMT response structure = <think>thinking</think> + answer
 # 2. Reward signal comes from preference RM, not rule verification
 # 3. Training prompts must be close to real user chat; too many math problems actually hurts
 
@@ -151,12 +200,10 @@ print("  Base model can be directly aligned with RLMT, overturning traditional t
 
 RLMT stands at the intersection of Chapter 15 RLVR and Chapter 13 RLHF:
 
-| Concept Source                       | Role in RLMT                                         |
-| ------------------------------------ | ---------------------------------------------------- |
-| RLVR's long chain of thought (Ch8)   | Retain the "think before answering" output structure |
-| RLHF's preference reward (Ch7)       | Replace rule verification with preference RM         |
-| GRPO's within-group comparison (Ch8) | The most effective online training method for RLMT   |
-| DeepSeek-R1-Zero (Ch8)               | Direct inspiration for RLMT-Zero                     |
+- **Concept Source — RLVR's long chain of thought (Ch8):** Retain the "think before answering" output structure
+- **Concept Source — RLHF's preference reward (Ch7):** Replace rule verification with preference RM
+- **Concept Source — GRPO's within-group comparison (Ch8):** The most effective online training method for RLMT
+- **Concept Source — DeepSeek-R1-Zero (Ch8):** Direct inspiration for RLMT-Zero
 
 The significance of RLMT is: **it proves that "thinking" is not exclusive to mathematical reasoning; general chat also benefits from deep thinking.** This opens a new direction for RL training — instead of having the model think only on math problems, have it "think carefully before speaking" in all scenarios.
 
@@ -177,11 +224,18 @@ One of the most exciting discoveries of 2025: **RL training returns have not yet
 
 ### Three Dimensions of RL Scaling
 
-| Dimension          | Meaning                                        | Practical Method                             | Key Finding                                                       |
-| ------------------ | ---------------------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- |
-| **Data scale**     | More training prompts of varying difficulty    | Auto-generate + filter for quality           | Diversity matters more than quantity                              |
-| **Sampling scale** | More sampled answers per prompt (increasing k) | k from 4 to 16 or even 64                    | Within-group comparisons are more stable, but diminishing returns |
-| **Training steps** | Longer RL training                             | Monitor KL divergence and evaluation metrics | Pass@1 continues to improve, not yet saturated                    |
+- **Dimension — Data scale**
+  - Meaning: More training prompts of varying difficulty
+  - Practical Method: Auto-generate + filter for quality
+  - Key Finding: Diversity matters more than quantity
+- **Dimension — Sampling scale**
+  - Meaning: More sampled answers per prompt (increasing k)
+  - Practical Method: k from 4 to 16 or even 64
+  - Key Finding: Within-group comparisons are more stable, but diminishing returns
+- **Dimension — Training steps**
+  - Meaning: Longer RL training
+  - Practical Method: Monitor KL divergence and evaluation metrics
+  - Key Finding: Pass@1 continues to improve, not yet saturated
 
 ```mermaid
 flowchart LR
@@ -211,7 +265,7 @@ The key prerequisite is sufficiently diverse prompt data. If the training data t
 
 ### Agentic RL Scaling Laws
 
-The three dimensions above focus on standard RL scaling. When RL enters Agentic scenarios (discussed in detail in Chapter 19), scaling takes new forms. The ZeroTIR method enables models to spontaneously learn to generate and execute code to assist reasoning **without supervised examples**, and discovers a predictable relationship: there is a **power-law relationship** between training steps, code execution frequency, and final accuracy. This means you can predict final performance early in training — if code execution frequency is still rising after 100 training steps, the model is still learning; if the frequency stabilizes, learning is approaching saturation. This finding gives practitioners a **free training progress indicator**: just monitor code execution frequency to determine "whether to continue training." ZeroTIR was accepted at NeurIPS 2025 and will be discussed in more detail in the Code Agent section of Chapter 19.
+The three dimensions above focus on standard RL scaling. In agentic settings, the policy can also generate and execute code while solving a problem. [Agent RL Scaling Law](https://arxiv.org/abs/2505.07773) studies how training progress, code-use behavior, and mathematical accuracy change together under its ZeroTIR setup. Code-execution frequency is a useful logged variable in that experiment, but it is not a universal early-stopping rule; it must be checked against held-out task accuracy and total execution cost.
 
 ## Test-time Scaling: More Compute at Inference Time Too
 
@@ -219,12 +273,22 @@ Complementary to RL Scaling (investing more compute at training time) is another
 
 Standard inference is "Prompt → model directly outputs answer." Test-time Scaling's approach is "Prompt → generate multiple candidates → verify/vote/search → select the best."
 
-| Method                     | Principle                                                | Additional Cost             | Applicable Scenarios                  |
-| -------------------------- | -------------------------------------------------------- | --------------------------- | ------------------------------------- |
-| **Best-of-N sampling**     | Generate N answers, select the one with highest reward   | Grows linearly with N       | Simple, direct, general               |
-| **Majority voting**        | Generate N answers, select the most frequent answer      | Grows linearly with N       | Math/code (has deterministic answers) |
-| **MCTS / Tree of Thought** | Tree search in reasoning space, backtrack wrong branches | Exponential (needs pruning) | Complex reasoning tasks               |
-| **Verifier-guided**        | Use a verifier to dynamically prune during reasoning     | Medium                      | Code/math                             |
+- **Method — Best-of-N sampling**
+  - Principle: Generate N answers, select the one with highest reward
+  - Additional Cost: Grows linearly with N
+  - Applicable Scenarios: Simple, direct, general
+- **Method — Majority voting**
+  - Principle: Generate N answers, select the most frequent answer
+  - Additional Cost: Grows linearly with N
+  - Applicable Scenarios: Math/code (has deterministic answers)
+- **Method — MCTS / Tree of Thought**
+  - Principle: Tree search in reasoning space, backtrack wrong branches
+  - Additional Cost: Exponential (needs pruning)
+  - Applicable Scenarios: Complex reasoning tasks
+- **Method — Verifier-guided**
+  - Principle: Use a verifier to dynamically prune during reasoning
+  - Additional Cost: Medium
+  - Applicable Scenarios: Code/math
 
 ### The Relationship Between RL and Test-time Scaling
 
@@ -248,12 +312,22 @@ PRM evaluates each reasoning step: is step 1 correct? Is step 2 correct? ... Eac
 
 ### PRM's Practical Effect
 
-| Method   | GSM8K Accuracy | MATH Accuracy | Annotation Cost |
-| -------- | -------------- | ------------- | --------------- |
-| ORM only | ~82%           | ~40%          | Low             |
-| PRM only | ~85%           | ~45%          | Extremely high  |
-| ORM + RL | ~88%           | ~50%          | Low             |
-| PRM + RL | ~90%           | ~55%          | Extremely high  |
+- **Method — ORM only**
+  - GSM8K Accuracy: ~82%
+  - MATH Accuracy: ~40%
+  - Annotation Cost: Low
+- **Method — PRM only**
+  - GSM8K Accuracy: ~85%
+  - MATH Accuracy: ~45%
+  - Annotation Cost: Extremely high
+- **Method — ORM + RL**
+  - GSM8K Accuracy: ~88%
+  - MATH Accuracy: ~50%
+  - Annotation Cost: Low
+- **Method — PRM + RL**
+  - GSM8K Accuracy: ~90%
+  - MATH Accuracy: ~55%
+  - Annotation Cost: Extremely high
 
 PRM's improvement is real (5 percentage points higher than ORM on MATH), but so is its cost. OpenAI's PRM800K dataset required math experts to annotate each reasoning step — a cost not every team can bear.
 
@@ -300,6 +374,18 @@ def auto_prm(model, prompt, reasoning_steps, num_samples=32):
 
 The core idea of automated PRM is: **no need for humans to annotate each step; use Monte Carlo sampling to automatically estimate each step's "correctness probability."** Starting from step $i$, re-sample subsequent reasoning $N$ times and check the proportion of correct final answers — this is step $i$'s "quality score." The cost of this method is computational (each step requires $N$ samples), but it does not rely on manual annotation and has better scalability.
 
+## 26.2.6 How to Produce a Credible Scaling Curve
+
+A rising curve proves only that a particular experiment has not saturated over the observed interval. It does not establish a universal scaling law. Fix the base model, task version, prompt, verifier, and test-time sampling budget; then vary one training-compute axis at a time and repeat on a held-out set.
+
+![The multi-stage DeepSeek-R1 training pipeline](../../chapter32_selfplay/self-play-outlook/images/deepseek_r1_pipeline.png)
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 3: DeepSeek-R1 combines several post-training stages. A final score therefore cannot be attributed to one scaling variable without an ablation. Source: <a href="https://arxiv.org/abs/2501.12948" target="_blank" rel="noopener noreferrer">DeepSeek-R1 technical report</a>.</em>
+</div>
+
+Record accuracy together with generated tokens, valid-sample rate, KL, entropy, and wall-clock time. Then draw training compute and test-time compute on separate axes. This makes it possible to answer the practical question from the opening: whether the next unit of compute is more valuable in the weights or in candidate search.
+
 ## Section Summary
 
 In Chapter 8, we completed a full evolution path of RL training:
@@ -342,9 +428,9 @@ Three core dimensions can be independently chosen and flexibly combined:
 The future of RL training has two clear directions: **RL Scaling** (investing more compute at training time) and **Test-time Scaling** (investing more compute at inference time). These two are complementary, jointly pushing improvements in model reasoning ability. The development of PRM and automated process supervision is expected to provide finer-grained training signals in the future, further accelerating RL training efficiency.
 
 <details>
-<summary>Discussion Question: Should you prioritize RL Scaling or Test-time Scaling?</summary>
+<summary>Discussion question: Which investment should come first?</summary>
 
-This depends on your application scenario and resource constraints:
+The answer depends on the application and its resource constraints:
 
 - **If inference cost is the bottleneck** (e.g., an online service serving millions of users), prioritize RL Scaling — train a stronger model so it can produce high-quality answers in a single inference pass without multiple sampling. Training cost is high but a one-time investment; inference cost is ongoing, and the savings far exceed the training investment.
 
@@ -352,8 +438,15 @@ This depends on your application scenario and resource constraints:
 
 - **If neither is a bottleneck** (e.g., internal research, small-scale deployment), investing a small amount in both is sufficient. RL Scaling's "data diversification" is the safest investment direction — more diverse training data is almost always beneficial.
 
-It is worth noting that these two directions are not mutually exclusive. The most advanced systems (like DeepSeek-R1) use both RL Scaling (large-scale GRPO training) and Test-time Scaling (Best-of-N sampling at inference); the combined effect far exceeds either alone.
+The two directions can be combined, but the combined gain must be measured with an ablation. The DeepSeek-R1 report demonstrates large-scale RL and variable-length reasoning; it does not define the deployed service as one fixed Best-of-$N$ system.
 
 </details>
 
-Here, the three directions of RL Scaling have been covered. But there is one important post-training approach we have not yet discussed — **knowledge distillation**: using the teacher model's log-prob as training signals to achieve results comparable to RL at 1/10 the compute. Let us move to the next section — [Knowledge Distillation and On-Policy Distillation](../chapter18_grpo/on-policy-distillation).
+The next section moves to [multi-agent RL](./llm-multi-agent-rl/), where several policies jointly produce one trajectory and compute is no longer the only difficulty: communication and credit assignment become part of the training problem.
+
+## References
+
+- Bhaskar, Ye, and Chen. [Language Models that Think, Chat Better](https://arxiv.org/abs/2509.20357).
+- DeepSeek-AI. [DeepSeek-R1: Incentivizing Reasoning Capability in LLMs via Reinforcement Learning](https://arxiv.org/abs/2501.12948).
+- Mai et al. [Agent RL Scaling Law: Agent RL with Spontaneous Code Execution for Mathematical Problem Solving](https://arxiv.org/abs/2505.07773).
+- Lightman et al. [Let's Verify Step by Step](https://arxiv.org/abs/2305.20050).

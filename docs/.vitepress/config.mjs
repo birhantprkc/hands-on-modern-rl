@@ -2224,11 +2224,11 @@ const enSidebar = {
               link: '/en/chapter28_vla/embodied-intelligence/'
             },
             {
-              text: '24.4 Visual Generation and DanceGRPO',
+              text: '24.4 How RL Aligns Image Generation',
               link: '/en/chapter29_visual_generation/visual-generation-dancegrpo'
             },
             {
-              text: '24.5 Video RLHF and Physics-Aware Generation',
+              text: '24.5 Why Videos Contradict Themselves',
               link: '/en/chapter29_visual_generation/video-generation-modern'
             }
           ]
@@ -2244,23 +2244,23 @@ const enSidebar = {
           collapsed: false,
           items: [
             {
-              text: '25.1 Classical Alignment Failure Modes',
+              text: '25.1 Why Higher Reward Can Make the Task Worse',
               link: '/en/chapter30_alignment_failures/classical-failures'
             },
             {
-              text: '25.2 RLVR False Gains',
+              text: '25.2 How to Verify RLVR Gains',
               link: '/en/chapter30_alignment_failures/modern-incidents'
             },
             {
-              text: '25.3 Sleeper Agents and Alignment Faking',
+              text: '25.3 Why Models Switch Behavior',
               link: '/en/chapter30_alignment_failures/sleeper-and-faking'
             },
             {
-              text: '25.4 Defense Mechanisms',
+              text: '25.4 How to Prevent Reward Exploitation',
               link: '/en/chapter30_alignment_failures/scaling-and-defenses'
             },
             {
-              text: '25.5 RL Evaluation and Harnesses',
+              text: '25.5 How to Evaluate RL Models Reliably',
               link: '/en/chapter30_alignment_failures/rl-evaluation'
             }
           ]
@@ -2270,19 +2270,19 @@ const enSidebar = {
           collapsed: false,
           items: [
             {
-              text: '26.1 Self-Play and LLM Training',
+              text: '26.1 How Models Generate Training Data',
               link: '/en/chapter32_selfplay/self-play-outlook/'
             },
             {
-              text: '26.2 RL Scaling Laws and Foundation Model RL',
+              text: '26.2 Where Additional Compute Should Go',
               link: '/en/chapter32_selfplay/rl-scaling-outlook'
             },
             {
-              text: '26.3 LLM Multi-Agent Reinforcement Learning',
+              text: '26.3 How Multiple LLMs Learn Together',
               link: '/en/chapter32_selfplay/llm-multi-agent-rl/'
             },
             {
-              text: '26.4 Evolutionary Search and Scientific Discovery',
+              text: '26.4 How LLMs Search for New Algorithms',
               link: '/en/chapter32_selfplay/alphaevolve/'
             }
           ]

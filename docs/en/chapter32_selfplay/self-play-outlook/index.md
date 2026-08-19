@@ -1,39 +1,18 @@
 ---
-title: 26.1 Self-Play Basics and LLM Self-Play
+title: '26.1 How Models Generate Their Own Training Data: Self-Play and LLM Training'
 ---
 
-# 26.1 Self-Play and LLM Training
+# 26.1 How Models Generate Their Own Training Data: Self-Play and LLM Training
 
-The preceding parts focused on building stronger policies and broader agent capabilities. Part VII turns to the conditions under which those systems fail, how they should be evaluated, and which research directions may change their limits. Its currently translated material begins with self-play, where the policy's opponents and training data evolve together.
+Suppose a language model has exhausted a fixed set of demonstrations. We can ask it to generate a candidate answer, let another model instance criticize that answer, and train on the resulting comparison. The next round now contains data produced by the current system rather than only by a static dataset.
 
-From Chapter 1 CartPole to Chapter 15 GRPO, we walked through the core arc of modern reinforcement learning:
+This loop is useful because the training distribution can move with the policy. It is also risky: if the generator and judge share the same blind spot, every round can reinforce it. Self-play therefore requires three separate questions: who produces the challenge, who decides which behavior is better, and what prevents the loop from collapsing onto one narrow strategy?
 
-- Q-learning and DQN: learning from trial-and-error,
-- policy gradients: optimizing behavior directly,
-- PPO: stable post-training for large models,
-- GRPO: using verifiable rewards to drive reasoning,
-- Agentic RL: moving from single-turn answers to multi-turn tool-using interaction.
+In a two-player game, self-play has a precise game-theoretic meaning. In language-model training, “self-play” is often used more broadly for generator–judge, debate, or past-self data loops. This section keeps those cases separate and shows what evidence is needed before calling a system self-improving.
 
-But the RL story is not finished. In 2025-2026, self-play is moving from board games to language models, multi-agent collaboration is turning a single policy into a role-based system, and training-time and inference-time scaling are increasingly shaping capability together.
+## 26.1.1 From a Fixed Opponent to a Changing Training Distribution
 
-This chapter does not attempt to cover every frontier direction. That is not realistic. Instead, we pick representative themes that connect directly back to the concepts you already learned in earlier chapters. The goal is to help you recognize recurring structure: the same foundations reappear under new labels.
-
-| Section                                                                                   | Core question                                                                   |
-| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| [26.1 Self-Play and Self-Evolution](/en/chapter32_selfplay/self-play-outlook/)            | Can models improve beyond human data by competing with themselves?              |
-| [26.2 RL Scaling Outlook](/en/chapter32_selfplay/rl-scaling-outlook)                      | How do training-time and inference-time scaling change the capability ceiling?  |
-| [26.3 LLM Multi-Agent Reinforcement Learning](/en/chapter32_selfplay/llm-multi-agent-rl/) | How do role-specialized agents learn to collaborate, compete, and share credit? |
-| 26.4 Evolutionary LLM Search and Scientific Discovery                                     | How can language models and evolutionary search discover new solutions?         |
-
-We begin with the self-play loop: [26.1 Self-Play and Self-Evolution](/en/chapter32_selfplay/self-play-outlook/).
-
-AlphaGo learned Go from scratch through self-play — no human game records, no expert demonstrations, just a board and a loop of self-competition. This "from zero to superhuman" story is one of RL's most legendary chapters. In 2025–2026, the same idea is being transferred to large language models: **can models continuously evolve through self-play, eventually breaking through the ceiling of human data?**
-
-This section breaks down the core ideas of self-play and self-evolution, from the underlying mathematical principles to concrete code loops, discusses the challenges, and finally closes the book by providing a continuing learning roadmap from where this book leaves off.
-
-## Self-Play RL: Models as Each Other's Opponents
-
-The core idea of self-play is extremely elegant: **no external data needed — the model generates its own training data and searches for a Nash equilibrium through mutual competition**.
+In ordinary RL, the environment is treated as fixed while the policy changes. In self-play, the opponent may be another checkpoint of the same policy. Improving the current model therefore changes both the learner and part of its future data distribution.
 
 ![SPIN Pipeline](../../../chapter32_selfplay/self-play-outlook/images/spin_pipeline.png)
 
@@ -52,8 +31,8 @@ The specific training process is typically:
 
 In ordinary single-agent RL, our goal is to maximize cumulative expected return $\max_\pi \mathbb{E}[R]$. But in self-play, the environment includes other agents, making this a game-theoretic problem in **Multi-Agent Reinforcement Learning (MARL)**.
 
-- **Zero-Sum Game**: Like Go or Dota 2 1v1 — your win probability plus your opponent's equals 1.
-- **Nash Equilibrium**: The ultimate goal of self-play is not "getting the highest score" (since the opponent is also getting stronger, your win rate may hover around 50%), but converging to a **Nash equilibrium point**. At this point, **any agent that unilaterally changes its strategy will see its payoff decrease**.
+- **Zero-sum game**: in games such as Go, one player's gain is the other player's loss.
+- **Nash equilibrium**: no agent can improve its own payoff by changing strategy alone while the other strategies stay fixed.
   $$
   V(\pi^*, \pi^*) \ge V(\pi, \pi^*) \quad \forall \pi
   $$
@@ -61,7 +40,7 @@ In ordinary single-agent RL, our goal is to maximize cumulative expected return 
 
 ### 2. From a Code Perspective: Fictitious Play Loop
 
-If you just let "latest version of model A" play against "latest version of model A," it is easy to fall into **Policy Collapse**: A invents move X and wins, tomorrow A invents move Y that counters X, the day after A invents move Z that counters Y — and forgets how to counter X!
+If the latest checkpoint plays only against itself, training can cycle: one version discovers move X, the next overfits to counter X with Y, and a later version forgets how to handle X. A historical opponent pool reduces this failure by retaining older strategies in the training distribution.
 
 Therefore, in industrial-grade code, we typically use **Fictitious Play** or maintain a **Model Pool**, randomly sampling a past version of itself as the opponent each time:
 
@@ -116,7 +95,7 @@ Remarkably, as the model's generation ability improves, **its "judging ability (
 
 Debate training is a frontier variant of LLM self-play. Two large models give **different** answers to the same question, and then a judge model (or human) determines which answer is better. The key: **both models can see each other's answers and rebut them**.
 
-This process forces models to learn **rigorous reasoning** — if your reasoning has a flaw, the opponent will exploit it and score points; if the opponent's reasoning has a flaw, you need to point it out to score. This "debate-judge" mechanism teaches models deep long-chain reasoning through adversarial interaction.
+This process can expose flaws that a single generator and judge miss: one debater searches for weaknesses in the other's argument, while the judge supplies the learning signal. Its value depends on judge reliability and on whether winning the debate tracks answer correctness.
 
 ```python
 def debate_training(question, model_a, model_b, judge, rounds=3):
@@ -177,7 +156,7 @@ $$
 ![DeepSeek-R1 Pipeline](../../../chapter32_selfplay/self-play-outlook/images/deepseek_r1_pipeline.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>Figure 3: DeepSeek-R1's RL training pipeline. Unlike the traditional two-stage (SFT + RL), DeepSeek-R1-Zero proved that relying purely on a base model and online RL, the model can achieve leaps in reasoning capability through self-exploration and rule rewards. Source: <a href="https://arxiv.org/abs/2501.12948" target="_blank" rel="noopener noreferrer">DeepSeek-R1 Paper</a></em>
+  <em>Figure 3: DeepSeek-R1's reported training pipeline. DeepSeek-R1-Zero shows reasoning behavior emerging from a base model under online RL with rule-based rewards in the paper's mathematics and coding setup. Source: <a href="https://arxiv.org/abs/2501.12948" target="_blank" rel="noopener noreferrer">DeepSeek-R1 paper</a>.</em>
 </div>
 
 **Core advantage: breaking through the human ceiling**
@@ -227,12 +206,18 @@ The core RL challenge of self-verification is **evaluation bias accumulation**: 
 
 Self-evolution systems sound wonderful, but they still face several fundamental challenges:
 
-| Challenge             | Description                                                           | Possible Mitigation                                        |
-| --------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Self-loop degradation | Model's self-evaluation has biases, errors are continuously amplified | Introduce external verification signals (e.g., test cases) |
-| Diversity loss        | Self-play causes policy to collapse to narrow local optima            | Diversity rewards, population training                     |
-| Safety risks          | Autonomous exploration may discover harmful behavior patterns         | Constrained RL                                             |
-| Evaluation bottleneck | "Is the model truly improving" becomes harder to assess               | Multi-dimensional evaluation, adversarial testing          |
+- **Challenge — Self-loop degradation**
+  - Description: Model's self-evaluation has biases, errors are continuously amplified
+  - Possible Mitigation: Introduce external verification signals (e.g., test cases)
+- **Challenge — Diversity loss**
+  - Description: Self-play causes policy to collapse to narrow local optima
+  - Possible Mitigation: Diversity rewards, population training
+- **Challenge — Safety risks**
+  - Description: Autonomous exploration may discover harmful behavior patterns
+  - Possible Mitigation: Constrained RL
+- **Challenge — Evaluation bottleneck**
+  - Description: "Is the model truly improving" becomes harder to assess
+  - Possible Mitigation: Multi-dimensional evaluation, adversarial testing
 
 **Self-loop degradation** is the most concerning. If Generator and Judge both come from the same model, their biases may reinforce each other — the Generator produces answers in a certain style, the Judge gives high scores because it is "familiar with this style," and the Generator is encouraged to keep producing the same style. This is like an "AI echo chamber" — errors are not corrected but amplified.
 
@@ -242,15 +227,13 @@ Self-evolution systems sound wonderful, but they still face several fundamental 
 
 The ideas of self-play and self-evolution thread through the core themes of the entire book. Let us trace these connections:
 
-| Concept from Previous Chapters            | Correspondence in Self-Play/Self-Evolution                                                       |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| AlphaGo self-play (Chapter 7)             | Direct predecessor of self-play — from Go to language                                            |
-| GRPO within-group comparison (Chapter 15) | Within-group comparison is "simplified self-play" — multiple answers from the same model compete |
-| Experience replay (Chapter 5)             | "Experience distillation" in self-evolution — from raw replay to summarized distillation         |
-| PPO (Chapter 8)                           | Policy optimization algorithm for self-play training                                             |
-| RLVR (Chapter 15)                         | Self-play rewards can use verifiable signals, no RM needed                                       |
-| Agentic RL (Chapter 19)                   | Self-play can train tool-use policies — model generates its own tool-call scenarios              |
-| Test-time search                          | Reasoning strategies learned through self-play can be used at inference time                     |
+- **Concept from Previous Chapters — AlphaGo self-play (Chapter 7):** Direct predecessor of self-play — from Go to language
+- **Concept from Previous Chapters — GRPO within-group comparison (Chapter 15):** Within-group comparison is "simplified self-play" — multiple answers from the same model compete
+- **Concept from Previous Chapters — Experience replay (Chapter 5):** "Experience distillation" in self-evolution — from raw replay to summarized distillation
+- **Concept from Previous Chapters — PPO (Chapter 8):** Policy optimization algorithm for self-play training
+- **Concept from Previous Chapters — RLVR (Chapter 15):** Self-play rewards can use verifiable signals, no RM needed
+- **Concept from Previous Chapters — Agentic RL (Chapter 19):** Self-play can train tool-use policies — model generates its own tool-call scenarios
+- **Concept from Previous Chapters — Test-time search:** Reasoning strategies learned through self-play can be used at inference time
 
 Perhaps the deepest connection: **GRPO is a simplified version of self-play**. GRPO has the same model generate multiple answers, then compares them within the group — this is equivalent to multiple instances of the same model "competing." Self-play extends this competition to more complex scenarios: not just comparing final answers, but competing in multi-turn interactions, even playing different roles (Generator vs Judge, Debater A vs Debater B).
 

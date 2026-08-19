@@ -1,26 +1,18 @@
 ---
-title: '25.1 RL for Visual Generation Models'
+title: '24.4 How RL Aligns Image Generation: From DDPO to DanceGRPO'
 ---
 
-# 25.1 RL for Visual Generation Models
+# 24.4 How RL Aligns Image Generation: From DDPO to DanceGRPO
 
-In the preceding chapters, we started from LLM text post-training: the model reads text, generates an answer, and RL's goal is to make it better aligned with human preferences, better at reasoning, and less prone to format and factual errors. In this chapter, we extended the input from pure text to images and text, discussing the **understanding** side of VLM: the model looks at an image and answers a question, with RL's goal being to make it see more accurately and answer more robustly.
-
-Now we take another step forward, moving to the other side of visual AI: **generation**. Given a text prompt, the model must generate an image or a video.
-
-This may seem like "making the model draw prettier pictures." But in real applications, users rarely want just "pretty." Users truly want: the subject to be correct, the count to be right, spatial relationships to be accurate, details to be precise, and the overall style to be natural.
-
-For example, the prompt might say:
+Start with one prompt:
 
 > Three red umbrellas in a glass corridor, with a blue sign on the right wall.
 
-The model generates a beautiful glass corridor, but with only two umbrellas, and the sign is not blue. Should this image get a high or low score? By aesthetics alone, it might be excellent; by instruction-following, it clearly fails.
+Suppose the model produces a polished corridor with two umbrellas and a green sign. An aesthetic scorer may reward the image, even though it failed two explicit requirements. Supervised fine-tuning can imitate good examples, but it does not directly express which of two plausible outputs better satisfies this prompt.
 
-Therefore, the core question of visual generation RL is:
+This is why reinforcement learning is useful here. The model generates an image, one or more evaluators score the result, and training makes high-scoring denoising trajectories more likely. The difficult part is deciding what an action is inside a diffusion sampler, how a final score reaches earlier denoising steps, and whether the evaluator measures the user's request or an exploitable shortcut.
 
-> **Can "generating well" be decomposed into feedback signals that can be learned, compared, and optimized?**
-
-This section follows a complete generation trajectory: first understanding why visual generation is harder to write rewards for than visual QA, then translating Diffusion's denoising process into MDP language, and finally arriving at DDPO's policy gradient, training steps, and reward model design.
+By the end of this section, we will be able to read the state, action, probability ratio, advantage, and reward in a visual-generation RL paper. We will also be able to tell whether a method is improving aesthetics, prompt following, or merely the proxy chosen by its evaluator.
 
 ![DDPO Training Teaser](../../chapter26_vlm/images/ref-ddpo-teaser.jpg)
 
@@ -30,7 +22,7 @@ This section follows a complete generation trajectory: first understanding why v
 
 The algorithm storyline corresponding to this image comes from the DDPO paper; the subsequent exposition of writing Diffusion as MDP and then using policy gradients to update denoising trajectories also uses this paper as the core reference[^ddpo].
 
-## From LLM to VLM, to Visual Generation: What Changes When RL Transfers?
+## 24.4.1 From Answering a Question to Generating an Image
 
 A better way to understand the progression is not "can VLM directly transfer to generation," but to first look at a longer path:
 
@@ -64,11 +56,21 @@ Then visual generation is where things truly shift to a different level. The mod
 
 We can put these three stages in a table:
 
-| Stage                           | Input                  | Output                            | Action in RL                        | Reward Resembles                                         |
-| ------------------------------- | ---------------------- | --------------------------------- | ----------------------------------- | -------------------------------------------------------- |
-| LLM text post-training          | Text prompt            | Text response                     | Next token                          | Preference, rules, verifier                              |
-| VLM understanding post-training | Image + text question  | Text, options, boxes, coordinates | Mostly tokens or structured answers | Answer correctness, IoU, tool verification               |
-| Visual generation post-training | Text / image condition | Image, video, latent trajectory   | Each denoising transition           | Preference, alignment, quality, fine-grained constraints |
+- **Stage — LLM text post-training**
+  - Input: Text prompt
+  - Output: Text response
+  - Action in RL: Next token
+  - Reward Resembles: Preference, rules, verifier
+- **Stage — VLM understanding post-training**
+  - Input: Image + text question
+  - Output: Text, options, boxes, coordinates
+  - Action in RL: Mostly tokens or structured answers
+  - Reward Resembles: Answer correctness, IoU, tool verification
+- **Stage — Visual generation post-training**
+  - Input: Text / image condition
+  - Output: Image, video, latent trajectory
+  - Action in RL: Each denoising transition
+  - Reward Resembles: Preference, alignment, quality, fine-grained constraints
 
 So visual generation RL does not overturn what came before; it applies the same RL language to a harder object.
 
@@ -90,11 +92,9 @@ Here $x_0$ is the latent corresponding to the final image. After passing through
 
 At each denoising step, the model looks at three things:
 
-| Symbol | Meaning                            |
-| ------ | ---------------------------------- |
-| $x_t$  | Current noisy latent               |
-| $t$    | Current denoising timestep         |
-| $c$    | Prompt or conditioning information |
+- **Symbol — $x_t$:** Current noisy latent
+- **Symbol — $t$:** Current denoising timestep
+- **Symbol — $c$:** Prompt or conditioning information
 
 The model decides the next latent:
 
@@ -136,13 +136,11 @@ DDPO (Denoising Diffusion Policy Optimization)'s key observation is: Diffusion's
 
 This translation is very important. Let's examine each component:
 
-| RL Concept          | Diffusion Counterpart                                           |
-| ------------------- | --------------------------------------------------------------- |
-| State $s_t$         | Current latent, timestep, and prompt: $(x_t,t,c)$               |
-| Action $a_t$        | Sampling the next latent, or predicting the denoising direction |
-| Trajectory $\tau$   | The complete denoising chain: $x_T,\ldots,x_0$                  |
-| Reward $R$          | Score given by a reward model on the final image                |
-| Policy $\pi_\theta$ | The diffusion model's denoising distribution $p_\theta$         |
+- **RL Concept — State $s_t$:** Current latent, timestep, and prompt: $(x_t,t,c)$
+- **RL Concept — Action $a_t$:** Sampling the next latent, or predicting the denoising direction
+- **RL Concept — Trajectory $\tau$:** The complete denoising chain: $x_T,\ldots,x_0$
+- **RL Concept — Reward $R$:** Score given by a reward model on the final image
+- **RL Concept — Policy $\pi_\theta$:** The diffusion model's denoising distribution $p_\theta$
 
 Thus, one generation is like an episode:
 
@@ -176,13 +174,11 @@ With the MDP translation above, DDPO is no longer mysterious. It essentially app
 
 Let's first locate this derivation in the literature. The table below maps what we are about to do to its classic reference:
 
-| What We Do                                                                                                    | Paper Reference                        |
-| ------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
-| Treat one denoising generation as an episode / MDP                                                            | DDPO: Black et al., 2024[^ddpo]        |
-| High-score samples increase probability, low-score samples decrease it; mathematically called policy gradient | REINFORCE: Williams, 1992[^reinforce]  |
-| Use old/new logprob ratio and clipping to keep each update small                                              | PPO: Schulman et al., 2017[^ppo]       |
-| Use KL constraint to limit deviation from the reference model                                                 | DPOK: Fan et al., 2023[^dpok]          |
-| Train reward models using human or aesthetic preferences                                                      | Pick-a-Pic / HPS v2[^pickapic][^hpsv2] |
+- **What We Do — Treat one denoising generation as an episode / MDP:** DDPO: Black et al., 2024[^ddpo]
+- **What We Do — High-score samples increase probability, low-score samples decrease it; mathematically called policy gradient:** REINFORCE: Williams, 1992[^reinforce]
+- **What We Do — Use old/new logprob ratio and clipping to keep each update small:** PPO: Schulman et al., 2017[^ppo]
+- **What We Do — Use KL constraint to limit deviation from the reference model:** DPOK: Fan et al., 2023[^dpok]
+- **What We Do — Train reward models using human or aesthetic preferences:** Pick-a-Pic / HPS v2[^pickapic][^hpsv2]
 
 The most terminology-intimidating row is the second one. Its plain-language version is simple:
 
@@ -192,15 +188,13 @@ The problem is, training a model requires more than just saying "make it more li
 
 Let's first align the symbols that will appear:
 
-| Symbol           | How to Understand It                                                           |
-| ---------------- | ------------------------------------------------------------------------------ |
-| $\theta$         | Diffusion model parameters — what training modifies                            |
-| $c$              | Prompt                                                                         |
-| $\tau$           | A complete generation trajectory, from $x_T$ denoising to $x_0$                |
-| $p_\theta(\tau)$ | Probability that the current model samples this trajectory                     |
-| $R(\tau,c)$      | Score for the final image generated by this trajectory                         |
-| $J(\theta)$      | Average score of the current model; training objective is to make it larger    |
-| $\nabla_\theta$  | "Which direction to change parameters so $J(\theta)$ increases" — the gradient |
+- **Symbol — $\theta$:** Diffusion model parameters — what training modifies
+- **Symbol — $c$:** Prompt
+- **Symbol — $\tau$:** A complete generation trajectory, from $x_T$ denoising to $x_0$
+- **Symbol — $p_\theta(\tau)$:** Probability that the current model samples this trajectory
+- **Symbol — $R(\tau,c)$:** Score for the final image generated by this trajectory
+- **Symbol — $J(\theta)$:** Average score of the current model; training objective is to make it larger
+- **Symbol — $\nabla_\theta$:** "Which direction to change parameters so $J(\theta)$ increases" — the gradient
 
 Let's first write out the probability of one denoising trajectory. To simplify notation, we assume prompt $c$ is given:
 
@@ -228,11 +222,15 @@ where $R(\tau,c)=r_\phi(x_0,c)$, the reward model's score on the final image.
 
 Let's first understand this with a small discrete example. Suppose under the same prompt, the model can only produce three denoising trajectories:
 
-| Trajectory | Probability of model sampling it | Final reward |
-| ---------- | -------------------------------- | ------------ |
-| $\tau_1$   | $p_1$                            | $R_1$        |
-| $\tau_2$   | $p_2$                            | $R_2$        |
-| $\tau_3$   | $p_3$                            | $R_3$        |
+- **Trajectory — $\tau_1$**
+  - Probability of model sampling it: $p_1$
+  - Final reward: $R_1$
+- **Trajectory — $\tau_2$**
+  - Probability of model sampling it: $p_2$
+  - Final reward: $R_2$
+- **Trajectory — $\tau_3$**
+  - Probability of model sampling it: $p_3$
+  - Final reward: $R_3$
 
 Then the average reward is:
 
@@ -402,12 +400,10 @@ Why is the last line 1? Because $\int p_\theta(\tau\mid c)d\tau$ means "sum of p
 
 In practice, $\hat{A}$ can be computed in several common ways:
 
-| Advantage Method    | Meaning                                                     |
-| ------------------- | ----------------------------------------------------------- |
-| $R-\bar{R}$         | Subtract the batch mean reward                              |
-| $R-b(c)$            | Subtract the prompt-level historical mean reward            |
-| $R-V_\psi(x_t,t,c)$ | Subtract the value model's prediction for the current state |
-| Normalized reward   | Standardize batch rewards for more stable scale             |
+- **Advantage Method — $R-\bar{R}$:** Subtract the batch mean reward
+- **Advantage Method — $R-b(c)$:** Subtract the prompt-level historical mean reward
+- **Advantage Method — $R-V_\psi(x_t,t,c)$:** Subtract the value model's prediction for the current state
+- **Advantage Method — Normalized reward:** Standardize batch rewards for more stable scale
 
 With advantage, the commonly used DDPO policy gradient becomes:
 
@@ -470,11 +466,9 @@ $$
 
 Minimizing this loss is equivalent to maximizing the policy gradient objective. Intuitively:
 
-| Case                 | What the loss pushes                                       |
-| -------------------- | ---------------------------------------------------------- |
-| $\hat{A}_t>0$        | Increase the log probability of this step's sampled action |
-| $\hat{A}_t<0$        | Decrease the log probability of this step's sampled action |
-| $\hat{A}_t\approx 0$ | Essentially no update at this step                         |
+- **Case — $\hat{A}_t>0$:** Increase the log probability of this step's sampled action
+- **Case — $\hat{A}_t<0$:** Decrease the log probability of this step's sampled action
+- **Case — $\hat{A}_t\approx 0$:** Essentially no update at this step
 
 This is completely consistent with Chapter 6's REINFORCE, except the action has changed from "choosing a token" to "choosing the next latent."
 
@@ -501,10 +495,8 @@ $$
 
 This formula can be understood in two parts:
 
-| Term                 | Role                                                                                  |
-| -------------------- | ------------------------------------------------------------------------------------- |
-| Policy gradient term | Makes high-reward sampling trajectories more likely                                   |
-| KL term              | Prevents the model from straying too far from the original model in pursuit of reward |
+- **Term — Policy gradient term:** Makes high-reward sampling trajectories more likely
+- **Term — KL term:** Prevents the model from straying too far from the original model in pursuit of reward
 
 This is the same idea as in RLHF, DPO, and GRPO: make the model improve without drifting too far from the reference model.
 
@@ -516,7 +508,7 @@ One sentence to remember:
 
 > DDPO does not do supervised learning on existing images. It has the current model generate images itself, uses rewards to judge which generation results are good or bad, and then propagates the good/bad signal back to the sampling trajectories[^ddpo].
 
-This is its core difference from ordinary diffusion fine-tuning. Ordinary supervised fine-tuning shows the model "what it should generate"; DDPO shows the model "among the results you generated, which ones are more worth becoming more likely."
+This is its core difference from ordinary diffusion fine-tuning. Supervised fine-tuning provides target images to imitate. DDPO compares samples from the current policy and increases the probability of the better-scoring denoising trajectories.
 
 #### Step 1: Take a Batch of Prompts
 
@@ -532,13 +524,11 @@ Prompt data quality directly affects training direction. If prompts are too simp
 
 In practice, a good prompt batch often mixes several types:
 
-| Prompt Type                  | Training Role                                           |
-| ---------------------------- | ------------------------------------------------------- |
-| Simple scene prompts         | Stabilize base generation quality                       |
-| Multi-attribute prompts      | Train details like color, material, count               |
-| Spatial relationship prompts | Train left/right, up/down, occlusion, relative position |
-| Long instruction prompts     | Train instruction-following under complex conditions    |
-| Benchmark-style prompts      | Align training objectives with final evaluation         |
+- **Prompt Type — Simple scene prompts:** Stabilize base generation quality
+- **Prompt Type — Multi-attribute prompts:** Train details like color, material, count
+- **Prompt Type — Spatial relationship prompts:** Train left/right, up/down, occlusion, relative position
+- **Prompt Type — Long instruction prompts:** Train instruction-following under complex conditions
+- **Prompt Type — Benchmark-style prompts:** Align training objectives with final evaluation
 
 This step may seem ordinary but is critical: RL can only optimize the model's behavior on the distribution of these prompts. If the prompt distribution is too narrow, the model may only improve in narrow scenarios.
 
@@ -554,12 +544,10 @@ $$
 
 There is a detail easily overlooked: during training, we cannot just save the final image — we must also save key information from each denoising step.
 
-| What to Save                                        | Why                                                 |
-| --------------------------------------------------- | --------------------------------------------------- |
-| $x_t$                                               | Later need to recompute this step's log probability |
-| $x_{t-1}$                                           | This is the actual action sampled at step $t$       |
-| $\log p_{\theta_{\text{old}}}(x_{t-1}\mid x_t,t,c)$ | For PPO-style updates, need old logprob             |
-| Final image $x_0$ or decoded image                  | Reward model needs to score the final result        |
+- **What to Save — $x_t$:** Later need to recompute this step's log probability
+- **What to Save — $x_{t-1}$:** This is the actual action sampled at step $t$
+- **What to Save — $\log p_{\theta_{\text{old}}}(x_{t-1}\mid x_t,t,c)$:** For PPO-style updates, need old logprob
+- **What to Save — Final image $x_0$ or decoded image:** Reward model needs to score the final result
 
 Why does $\theta_{\text{old}}$ appear? Because the model used for sampling is the pre-update model. By the time we do the gradient update, model parameters are about to change. To know "how much the new model changed the action probability relative to the old model," we often need to save old logprobs.
 
@@ -641,11 +629,9 @@ $$
 
 This formula can be read at three levels:
 
-| Formula Part                                       | Meaning                                                                                              |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| $\log p_\theta(x_{t-1}^{(i)}\mid x_t^{(i)},t,c_i)$ | Log probability that the model sampled this denoising action at step $t$                             |
-| $\hat{A}_i$                                        | How much better the $i$-th image is than average                                                     |
-| Leading negative sign                              | Because the optimizer minimizes loss by default, and we want to maximize good trajectory probability |
+- **Formula Part — $\log p_\theta(x_{t-1}^{(i)}\mid x_t^{(i)},t,c_i)$:** Log probability that the model sampled this denoising action at step $t$
+- **Formula Part — $\hat{A}_i$:** How much better the $i$-th image is than average
+- **Formula Part — Leading negative sign:** Because the optimizer minimizes loss by default, and we want to maximize good trajectory probability
 
 If $\hat{A}_i>0$, this image is better than average; minimizing loss increases the log probability of each action along this trajectory. If $\hat{A}_i<0$, this image is worse than average; minimizing loss decreases the log probability of these actions.
 
@@ -776,7 +762,21 @@ If we compress DDPO into one engineering intuition:
 
 > For the same batch of prompts, let the model generate its own samples; rank the generation results by reward; increase the probability of good samples' denoising trajectories, decrease the probability of bad samples' trajectories, while using KL and clipping to prevent the model from shifting too aggressively.
 
-## Reward Model: The Real Bottleneck in Generation RL
+## 24.4.5 DanceGRPO: Why Generate a Group for the Same Prompt?
+
+DDPO can compare images across a rollout batch, but an absolute reward is often difficult to calibrate. A score of 0.7 may be strong for a difficult counting prompt and weak for a simple portrait prompt. [DanceGRPO](https://arxiv.org/abs/2505.07818) changes the comparison unit: generate a group of candidates under the same condition, then ask which candidates are better relative to their siblings.[^dancegrpo]
+
+Consider three images for one prompt with rewards 1, 2, and 3. Their mean is 2. Before introducing any critic, we already know the first trajectory should become less likely, the second is near the group baseline, and the third should become more likely. A simplified group-normalized advantage is
+
+$$
+A_i=\frac{r_i-\bar r}{s_r+\epsilon},
+$$
+
+where $\bar r$ and $s_r$ are the reward mean and standard deviation within that prompt's group. The same relative advantage is attached to the denoising steps that produced candidate $i$, while PPO-style clipping limits how far the updated sampler moves.
+
+The distinction is now concrete. DDPO establishes how to treat a denoising chain as a policy trajectory and propagate terminal feedback through it. DanceGRPO adds same-condition group comparison, removing the need for a separately learned value critic and making reward scales easier to compare within each prompt. Neither method fixes a misspecified reward; both will optimize whatever evaluator we provide.
+
+## 24.4.6 The Reward Model Determines What the Generator Learns
 
 At this point, the algorithm is in place. But the difficulty of generation RL often lies not in "can we write policy gradients," but in "is the reward actually trustworthy?"
 
@@ -819,13 +819,21 @@ This signal's advantage is proximity to real user preferences. The disadvantage 
 
 Text-image alignment checks whether the image truly matches the prompt. This can be decomposed from coarse to fine:
 
-| Level                 | Example                                                 | Possible Check Methods                            |
-| --------------------- | ------------------------------------------------------- | ------------------------------------------------- |
-| Global semantics      | Does it roughly generate the specified scene            | CLIP Score, VLM judgment                          |
-| Object presence       | Do key objects from the prompt appear                   | Detectors, VLM QA                                 |
-| Attribute matching    | Are colors, materials, sizes correct                    | Fine-grained caption then item-by-item comparison |
-| Relationship matching | Are left/right, up/down, occlusion, interaction correct | Relationship extraction, VLM judge                |
-| Count matching        | Is the specified count correct                          | Counting models, object detection, VLM check      |
+- **Level — Global semantics**
+  - Example: Does it roughly generate the specified scene
+  - Possible Check Methods: CLIP Score, VLM judgment
+- **Level — Object presence**
+  - Example: Do key objects from the prompt appear
+  - Possible Check Methods: Detectors, VLM QA
+- **Level — Attribute matching**
+  - Example: Are colors, materials, sizes correct
+  - Possible Check Methods: Fine-grained caption then item-by-item comparison
+- **Level — Relationship matching**
+  - Example: Are left/right, up/down, occlusion, interaction correct
+  - Possible Check Methods: Relationship extraction, VLM judge
+- **Level — Count matching**
+  - Example: Is the specified count correct
+  - Possible Check Methods: Counting models, object detection, VLM check
 
 This level connects directly with the VLM RL from previous sections. A VLM trained to better understand images can serve as a captioner, judge, or reward model, helping the generation model judge "was it drawn correctly."
 
@@ -871,11 +879,18 @@ The first is **inference-time use**, also called reward-guided sampling or reran
 
 The second is **training-time use**, which is RL fine-tuning like DDPO and DPOK[^ddpo][^dpok]. The model is not just filtered — its parameters are actually updated, internalizing preferences into the generation policy.
 
-| Method                  | What It Does                                  | Advantage                             | Disadvantage                                       |
-| ----------------------- | --------------------------------------------- | ------------------------------------- | -------------------------------------------------- |
-| Best-of-$N$ / reranking | Generate more, then select with reward model  | Simple to implement, no model changes | High inference cost, capability not internalized   |
-| Reward-guided sampling  | Use reward to guide direction during sampling | More active than pure reranking       | Still requires extra evaluation per generation     |
-| RL fine-tuning          | Use reward to update model parameters         | Can internalize preferences           | More expensive training, more prone to instability |
+- **Method — Best-of-$N$ / reranking**
+  - What It Does: Generate more, then select with reward model
+  - Advantage: Simple to implement, no model changes
+  - Disadvantage: High inference cost, capability not internalized
+- **Method — Reward-guided sampling**
+  - What It Does: Use reward to guide direction during sampling
+  - Advantage: More active than pure reranking
+  - Disadvantage: Still requires extra evaluation per generation
+- **Method — RL fine-tuning**
+  - What It Does: Use reward to update model parameters
+  - Advantage: Can internalize preferences
+  - Disadvantage: More expensive training, more prone to instability
 
 In practice, reranking is often done first. If the reward model cannot even rank well, it should not be used directly for RL.
 
@@ -901,20 +916,24 @@ $$
 
 These three components correspond to:
 
-| Component             | What It Checks                                         |
-| --------------------- | ------------------------------------------------------ |
-| $R_{\text{frame}}$    | Single-frame quality and single-frame text alignment   |
-| $R_{\text{temporal}}$ | Inter-frame consistency and motion naturalness         |
-| $R_{\text{overall}}$  | Whether the entire video completes the prompt's events |
+- **Component — $R_{\text{frame}}$:** Single-frame quality and single-frame text alignment
+- **Component — $R_{\text{temporal}}$:** Inter-frame consistency and motion naturalness
+- **Component — $R_{\text{overall}}$:** Whether the entire video completes the prompt's events
 
 Video RL's difficulties also increase:
 
-| Challenge            | Why Harder                                                          | Common Mitigation                                                      |
-| -------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Temporal consistency | Individual frames being good doesn't mean they're coherent together | Optical flow consistency, trajectory consistency, video VLM evaluation |
-| Long horizon         | Video token and latent counts far exceed images                     | Segmented optimization, short-clip reward shaping                      |
-| Computational cost   | Each sampling and scoring is more expensive                         | Latent-space training, low-frame-rate evaluation, candidate reranking  |
-| Text-video alignment | Prompt may include sequential order                                 | Segmented captions, event-level rewards                                |
+- **Challenge — Temporal consistency**
+  - Why Harder: Individual frames being good doesn't mean they're coherent together
+  - Common Mitigation: Optical flow consistency, trajectory consistency, video VLM evaluation
+- **Challenge — Long horizon**
+  - Why Harder: Video token and latent counts far exceed images
+  - Common Mitigation: Segmented optimization, short-clip reward shaping
+- **Challenge — Computational cost**
+  - Why Harder: Each sampling and scoring is more expensive
+  - Common Mitigation: Latent-space training, low-frame-rate evaluation, candidate reranking
+- **Challenge — Text-video alignment**
+  - Why Harder: Prompt may include sequential order
+  - Common Mitigation: Segmented captions, event-level rewards
 
 Intuitively, image generation errors are often "something was drawn wrong"; video generation errors are often "continuity was broken." This is why video rewards rely more on segment-level and overall-level evaluation.
 
@@ -934,13 +953,11 @@ This is consistent with the distillation idea from Chapter 8: the strong model h
 
 Visual generation RL may seem far from VLM QA, but it reuses several main threads from earlier in the book.
 
-| Earlier Chapter           | Correspondence in Visual Generation RL                                                                  |
-| ------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Chapter 6 REINFORCE       | DDPO treats denoising chains as policy trajectories, updating each step's sampling with terminal reward |
-| Chapter 25 Reward Hacking | Generation models may please the reward model while sacrificing real user intent                        |
-| Chapter 15 RLVR           | Fine-grained attributes, counts, relationships can become locally verifiable signals                    |
-| Chapter 19 Agentic RL     | Long-horizon credit assignment, multi-component rewards, and KL constraints reappear                    |
-| Sections 11.1-11.3 VLM RL | VLMs can in turn serve as judges, captioners, and reward models for generation models                   |
+- **Earlier Chapter — Chapter 6 REINFORCE:** DDPO treats denoising chains as policy trajectories, updating each step's sampling with terminal reward
+- **Earlier Chapter — Chapter 25 Reward Hacking:** Generation models may please the reward model while sacrificing real user intent
+- **Earlier Chapter — Chapter 15 RLVR:** Fine-grained attributes, counts, relationships can become locally verifiable signals
+- **Earlier Chapter — Chapter 19 Agentic RL:** Long-horizon credit assignment, multi-component rewards, and KL constraints reappear
+- **Earlier Chapter — Sections 11.1-11.3 VLM RL:** VLMs can in turn serve as judges, captioners, and reward models for generation models
 
 The last point is especially important. Understanding models and generation models are connected. After VLMs learn to see images better, they can check whether generated images match prompts; generation models can synthesize richer data to train VLMs in turn. In the multimodal post-training stage, "seeing" and "generating" will increasingly reinforce each other.
 
@@ -964,6 +981,8 @@ With this, we have covered both visual understanding and visual generation in RL
 [^ppo]: Schulman, J. et al. (2017). Proximal Policy Optimization Algorithms. <https://arxiv.org/abs/1707.06347>
 
 [^ddpo]: Black, K., Janner, M., Du, Y., et al. (2024). Training Diffusion Models with Reinforcement Learning. _ICLR_. <https://arxiv.org/abs/2305.13301>
+
+[^dancegrpo]: Xue, Z. et al. (2025). DanceGRPO: Unleashing GRPO on Visual Generation. <https://arxiv.org/abs/2505.07818>; official implementation: <https://github.com/XueZeyue/DanceGRPO>
 
 [^dpok]: Fan, Y., Watkins, O., Du, Y., et al. (2023). DPOK: Reinforcement Learning for Fine-tuning Text-to-Image Diffusion Models. _NeurIPS_. <https://arxiv.org/abs/2305.16381>
 

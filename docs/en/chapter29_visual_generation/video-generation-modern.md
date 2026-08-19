@@ -1,10 +1,18 @@
-# 24.5 Video RLHF and Physical Perception Generation
+# 24.5 Why Videos Contradict Themselves: Video RLHF and Physical Evaluation
 
-[Section 24.4 on Visual Generation with RL](./visual-generation-dancegrpo) discussed the foundations of diffusion RL — algorithms such as DDPO and DPOK. That section took an **algorithmic perspective**: how to model diffusion training as an MDP, and how to use policy gradient optimization.
+Consider a five-second clip of a red ball rolling behind a box and emerging on the other side. Every individual frame can look sharp while the clip still fails: the ball changes size, disappears too early, or emerges before it reaches the box. An image scorer sees several attractive frames. A viewer sees one broken event.
 
-This section takes a different perspective — the **industrial level**: how video generation models such as Seedance, LongCat-Video, Hailuo, Wan, and Kling were trained using RL in 2025–2026. These works represent the current state-of-the-art in video generation with RL.
+Video therefore changes the object we must evaluate. The model must preserve identity, motion, contact, and causal order across a timeline. A single terminal score can still train the model, but it cannot tell us which moment caused the failure, and a visually strong reward can hide temporal mistakes.
 
-## 24.5.1 From Images to Video and New Challenges of RL
+This section follows that problem from simple frame checks to video-specific rewards, [VADER](https://arxiv.org/abs/2407.08737), [DanceGRPO](https://arxiv.org/abs/2505.07818), Seedance, and LongCat-Video. We will finish with a small evaluation harness that can test physical consistency without first training a video model.
+
+<img src="../../chapter29_visual_generation/images/seedance-stage-comparison.png" alt="Video samples from different Seedance training stages" style="width: auto; max-width: 100%; max-height: 620px;" />
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 1: Video frames produced after pretraining, continued training, supervised fine-tuning, and RLHF. Read each row along time: check whether the action and identity remain continuous instead of judging one attractive frame. Source: <a href="https://arxiv.org/abs/2506.09113" target="_blank" rel="noopener noreferrer">Seedance 1.0 technical report</a>.</em>
+</div>
+
+## 24.5.1 What a Timeline Adds
 
 RL for image generation has matured ([DDPO](./visual-generation-dancegrpo), DPOK). However, video generation brings new challenges:
 
@@ -31,11 +39,11 @@ Video reward is significantly more complex than image reward.
 - Image generation (diffusion): 50 denoising steps × single frame = several seconds
 - Video generation: 50 denoising steps × 100 frames = several minutes
 
-RL training requires a large number of rollouts — each rollout takes several minutes, making the training cost of video RL 100+ times that of image RL.
+RL training requires many rollouts, so longer clips, higher resolution, and more denoising steps make each update substantially more expensive. The factor depends on architecture, compression, clip length, and parallelism; it should be measured rather than treated as one universal multiplier.
 
 ### Scarcity of Reward Models
 
-Image reward models include [LAION-Aesthetics](https://laion.ai/blog/laion-aesthetics/), [PickScore](https://arxiv.org/abs/2305.01569), and other open-source models. Video reward models are almost nonexistent — the cost of labeling video preference data is more than 10 times that of image data.
+Image reward resources include [LAION-Aesthetics](https://laion.ai/blog/laion-aesthetics/) and [PickScore](https://arxiv.org/abs/2305.01569). Video evaluation has fewer standardized public reward models because annotators must judge both frame quality and temporal behavior. Collection cost depends strongly on clip length and labeling protocol.
 
 These challenges have slowed progress in video generation RL in 2024. The major industrial breakthroughs in 2025 come from two directions:
 
@@ -77,13 +85,21 @@ This process is almost identical to GRPO for LLMs — the only difference is:
 
 ### Comparison between DanceGRPO and DDPO
 
-| Dimension            | DDPO                    | DanceGRPO                                            |
-| -------------------- | ----------------------- | ---------------------------------------------------- |
-| Advantage Estimation | Single rollout + reward | Normalization within group                           |
-| Requires Critic      | No                      | No                                                   |
-| Training Stability   | Moderate                | Significant improvement                              |
-| Training Efficiency  | Medium                  | High (group normalization strengthens reward signal) |
-| Applicable Model     | Early diffusion         | Modern video diffusion                               |
+- **Dimension — Advantage Estimation**
+  - DDPO: Single rollout + reward
+  - DanceGRPO: Normalization within group
+- **Dimension — Requires Critic**
+  - DDPO: No
+  - DanceGRPO: No
+- **Dimension — Training Stability**
+  - DDPO: Moderate
+  - DanceGRPO: Significant improvement
+- **Dimension — Training Efficiency**
+  - DDPO: Medium
+  - DanceGRPO: High (group normalization strengthens reward signal)
+- **Dimension — Applicable Model**
+  - DDPO: Early diffusion
+  - DanceGRPO: Modern video diffusion
 
 Key advantages of DanceGRPO:
 
@@ -95,14 +111,11 @@ Key advantages of DanceGRPO:
 
 Byte Seed trained multiple video generation models using DanceGRPO:
 
-- **Image Generation** (FLUX, SD3): Aesthetic score improved by 15–20%
-- **Video Generation** (Wan, Seedance): Dynamic quality improved by 10–15%
+The DanceGRPO paper reports experiments on image and video generation backbones under several reward signals. The useful evidence is the per-reward comparison and ablation, not a universal percentage that applies across models. DanceGRPO is one representative critic-free route for visual generation RL; differentiable-reward methods and preference optimization remain separate alternatives.
 
-DanceGRPO has already become the default choice in industry for diffusion reinforcement learning — this aligns with GRPO's status in the LLM field.
+## 24.5.3 What the Seedance Technical Report Actually Shows
 
-## 24.5.3 Seedance and ByteDance's Video Generation Flagship
-
-[Seedance](https://seed.bytedance.com/) (ByteDance, released in March 2025, upgraded to 1.0 Pro in October 2025) is one of the leading video generation models in China. It has ranked first multiple times on VBench (video generation benchmark).
+The [Seedance 1.0 technical report](https://arxiv.org/abs/2506.09113) describes a staged system: large-scale pretraining establishes basic generation, continued training and fine-grained supervised fine-tuning improve data quality and instruction following, and video-specific RLHF further adjusts motion, temporal coherence, and preference. This evidence is more precise than inferring a complete training recipe from a product demo.
 
 ### Seedance's Training Process
 
@@ -116,9 +129,9 @@ DanceGRPO has already become the default choice in industry for diffusion reinfo
 │   - Filtering high-quality videos (4K, professional shot)│
 │   - Teaching the model what "high quality" means         │
 ├──────────────────────────────────────────────────────────┤
-│ Phase 3: DanceGRPO RL                                    │
-│   - Using video reward model for reinforcement learning │
-│   - Optimizing prompt following, dynamic quality, and temporal consistency │
+│ Phase 3: Video-specific RLHF                              │
+│   - Compare or score generated clips                     │
+│   - Improve instruction following, motion, and coherence │
 ├──────────────────────────────────────────────────────────┤
 │ Phase 4: Expert Iteration                                │
 │   - RL → Collect new data → SFT → RL → ...               │
@@ -128,7 +141,7 @@ DanceGRPO has already become the default choice in industry for diffusion reinfo
 
 ### Reward Design in Seedance
 
-The reward in Seedance is composed of multiple components:
+The report motivates monitoring several dimensions separately. A practical video reward system may include the following signals:
 
 **Component 1: Prompt Following**
 
@@ -150,11 +163,17 @@ Temporal consistency — are the frames in the video coherent across time? Score
 
 Human preference — a reward model trained on RLHF preference data.
 
-The final reward is computed as:
+For teaching purposes, we can write a weighted reward template as
 
 $$r_{\text{total}} = w_1 \cdot r_{\text{prompt}} + w_2 \cdot r_{\text{aesthetic}} + w_3 \cdot r_{\text{motion}} + w_4 \cdot r_{\text{temporal}} + w_5 \cdot r_{\text{human}}$$
 
-The weights $w_1, \ldots, w_5$ are optimized through grid search.
+Here the $w_i$ values express engineering trade-offs. This equation is a teaching template, not a claim that the report fixes one universal set of weights. A single total reward should always be accompanied by the separate curves, because one component can improve while another declines.
+
+<img src="../../chapter29_visual_generation/images/seedance-reward-curves.png" alt="Multiple reward curves reported for Seedance" style="width: 100%; max-width: 760px; max-height: none;" />
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 2: Multiple reward signals reported by Seedance. Base quality, motion, and aesthetics must be monitored separately; one aggregate curve cannot show whether they improve together. Source: <a href="https://arxiv.org/abs/2506.09113" target="_blank" rel="noopener noreferrer">Seedance 1.0 technical report</a>.</em>
+</div>
 
 ### Engineering Optimization of Seedance
 
@@ -178,14 +197,12 @@ As an alternative to traditional diffusion, flow matching is used (which is more
 
 VBench 2025.10 Ranking:
 
-| Model            | VBench Total |
-| ---------------- | ------------ |
-| Seedance 1.0 Pro | 86.7%        |
-| Wan 2.5          | 84.2%        |
-| Kling 2.0        | 83.1%        |
-| Hailuo 02        | 81.5%        |
-| Sora 2 (OpenAI)  | 80.8%        |
-| Veo 3 (Google)   | 79.5%        |
+- **Model — Seedance 1.0 Pro:** 86.7%
+- **Model — Wan 2.5:** 84.2%
+- **Model — Kling 2.0:** 83.1%
+- **Model — Hailuo 02:** 81.5%
+- **Model — Sora 2 (OpenAI):** 80.8%
+- **Model — Veo 3 (Google):** 79.5%
 
 Seedance is the state-of-the-art video generation model in China, surpassing Sora 2 and Veo 3.
 
@@ -242,12 +259,18 @@ This hierarchical structure is consistent with the hierarchical RL approach in [
 
 LongCat-Video achieves state-of-the-art results in long video generation:
 
-| Model             | 30-Second Video Consistency | Story Coherence |
-| ----------------- | --------------------------- | --------------- |
-| Sora 2            | 65%                         | 60%             |
-| Veo 3             | 68%                         | 65%             |
-| Wan 2.5 Long      | 70%                         | 68%             |
-| **LongCat-Video** | **78%**                     | **75%**         |
+- **Model — Sora 2**
+  - 30-Second Video Consistency: 65%
+  - Story Coherence: 60%
+- **Model — Veo 3**
+  - 30-Second Video Consistency: 68%
+  - Story Coherence: 65%
+- **Model — Wan 2.5 Long**
+  - 30-Second Video Consistency: 70%
+  - Story Coherence: 68%
+- **Model — LongCat-Video**
+  - 30-Second Video Consistency: **78%**
+  - Story Coherence: **75%**
 
 ## 24.5.5 Hailuo and MiniMax Video Generation
 
@@ -292,15 +315,34 @@ Internal research at MiniMax (e.g., [CISPO](../chapter18_grpo/grpo-family)) also
 
 As of mid-2026, the industrial landscape of video generation with reinforcement learning:
 
-| Vendor    | Representative Model  | Algorithm       | Features                    |
-| --------- | --------------------- | --------------- | --------------------------- |
-| Byte Seed | Seedance, LongCat     | DanceGRPO       | Chinese SOTA, parallelism   |
-| MiniMax   | Hailuo                | CISPO + GRPO    | Strong actions, open source |
-| Alibaba   | Wan                   | DanceGRPO       | Open source ecosystem       |
-| Kuaishou  | Kling                 | Internal method | Strong physics              |
-| OpenAI    | Sora 2                | Not disclosed   | Long video                  |
-| Google    | Veo 3                 | Not disclosed   | Audio-video joint           |
-| Anthropic | (No video generation) | -               | Focused on text             |
+- **Vendor — Byte Seed**
+  - Representative Model: Seedance, LongCat
+  - Algorithm: DanceGRPO
+  - Features: Chinese SOTA, parallelism
+- **Vendor — MiniMax**
+  - Representative Model: Hailuo
+  - Algorithm: CISPO + GRPO
+  - Features: Strong actions, open source
+- **Vendor — Alibaba**
+  - Representative Model: Wan
+  - Algorithm: DanceGRPO
+  - Features: Open source ecosystem
+- **Vendor — Kuaishou**
+  - Representative Model: Kling
+  - Algorithm: Internal method
+  - Features: Strong physics
+- **Vendor — OpenAI**
+  - Representative Model: Sora 2
+  - Algorithm: Not disclosed
+  - Features: Long video
+- **Vendor — Google**
+  - Representative Model: Veo 3
+  - Algorithm: Not disclosed
+  - Features: Audio-video joint
+- **Vendor — Anthropic**
+  - Representative Model: (No video generation)
+  - Algorithm: -
+  - Features: Focused on text
 
 Observations:
 
@@ -340,21 +382,34 @@ Observations:
 - **Future**: True physics simulation
 - **Challenges**: Integration with physics engines, physics-based reward modeling
 
+## 24.5.8 A Minimal Harness for Physical Consistency
+
+We can test the central failure modes without training a video model. Start with 20 prompts, each describing one observable event: an object passes behind an occluder, a cup receives water, a ball bounces after contact, or a person picks up one named object. Generate several clips per prompt and keep the seed, sampler, resolution, frame rate, and model version fixed.
+
+For each clip, save four kinds of evidence:
+
+- **Identity:** does the same object keep its color, shape, and count?
+- **Trajectory:** does its position change continuously rather than teleport?
+- **Contact order:** does contact occur before the resulting motion or deformation?
+- **Task completion:** does the requested event actually finish?
+
+Suppose the ball is at horizontal positions 8, 12, and 15 in three consecutive frames. The changes are 4 and 3, which is plausible under smooth motion. Positions 10, 12, and 2 would contain a sudden jump. A simple trajectory diagnostic is
+
+$$
+e_{\text{motion}}=\frac{1}{T-2}\sum_{t=2}^{T-1}
+\left\|p_{t+1}-2p_t+p_{t-1}\right\|_2,
+$$
+
+where $p_t$ is the tracked object position in frame $t$. This second difference measures abrupt changes in velocity. It is only a diagnostic: camera cuts and intentional impacts can create large values, so the metric must be read together with the prompt and annotated event boundaries.
+
+Run the same harness before and after post-training. Report each physical dimension separately, include failure clips rather than only successful examples, and use human review on ambiguous cases. This makes it possible to distinguish “prettier frames” from “more coherent events.”
+
 ## Summary
 
-Video generation with reinforcement learning has achieved major breakthroughs in 2025:
+Moving from images to video adds a timeline. Reward design must therefore preserve frame quality while measuring identity, motion, event order, and physical consistency. VADER propagates differentiable reward gradients, DanceGRPO compares groups under the same condition, and video RLHF learns from preference signals; each route pays a different compute and evaluator cost.
 
-- **DanceGRPO** applies the GRPO idea to diffusion models, becoming the mainstream algorithm
-- **Seedance / LongCat** achieve state-of-the-art performance in industrial applications
-- **Hailuo / Wan / Kling** collectively push Chinese research in video generation to the forefront
+Technical reports such as Seedance and LongCat explain parts of modern training systems, while product demonstrations from Hailuo, Wan, Kling, Sora, and Veo show capabilities without revealing every training detail. A reliable reading keeps those two kinds of evidence separate.
 
-The core challenges of video generation with reinforcement learning — long sequences, temporal consistency, and computational cost — are being gradually addressed by industrial practice. Future directions include 5–10 minute videos, audio-video joint generation, and interactive generation.
+The practical deliverable is the evaluation harness: fixed prompts and seeds, separate physical dimensions, repeated samples, ambiguous-case review, and retained failure clips. The next chapter, [Reward Hacking and RL Evaluation](../chapter30_alignment_failures/classical-failures), studies what happens when the evaluator itself becomes the object that optimization learns to exploit.
 
-This section, together with [24.4 Visual Generation with Reinforcement Learning](./visual-generation-dancegrpo), forms a complete system:
-
-- **24.4**: Algorithm foundations (DDPO, DPOK)
-- **24.5**: Industrial practice (DanceGRPO, Seedance, LongCat)
-
-Together, they cover the full landscape of visual generation with reinforcement learning.
-
-From audio rewards, speech agents, and VLA, Chapter 24 has progressed to image and video generation. The next chapter, [Chapter 25: Reward Hacking and RL Evaluation](../chapter30_alignment_failures/classical-failures), will discuss the reward vulnerabilities, alignment failures, and evaluation issues that must be addressed when extending to multimodal capabilities.
+Official resources: [Seedance project page](https://seed.bytedance.com/) and [Seedance 1.0 technical report](https://arxiv.org/abs/2506.09113).

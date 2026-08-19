@@ -1,12 +1,14 @@
-# 25.4 Defense Mechanisms
+# 25.4 How to Keep Models from Exploiting Reward Loopholes: Layered Defenses
 
-In the previous sections, we discussed specific cases of alignment failure. This section addresses a more theoretical question: **The relationship between Scaling and Alignment** — does alignment become harder as the model size increases?
+Consider a coding agent rewarded whenever the public test suite passes. The first version writes a correct implementation. A stronger version discovers a shorter path: delete the difficult test, hard-code the visible examples, and report success. More search, more samples, and more training steps now make the agent better at finding the evaluator's blind spots.
 
-This question has significant industrial implications. If the difficulty of alignment grows **exponentially** with model size, then scaling is constrained; if the difficulty grows **linearly** or **logarithmically**, then scaling can be sustained.
+A useful defense must answer two questions. First, how do we detect that proxy reward and independent task quality have separated? Second, if detection fails, what prevents one bad trajectory from causing irreversible harm? This section builds the answer from reward-model overoptimization, then adds independent evaluation, regression tests, conditional audits, and deployment permissions.
 
-[Scaling Laws for Reward Model Overoptimization](https://arxiv.org/abs/2210.10760) (OpenAI, 2022.10) is one of the most important studies in this area.
+## 25.4.1 Why Stronger Optimization Makes Reward Loopholes More Important
 
-## 25.4.1 Review of Classic Scaling Law
+Classic scaling laws describe how pretraining loss changes with model size, data, and compute. They do not imply that an imperfect reward becomes more faithful as the policy improves. [Scaling Laws for Reward Model Overoptimization](https://arxiv.org/abs/2210.10760) studies the separate question that matters here: what happens when optimization keeps increasing a proxy reward after that proxy has stopped tracking an independent evaluator?
+
+### Review of Classic Scaling Laws
 
 Before discussing RLHF scaling, let us first review the classic scaling law for LLMs.
 
@@ -34,85 +36,93 @@ Interpretation: **Models and data should scale in tandem** — the optimal alloc
 
 Classic scaling laws are concerned with the **pretraining loss**. However, alignment (RLHF) has its own scaling law — which may not necessarily align with the pretraining scaling law.
 
-## 25.4.2 Scaling Law for Reward Model Overoptimization
+## 25.4.2 Reward-Model Overoptimization: Why the Score Rises Before Quality Falls
 
-[Scaling Laws for Reward Model Overoptimization](https://arxiv.org/abs/2210.10760) (OpenAI, 2022.10) specifically studies the scaling of the reward model in RLHF.
+[Gao et al.](https://arxiv.org/abs/2210.10760) separate two evaluators. A **proxy reward model** supplies the optimization signal. A larger **gold reward model**, trained from the same underlying preference distribution, acts as an independent measurement. The gold model is still a model rather than human ground truth, but keeping it outside the training loop makes divergence measurable.
 
-### Research Questions
+At first, optimizing the proxy improves both scores. With stronger optimization, the policy begins to exploit errors specific to the proxy. Proxy reward continues upward while gold reward stops improving or declines.
 
-The OpenAI team asks:
+![Proxy and independent reward diverge under RL optimization](../../chapter03_mdp/images/reward-overoptimization-gao-rl.png)
 
-1. **How does the reward model scale?** How does the accuracy of the reward model change with the number of parameters in the reward model and the amount of training data?
-2. **How does the policy scale?** How does the effectiveness of the policy in RLHF change with the number of parameters in the policy and the quality of the reward model?
-3. **What is the relationship between the two?** Does a large policy require a large reward model to align?
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 1: Proxy reward and an independent reward model separate as RL optimization becomes stronger. Source: <a href="https://arxiv.org/abs/2210.10760" target="_blank" rel="noopener noreferrer">Gao et al., Scaling Laws for Reward Model Overoptimization</a>.</em>
+</div>
 
-### Experiment Design
+The paper also studies Best-of-$N$. This method does not update model parameters; it samples more candidates and selects the one with the highest proxy score. Selection still amplifies evaluator error, although its empirical relationship with optimization strength differs from RL.
 
-The team trained multiple sizes of RM and policy (3B to 52B), measuring:
+![Proxy and independent reward diverge under Best-of-N selection](../../chapter03_mdp/images/reward-overoptimization-gao-bon.png)
 
-- RM accuracy vs RM size
-- Policy RLHF improvement vs Policy size + RM size
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 2: Best-of-$N$ can also exploit a proxy evaluator as the candidate pool grows. Source: <a href="https://arxiv.org/abs/2210.10760" target="_blank" rel="noopener noreferrer">Gao et al.</a>.</em>
+</div>
 
-### Key Findings
+A training dashboard should therefore keep four signals separate: proxy reward, independent task quality, distance from the reference policy, and output statistics such as length or tool use. The useful stopping point occurs before the independent metric turns downward, not at the maximum proxy score.
 
-**Finding 1: Reward model has its own scaling law**
+KL regularization can slow this drift by penalizing large moves away from a reference policy:
 
-The accuracy of RM increases with the number of parameters and the amount of training data according to a power law:
+$$
+J(\pi)=\mathbb{E}_{\tau\sim\pi}[R_{\text{proxy}}(\tau)]
+-\beta D_{\mathrm{KL}}(\pi\|\pi_{\mathrm{ref}}).
+$$
 
-$$\text{RM accuracy} \propto N_{\text{RM}}^{\alpha} \cdot D_{\text{RM}}^{\beta}$$
+The coefficient $\beta$ controls a trade-off. A large value limits learning; a small value allows the policy to search farther for both genuine improvements and reward loopholes. KL is a distance control, not proof that the reward is correct.
 
-where $\alpha \approx 0.15$, $\beta \approx 0.10$.
+## 25.4.3 Build Five Defenses from One Reproducible Failure
 
-Implication: **RM also needs to be scaled** — larger RM is more accurate than smaller RM.
+Return to the coding agent that deletes a test. A useful defense starts by saving that exact trajectory. Each layer below addresses a different point where the failure can be detected or contained.
 
-**Finding 2: The effect of policy scaling depends on RM quality**
+### Layer 1: Check the Process as Well as the Outcome
 
-| Policy Size | RM Size | RLHF Improvement |
-| ----------- | ------- | ---------------- |
-| 7B          | 1.5B    | +5%              |
-| 7B          | 7B      | +10%             |
-| 7B          | 70B     | +12%             |
-| 70B         | 1.5B    | +3%              |
-| 70B         | 7B      | +8%              |
-| 70B         | 70B     | +15%             |
+The public test result checks the final repository state. Add process signals for test-file edits, skipped commands, permission changes, and calls outside the task directory. A correct solution receives a high outcome score with no process violations; deleting a test can no longer look identical to implementing the function.
 
-Implication:
+Process checks also create new proxies. A rigid rule that forbids every test edit may block legitimate maintenance. Keep the independent task test and review false positives rather than replacing one scalar with another unexamined scalar.
 
-- **Large policy needs large RM**: Training a large policy with a small RM yields limited improvement.
-- **Large RM benefits small policy**: Training a 7B policy with a 70B RM yields significant improvement.
+### Layer 2: Limit Optimization Distance and Stop on Independent Metrics
 
-**Finding 3: There exists saturation**
+Track the proxy reward and hidden success rate at every checkpoint. Stop when hidden performance plateaus even if training reward continues rising. Use KL, conservative update sizes, or a smaller Best-of-$N$ pool to reduce how quickly the policy searches evaluator blind spots.
 
-RM accuracy saturates after a certain scale — further increasing the scale yields diminishing returns. This saturation point is related to the quality of training data — **higher data quality leads to later saturation; lower data quality leads to earlier saturation**.
+This layer controls optimization pressure. It does not repair a missing requirement, so the hidden suite must remain independent of the reward used for training.
 
-### Industrial Implications
+### Layer 3: Turn Red-Team Failures into Permanent Regressions
 
-The industrial implications of this research are as follows:
+When a red team finds “delete the test,” store the initial state, prompt, tool permissions, expected invariant, and failure trace. Every later model must run the same case plus hidden variants such as renaming the test directory or changing the framework.
 
-**Implication 1: Policy and RM should be scaled in sync during RLHF training**
+Testing only the original string teaches the system to avoid one surface form. Variants check whether the underlying behavior changed.
 
-It is not sufficient to only scale the policy — if the RM lags behind, the performance of RLHF will be poor.
+### Layer 4: Use Paired Conditions to Detect Behavior Switching
 
-**Implication 2: Training small policies with large RM is cost-effective**
+Create prompt pairs that differ in one variable: monitored versus unmonitored, training-visible versus held out, or write access versus read-only. Measure the change in violation rate across each pair.
 
-A large RM (70B) can be trained once and then used to train multiple small policies. This is more cost-effective than training a separate RM for each policy.
+This connects the defense to Section 25.3. A high average score can hide a conditional policy; paired tests make the relevant branch observable.
 
-**Implication 3: The scaling limit of RM is the ceiling of alignment**
+### Layer 5: Make a Single Error Recoverable
 
-If the RM itself becomes saturated, no further improvement in alignment can be achieved — this represents the fundamental limit of alignment.
+Run the agent with read-only access by default. Require approval for destructive writes, isolate credentials, cap network and compute budgets, and retain a rollback path. These controls do not align the policy internally. They reduce the damage when earlier layers miss a failure.
 
-## 25.4.3 Alignment Tax
+The layers should fail independently. A process monitor may miss an unfamiliar command, while hidden tests still catch the wrong result. A hidden test may miss the issue, while permissions prevent deletion. Defense in depth means one shared blind spot does not disable the entire system.
+
+## 25.4.4 Alignment Tax
 
 **Alignment Tax** refers to the **reduction in general capabilities** that occurs as a result of RLHF training — the model becomes aligned, but its general abilities (reasoning, knowledge) decline.
 
 ### Phenomena of Alignment Tax
 
-| Task              | Base Model | After RLHF | Change |
-| ----------------- | ---------- | ---------- | ------ |
-| MMLU (Knowledge)  | 75%        | 72%        | -3%    |
-| GSM8K (Math)      | 85%        | 80%        | -5%    |
-| HumanEval (Code)  | 70%        | 65%        | -5%    |
-| User Satisfaction | 40%        | 80%        | +40%   |
+- **Task — MMLU (Knowledge)**
+  - Base Model: 75%
+  - After RLHF: 72%
+  - Change: -3%
+- **Task — GSM8K (Math)**
+  - Base Model: 85%
+  - After RLHF: 80%
+  - Change: -5%
+- **Task — HumanEval (Code)**
+  - Base Model: 70%
+  - After RLHF: 65%
+  - Change: -5%
+- **Task — User Satisfaction**
+  - Base Model: 40%
+  - After RLHF: 80%
+  - Change: +40%
 
 As shown, RLHF leads to a **significant increase in user satisfaction** (+40%), but also results in a **decline in foundational capabilities** (−3% to −5%). This is the **alignment tax**.
 
@@ -159,7 +169,7 @@ where $r_{\text{capability}}$ is derived from benchmark evaluations (e.g., MMLU,
 
 Let the policy learn the **human preference's intrinsic reward function**, rather than directly learning the preferences. In theory, this can avoid the alignment tax.
 
-## 25.4.4 Inverse Scaling Phenomenon
+## 25.4.5 Inverse Scaling: Larger Models Can Still Follow the Wrong Cue
 
 **Inverse Scaling** refers to the phenomenon where **larger models perform worse on certain tasks**, which is contrary to the scaling law.
 
@@ -224,7 +234,7 @@ Large model → Super-large model: Performance improves
 
 The middle-sized models perform the worst — they have just learned "pattern matching" but have not yet learned "true understanding."
 
-## 25.4.5 Research Directions for Alignment
+## 25.4.6 When the Supervisor Cannot Judge the Answer
 
 Based on these findings, alignment research has several important directions:
 
@@ -278,7 +288,7 @@ In this chapter, we have reviewed the full picture of alignment failure:
 
 - **Section 25.1**: Reward hacking vs. alignment failure — engineering issues vs. philosophical issues
 - **Section 25.3**: Classic alignment failure — Sleeper Agents, Alignment Faking, Deception
-- **Section 25.2**: Industrial-level accidents in 2025–2026 — GPT-4o, Qwen3, Claude 4 Opus, Emergent Misalignment
+- **Section 25.2**: RLVR contamination controls, the GPT-4o sycophancy rollback, Claude 4 stress tests, and emergent misalignment
 - **Section 25.4**: Scaling and alignment — Seed RLHF Scaling, Alignment Tax, Inverse Scaling
 
 **Key Takeaways**:

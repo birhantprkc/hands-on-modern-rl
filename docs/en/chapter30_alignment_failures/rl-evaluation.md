@@ -1,8 +1,10 @@
-# 25.5 Evaluation of Reinforcement Learning and Harness
+# 25.5 How to Evaluate an RL Model Reliably: From Benchmarks to Harnesses
 
-> [Chapter 25](../chapter30_alignment_failures/modern-incidents) discussed the data pollution in Qwen3 — benchmark scores were inflated by 15 to 25 percentage points. This exposes not only data issues, but also the **fragility of the entire RL evaluation methodology**. This chapter systematically discusses: what benchmark design is trustworthy? How to detect pollution? How does prompt sensitivity affect conclusions? How to evaluate long-term tasks and behavioral tasks? Finally, we introduce industry-level evaluation harnesses and Anthropic's 2025 internal AI Research Eval Suite (34× human acceleration).
+Suppose two teams evaluate the same coding model. Team A uses one prompt, extracts the first code block, and allows five samples. Team B uses a chat template, executes the last code block, and allows one sample. They can report different pass rates without changing the model at all.
 
-## Principles of Benchmark Design
+An evaluation result is produced by a complete protocol: task version, prompt, chat template, sampling budget, answer extractor, environment, verifier, and statistical summary. A **harness** turns that protocol into versioned, repeatable code. This section explains how to choose what to measure, detect contamination, test prompt sensitivity and distribution shift, and preserve long-horizon trajectories so another researcher can reproduce the conclusion.
+
+## 25.5.1 First Define What the Evaluation Is Measuring
 
 A good RL benchmark must satisfy five principles:
 
@@ -50,14 +52,14 @@ The test set must be **strictly confidential**, and the training data must under
 It is not sufficient to report "Model A achieves 60% on MATH, Model B 55%" — this could simply be sampling noise. One should perform:
 
 - **Confidence Interval**: For $n$ test samples with accuracy $p$, the 95% CI is $p \pm 1.96\sqrt{p(1-p)/n}$
-- **Paired t-test**: Compare two models on the same test set
+- **Paired comparison**: use paired bootstrap intervals or a test suited to paired binary outcomes when two models answer the same items
 - **Bootstrap**: Estimate variance through resampling of the test set
 
-LLM evaluation papers have long neglected statistical rigor, but it has become widely accepted since 2024 ([Blackwell et al., arXiv:2410.03492](https://arxiv.org/abs/2410.03492)).
+[Blackwell et al.](https://arxiv.org/abs/2410.03492) show why benchmark scores should be accompanied by uncertainty estimates rather than treated as exact constants.
 
 ## Contamination and Leakage Detection
 
-[Chapter 25 on RLVR False Rewards](../chapter30_alignment_failures/modern-incidents) provides detailed coverage of the Qwen3 data contamination incident. This section presents systematic detection methods.
+[Section 25.2](./modern-incidents) explains how contamination can imitate RLVR progress on public mathematics benchmarks. This section turns that concern into systematic detection methods.
 
 ### Three Types of Contamination
 
@@ -142,25 +144,21 @@ Industrial-grade decontamination pipeline:
 3. **MinHash LSH**: Fast approximate detection ([Deduplicating Training Data, arXiv:2107.06499](https://arxiv.org/abs/2107.06499))
 4. **Continuous Benchmark Updates**: Monthly update with new data to test set
 
-After the Qwen3 incident, mainstream teams have established decontamination pipelines, but the results are still not perfect — implicit contamination is almost impossible to eliminate.
+Decontamination reduces known overlap but cannot prove that every semantic variant was absent from pretraining. Fresh tasks, temporal splits, and programmatically generated controls provide stronger evidence than one string-matching pass.
 
 ## Prompt Sensitivity Analysis
 
-For the same model and the same task, different prompts can lead to a score difference of 10-20 points. This phenomenon is called **Prompt Sensitivity**.
+For the same model and task, semantically equivalent prompts can change both absolute scores and model rankings. This phenomenon is called **prompt sensitivity**.
 
 ### Experimental Evidence
 
-Mizrahi et al. 2024 ([arXiv:2401.00595](https://arxiv.org/abs/2401.00595)) conducted a systematic study: for 10 LLMs × 22 benchmarks × 5 prompt templates:
+[Mizrahi et al.](https://arxiv.org/abs/2401.00595) generate semantically equivalent instructions across tasks in LMentry, BIG-Bench Lite, and BIG-Bench Hard, then compare several model families. The result is methodological: a single prompt does not identify a stable model score or ranking.
 
-| Template | MATH Score (GPT-4) | MMLU Score (GPT-4) |
-| -------- | ------------------ | ------------------ |
-| A        | 52.1%              | 86.4%              |
-| B        | 47.3%              | 84.1%              |
-| C        | 50.5%              | 85.7%              |
-| D        | 48.9%              | 83.9%              |
-| E        | 51.8%              | 86.1%              |
+![Semantically equivalent prompts can change model scores and rankings](../../chapter30_alignment_failures/images/multi-prompt-evaluation.png)
 
-Maximum fluctuation of 4.8 points — this means that conclusions based on a single prompt are unreliable.
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 1: Multi-prompt evaluation exposes variation hidden by one canonical instruction. Source: <a href="https://arxiv.org/abs/2401.00595" target="_blank" rel="noopener noreferrer">State of What Art? A Call for Multi-Prompt LLM Evaluation</a>.</em>
+</div>
 
 ### Sensitivity Sources
 
@@ -236,11 +234,18 @@ If the model answers correctly on the original sample but incorrectly on the cou
 
 After training with RLHF/GRPO, models often suffer from **Alignment Tax**—the trade-off where alignment improvements come at the cost of foundational capabilities:
 
-| Model        | MMLU (SFT) | MMLU (RLHF) | Change |
-| ------------ | ---------- | ----------- | ------ |
-| Llama-2-70B  | 86.0%      | 84.5%       | -1.5%  |
-| Claude 1     | 75.0%      | 73.8%       | -1.2%  |
-| GPT-4 (est.) | 89.0%      | 87.5%       | -1.5%  |
+- **Model — Llama-2-70B**
+  - MMLU (SFT): 86.0%
+  - MMLU (RLHF): 84.5%
+  - Change: -1.5%
+- **Model — Claude 1**
+  - MMLU (SFT): 75.0%
+  - MMLU (RLHF): 73.8%
+  - Change: -1.2%
+- **Model — GPT-4 (est.)**
+  - MMLU (SFT): 89.0%
+  - MMLU (RLHF): 87.5%
+  - Change: -1.5%
 
 **Cause**: RLHF rewards "alignment-friendly" responses, and the model learns to "play it safe"—when uncertain, it tends to refuse or provide vague answers, thereby sacrificing foundational capabilities.
 
@@ -319,13 +324,21 @@ In industrial practice, both Anthropic and OpenAI have dedicated "behavior evalu
 
 ### Characteristics of Long-Term Tasks
 
-| Dimension             | Single-Turn Task | Long-Term Task                     |
-| --------------------- | ---------------- | ---------------------------------- |
-| Steps                 | 1                | 100–10,000                         |
-| Evaluation Time       | Seconds          | Hours                              |
-| Intermediate Feedback | None             | Observation at each step           |
-| Termination Condition | Model stops      | Task completion or timeout         |
-| Error Propagation     | Not applicable   | Accumulation of single-step errors |
+- **Dimension — Steps**
+  - Single-Turn Task: 1
+  - Long-Term Task: 100–10,000
+- **Dimension — Evaluation Time**
+  - Single-Turn Task: Seconds
+  - Long-Term Task: Hours
+- **Dimension — Intermediate Feedback**
+  - Single-Turn Task: None
+  - Long-Term Task: Observation at each step
+- **Dimension — Termination Condition**
+  - Single-Turn Task: Model stops
+  - Long-Term Task: Task completion or timeout
+- **Dimension — Error Propagation**
+  - Single-Turn Task: Not applicable
+  - Long-Term Task: Accumulation of single-step errors
 
 ### Evaluation Methods
 
@@ -415,12 +428,22 @@ Have the model train a quadruped robot to walk in the MuJoCo physics simulation:
 
 Anthropic reports that Claude Opus 4.6 completes these tasks **34 times faster than human researchers**:
 
-| Task         | Human Average Time | Opus 4.6 Time  | Acceleration Ratio |
-| ------------ | ------------------ | -------------- | ------------------ |
-| LLM Training | 17 hours           | 30 minutes     | 34×                |
-| Text-RL      | 12 hours           | 25 minutes     | 29×                |
-| Quadruped-RL | 8 hours            | 15 minutes     | 32×                |
-| **Average**  | **12.3 hours**     | **23 minutes** | **34×**            |
+- **Task — LLM Training**
+  - Human Average Time: 17 hours
+  - Opus 4.6 Time: 30 minutes
+  - Acceleration Ratio: 34×
+- **Task — Text-RL**
+  - Human Average Time: 12 hours
+  - Opus 4.6 Time: 25 minutes
+  - Acceleration Ratio: 29×
+- **Task — Quadruped-RL**
+  - Human Average Time: 8 hours
+  - Opus 4.6 Time: 15 minutes
+  - Acceleration Ratio: 32×
+- **Task — Average**
+  - Human Average Time: **12.3 hours**
+  - Opus 4.6 Time: **23 minutes**
+  - Acceleration Ratio: **34×**
 
 **Note**: The "completion" here is not perfect, but rather reaching a **research assistant level** — for example, the trained model achieves 80% of baseline performance on held-out tasks.
 
@@ -535,12 +558,22 @@ results = eval_model(
 
 ### Comparison of Four Harnesses
 
-| Harness             | Use Case         | Task Type                           | Evaluation Method    |
-| ------------------- | ---------------- | ----------------------------------- | -------------------- |
-| **lm-eval-harness** | General ability  | 200+ benchmarks                     | Automatic validation |
-| **BigCode Eval**    | Code generation  | Python/multi-language               | Unit testing         |
-| **τ-bench**         | Business Agent   | Tool calling + multi-round dialogue | Task completion rate |
-| **BF/C**            | Function calling | API call syntax and execution       | AST + Execution      |
+- **Harness — lm-eval-harness**
+  - Use Case: General ability
+  - Task Type: 200+ benchmarks
+  - Evaluation Method: Automatic validation
+- **Harness — BigCode Eval**
+  - Use Case: Code generation
+  - Task Type: Python/multi-language
+  - Evaluation Method: Unit testing
+- **Harness — τ-bench**
+  - Use Case: Business Agent
+  - Task Type: Tool calling + multi-round dialogue
+  - Evaluation Method: Task completion rate
+- **Harness — BF/C**
+  - Use Case: Function calling
+  - Task Type: API call syntax and execution
+  - Evaluation Method: AST + Execution
 
 ### Suggestions for Selection
 
@@ -549,19 +582,19 @@ results = eval_model(
 - **Agent Capability Assessment**: τ-bench + SWE-Bench + WebArena
 - **Tool Invocation Capability**: BFCL
 
-In industrial practice, releasing a model trained with reinforcement learning should run all four categories — a single benchmark category is insufficient to prove the model's overall capability.
+The evaluation set should follow the model's intended use. A mathematics model does not need every customer-support environment, while a tool-using agent cannot be justified by MMLU alone.
 
 ## Summary of This Chapter
 
 The core principles of RL evaluation methodology are as follows:
 
 1. **Prioritize Verifiability**: Prefer benchmarks that are machine-verifiable
-2. a **De-pollution is Essential**: The three-in-one set of n-gram + embedding + continuous updates
+2. **Record contamination evidence**: n-gram overlap, semantic retrieval, fresh tasks, and temporal splits cover different risks
 3. **Average Across Multiple Prompts**: Single prompt conclusions are unreliable
 4. **Out-of-Distribution (OOD) Evaluation**: Three layers — capability evaluation, behavior evaluation, and long-term evaluation
 5. **Standardized Harness**: The four major systems — lm-eval, BigCode, τ-bench, and BFCL — complement each other
 
-The Opus 4.6 Eval Suite reveals that **models are now capable of performing basic research tasks** — 34× human acceleration is the most important capability milestone in 2025. Next, you can refer to [Appendix A.2 Training System Foundation](../appendix_industrial_training/rl-infrastructure) to learn how to run these RL experiments on large-scale clusters.
+Research-automation evaluations show that model performance depends on the complete environment, resource limits, and scoring protocol. [Appendix A.2](../appendix_industrial_training/rl-infrastructure) explains how to run these experiments on larger training systems while preserving the harness configuration.
 
 ## Further Reading
 
