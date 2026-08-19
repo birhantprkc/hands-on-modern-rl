@@ -90,16 +90,63 @@ def train_sb3(
         "verbose": 0,
         "device": "cpu",
     }
+    resolved_config: dict[str, Any] = {
+        "learning_rate": learning_rate,
+        "gamma": gamma,
+    }
+
+    def configured(name: str, default: Any) -> Any:
+        if isinstance(task, dict):
+            return task.get(name, default)
+        return getattr(task, name, default)
+
     policy = getattr(task, "policy", task.get("policy", "MlpPolicy") if isinstance(task, dict) else "MlpPolicy")
     if algorithm_name == "DQN":
+        configured_learning_starts = int(configured("learning_starts", max(100, budget // 10)))
+        learning_starts = max(100, min(configured_learning_starts, max(100, budget // 10)))
+        buffer_size = max(10_000, min(int(configured("buffer_size", 100_000)), max(10_000, budget)))
+        batch_size = max(8, int(configured("batch_size", 32)))
+        configured_target_interval = int(configured("target_update_interval", 10_000))
+        target_update_interval = max(250, min(configured_target_interval, max(250, budget // 20)))
+        exploration_initial_eps = min(1.0, max(0.05, epsilon))
+        exploration_final_eps = min(
+            exploration_initial_eps,
+            max(0.001, float(configured("exploration_final_eps", 0.01))),
+        )
+        exploration_fraction = min(1.0, max(0.01, float(configured("exploration_fraction", 0.2))))
+        optimize_memory_usage = bool(configured("optimize_memory_usage", True))
         kwargs.update(
-            buffer_size=max(10_000, min(100_000, budget * 2)),
-            learning_starts=max(100, min(2_000, budget // 10)),
-            exploration_initial_eps=max(.05, epsilon),
-            exploration_final_eps=max(.01, epsilon * .1),
+            buffer_size=buffer_size,
+            learning_starts=learning_starts,
+            batch_size=batch_size,
+            exploration_fraction=exploration_fraction,
+            exploration_initial_eps=exploration_initial_eps,
+            exploration_final_eps=exploration_final_eps,
             train_freq=4,
             gradient_steps=1,
-            target_update_interval=max(250, min(2_000, budget // 8)),
+            target_update_interval=target_update_interval,
+            max_grad_norm=10,
+            optimize_memory_usage=optimize_memory_usage,
+            replay_buffer_kwargs=(
+                {"handle_timeout_termination": False}
+                if optimize_memory_usage
+                else None
+            ),
+        )
+        resolved_config.update(
+            {
+                "buffer_size": buffer_size,
+                "learning_starts": learning_starts,
+                "batch_size": batch_size,
+                "train_freq": 4,
+                "gradient_steps": 1,
+                "target_update_interval": target_update_interval,
+                "exploration_fraction": exploration_fraction,
+                "exploration_initial_eps": exploration_initial_eps,
+                "exploration_final_eps": exploration_final_eps,
+                "reward_clipping": True,
+                "terminal_on_life_loss": True,
+            }
         )
     elif algorithm_name in {"PPO", "A2C"}:
         rollout_steps = max(64, min(512, budget // 8))
@@ -121,8 +168,22 @@ def train_sb3(
     chunk = max(1, budget // checkpoints)
     x: list[float] = []
     y: list[float] = []
-    yield {"phase": "training", "step": 0, "x": x, "y": y, "log": f"Initialized {algorithm_name} with {policy} on CPU"}
+    initialization_log = f"Initialized {algorithm_name} with {policy} on CPU"
+    if algorithm_name == "DQN":
+        initialization_log += (
+            f"\nBASELINE replay_buffer={resolved_config['buffer_size']:,}"
+            f" warmup={resolved_config['learning_starts']:,} batch={resolved_config['batch_size']}"
+            f" target_update={resolved_config['target_update_interval']:,}"
+            f" exploration={resolved_config['exploration_initial_eps']:.2f}→{resolved_config['exploration_final_eps']:.2f}"
+            " train_reward=clipped eval_reward=raw"
+        )
+    yield {"phase": "training", "step": 0, "x": x, "y": y, "log": initialization_log}
     completed = 0
+    best_score = float("-inf")
+    best_step = 0
+    artifacts = root / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    best_checkpoint = artifacts / f".best-checkpoint-{time.time_ns()}"
     try:
         while completed < budget:
             current = min(chunk, budget - completed)
@@ -132,8 +193,14 @@ def train_sb3(
             score = float(np.mean(rewards))
             spread = float(np.std(rewards))
             x.append(float(completed)); y.append(score)
+            if score > best_score:
+                best_score = score
+                best_step = completed
+                model.save(str(best_checkpoint))
             details = format_metrics(callback.latest, completed)
             details += f"\nEVAL step={completed:,} mean_reward={score:.2f} std={spread:.2f} mean_length={np.mean(lengths):.1f}"
+            if completed == best_step:
+                details += "\nCHECKPOINT new best policy saved for final replay"
             yield {
                 "phase": "training",
                 "step": completed,
@@ -145,8 +212,8 @@ def train_sb3(
                 "log": details,
             }
 
-        artifacts = root / "artifacts"
-        artifacts.mkdir(parents=True, exist_ok=True)
+        if best_checkpoint.with_suffix(".zip").is_file():
+            model = algorithm_cls.load(str(best_checkpoint.with_suffix(".zip")), env=train_env, device="cpu")
         task_key = str(getattr(task, "key", task.get("key")))
         run_token = str(time.time_ns())
         model_stem = f"{task_key}-model-{run_token}"
@@ -168,22 +235,31 @@ def train_sb3(
             "policy": policy,
             "budget": budget,
             "seed": seed,
-            "score": y[-1] if y else None,
+            "score": best_score if np.isfinite(best_score) else (y[-1] if y else None),
+            "best_checkpoint_step": best_step,
+            "training_config": resolved_config,
             "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
             "preview": str(preview_path),
         }, indent=2), encoding="utf-8")
         yield {
             "phase": "complete",
             "step": completed,
-            "score": y[-1] if y else None,
+            "score": best_score if np.isfinite(best_score) else (y[-1] if y else None),
             "x": x,
             "y": y,
             "preview": str(preview_path),
             "model": str(model_zip),
             "model_id": model_zip.name,
-            "log": f"Saved {model_zip.name} and generated learned-policy replay: {preview_path.name}",
+            "log": (
+                f"Restored best checkpoint from step {best_step:,} with mean reward {best_score:.2f}"
+                f"\nSaved {model_zip.name} and generated learned-policy replay: {preview_path.name}"
+            ),
         }
     finally:
+        try:
+            best_checkpoint.with_suffix(".zip").unlink(missing_ok=True)
+        except OSError:
+            pass
         for env in (train_env, eval_env):
             try:
                 env.close()

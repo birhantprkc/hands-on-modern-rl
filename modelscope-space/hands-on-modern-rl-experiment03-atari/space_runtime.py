@@ -21,7 +21,7 @@ SPACE = {
     "training_guide": {
         "success": {"en": "The evaluation reward should rise above early checkpoints, and the replay should sustain useful play or improve the game score. Training complete only confirms the run ended normally.", "zh": "评估奖励应高于早期检查点，回放中应能持续做出有效动作或提高游戏得分；“训练完成”只表示运行正常结束。"},
         "preview": {"en": "The first clip shows the selected Atari game. The completed run replaces it with a replay rendered by this run's learned DQN policy.", "zh": "初始画面展示所选 Atari 游戏；训练完成后会替换为本次 DQN 策略在模拟器中生成的回放。"},
-        "time": {"en": "Default CPU runs usually take 1–5 minutes; harder games need a larger budget to show stable improvement.", "zh": "默认 CPU 训练通常需要 1–5 分钟；难度更高的游戏需要更大预算才能看到稳定提升。"},
+        "time": {"en": "The recommended baselines prioritize learned behavior over a short demo and can take tens of minutes to several hours on CPU. The estimate shown beside each game is a planning range, not a timeout.", "zh": "推荐 baseline 优先保证能学到行为，因此在 CPU 上可能需要几十分钟到数小时。每个游戏旁的时间是规划区间，不是超时限制。"},
     },
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/chapter07_dqn/dqn-family",
     "source_url": "https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment03-atari/file/view/master/space_runtime.py",
@@ -30,7 +30,20 @@ SPACE = {
 }
 
 
-def task(key, title, environment, description, action, preview, budget=(5_000, 300_000, 30_000, 5_000)):
+def task(
+    key,
+    title,
+    environment,
+    description,
+    action,
+    preview,
+    *,
+    baseline_budget,
+    baseline_time,
+    baseline_outcome,
+    budget_range=(50_000, 5_000_000, 50_000),
+):
+    learning_starts = min(100_000, max(20_000, baseline_budget // 10))
     return {
         "key": key,
         "title": {"en": title, "zh": title},
@@ -41,23 +54,33 @@ def task(key, title, environment, description, action, preview, budget=(5_000, 3
         "algorithm": "DQN",
         "policy": "CnnPolicy",
         "preview": preview,
-        "budget": budget,
-        "learning_rate": (1e-5, 0.001, 0.0001, 1e-5),
-        "gamma": (0.8, 1.0, 0.99, 0.005),
-        "epsilon": (0.01, 1.0, 0.6, 0.01),
+        "budget": (budget_range[0], budget_range[1], baseline_budget, budget_range[2]),
+        "learning_rate": (1e-5, 0.0005, 0.0001, 1e-5),
+        "gamma": (0.9, 1.0, 0.99, 0.005),
+        "epsilon": (0.1, 1.0, 1.0, 0.05),
+        "baseline_name": "Atari DQN CPU baseline v1",
+        "baseline_time": baseline_time,
+        "baseline_outcome": baseline_outcome,
+        "learning_starts": learning_starts,
+        "buffer_size": 100_000,
+        "batch_size": 32,
+        "target_update_interval": 10_000,
+        "exploration_fraction": 0.2,
+        "exploration_final_eps": 0.01,
+        "optimize_memory_usage": True,
         "checkpoints": 6,
     }
 
 
 TASKS = [
-    task("pong", "Pong", "ALE/Pong-v5", {"en": "Track the ball and move the paddle to outscore the opponent.", "zh": "跟踪球的位置并移动球拍，以更高比分击败对手。"}, {"en": "Paddle and fire controls", "zh": "球拍移动与发球"}, "assets/pong.gif"),
-    task("breakout", "Breakout", "ALE/Breakout-v5", {"en": "Bounce the ball, clear bricks, and preserve each life.", "zh": "反弹小球、清除砖块并尽量保住生命。"}, {"en": "Paddle and fire controls", "zh": "球拍移动与发球"}, "assets/breakout.gif"),
-    task("space-invaders", "Space Invaders", "ALE/SpaceInvaders-v5", {"en": "Move, shoot invading rows, and avoid incoming fire.", "zh": "移动并射击入侵队列，同时躲避敌方火力。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/space-invaders.gif"),
-    task("freeway", "Freeway", "ALE/Freeway-v5", {"en": "Time vertical movements to cross lanes of traffic safely.", "zh": "掌握上下移动的时机，安全穿过多条车道。"}, {"en": "Up / down", "zh": "向上、向下"}, "assets/freeway.png", (2_000, 200_000, 20_000, 2_000)),
-    task("seaquest", "Seaquest", "ALE/Seaquest-v5", {"en": "Rescue divers while managing oxygen, enemies, and ammunition.", "zh": "在管理氧气、敌人和弹药的同时营救潜水员。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/seaquest.gif"),
-    task("qbert", "Q*bert", "ALE/Qbert-v5", {"en": "Plan diagonal jumps to recolor the pyramid without colliding with enemies.", "zh": "规划斜向跳跃改变金字塔颜色，并避开敌人。"}, {"en": "Four diagonal jumps", "zh": "四个斜向跳跃动作"}, "assets/qbert.gif"),
-    task("beam-rider", "Beam Rider", "ALE/BeamRider-v5", {"en": "Control horizontal movement and shooting in a fast scrolling arena.", "zh": "在快速滚动的竞技场中控制横向移动和射击。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/beam-rider.gif"),
-    task("enduro", "Enduro", "ALE/Enduro-v5", {"en": "Steer and accelerate through traffic over a long racing horizon.", "zh": "在长时间赛车过程中控制方向、加速并穿过车流。"}, {"en": "Steer / accelerate / brake", "zh": "转向、加速、刹车"}, "assets/enduro.gif"),
+    task("pong", "Pong", "ALE/Pong-v5", {"en": "Track the ball and move the paddle to outscore the opponent.", "zh": "跟踪球的位置并移动球拍，以更高比分击败对手。"}, {"en": "Paddle and fire controls", "zh": "球拍移动与发球"}, "assets/pong.gif", baseline_budget=1_000_000, baseline_time={"en": "about 1–3 CPU hours", "zh": "约 1–3 个 CPU 小时"}, baseline_outcome={"en": "Longer rallies and evaluation reward moving above the random-policy floor; strong positive scores may need several million steps.", "zh": "回合能够明显延长，评估奖励脱离随机策略下限；稳定正分通常还需要数百万步。"}),
+    task("breakout", "Breakout", "ALE/Breakout-v5", {"en": "Bounce the ball, clear bricks, and preserve each life.", "zh": "反弹小球、清除砖块并尽量保住生命。"}, {"en": "Paddle and fire controls", "zh": "球拍移动与发球"}, "assets/breakout.gif", baseline_budget=1_000_000, baseline_time={"en": "about 1–3 CPU hours", "zh": "约 1–3 个 CPU 小时"}, baseline_outcome={"en": "The paddle begins tracking the ball and clears bricks more consistently than an untrained policy.", "zh": "挡板开始追踪小球，清砖表现明显优于未训练策略。"}),
+    task("space-invaders", "Space Invaders", "ALE/SpaceInvaders-v5", {"en": "Move, shoot invading rows, and avoid incoming fire.", "zh": "移动并射击入侵队列，同时躲避敌方火力。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/space-invaders.gif", baseline_budget=1_500_000, baseline_time={"en": "about 2–4 CPU hours", "zh": "约 2–4 个 CPU 小时"}, baseline_outcome={"en": "Sustained firing and useful horizontal control with a score above early checkpoints.", "zh": "能够持续射击并进行有效横向控制，得分高于早期检查点。"}),
+    task("freeway", "Freeway", "ALE/Freeway-v5", {"en": "Time vertical movements to cross lanes of traffic safely.", "zh": "掌握上下移动的时机，安全穿过多条车道。"}, {"en": "Up / down", "zh": "向上、向下"}, "assets/freeway.png", baseline_budget=300_000, baseline_time={"en": "about 20–60 CPU minutes", "zh": "约 20–60 个 CPU 分钟"}, baseline_outcome={"en": "Repeated upward crossings and a clearly non-zero evaluation score. This is the fastest recommended first run.", "zh": "能够反复向上穿越车流，评估分数明显大于零；这是最适合作为第一次训练的游戏。"}, budget_range=(50_000, 2_000_000, 50_000)),
+    task("seaquest", "Seaquest", "ALE/Seaquest-v5", {"en": "Rescue divers while managing oxygen, enemies, and ammunition.", "zh": "在管理氧气、敌人和弹药的同时营救潜水员。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/seaquest.gif", baseline_budget=2_000_000, baseline_time={"en": "about 3–6 CPU hours", "zh": "约 3–6 个 CPU 小时"}, baseline_outcome={"en": "Useful movement and firing with improving score; oxygen management is a harder, longer-horizon behavior.", "zh": "移动和射击开始有效，分数逐步提高；氧气管理属于更难的长时程行为。"}),
+    task("qbert", "Q*bert", "ALE/Qbert-v5", {"en": "Plan diagonal jumps to recolor the pyramid without colliding with enemies.", "zh": "规划斜向跳跃改变金字塔颜色，并避开敌人。"}, {"en": "Four diagonal jumps", "zh": "四个斜向跳跃动作"}, "assets/qbert.gif", baseline_budget=1_500_000, baseline_time={"en": "about 2–5 CPU hours", "zh": "约 2–5 个 CPU 小时"}, baseline_outcome={"en": "Purposeful diagonal movement and more tile changes than early checkpoints.", "zh": "出现有目的的斜向移动，改变的方块数超过早期检查点。"}),
+    task("beam-rider", "Beam Rider", "ALE/BeamRider-v5", {"en": "Control horizontal movement and shooting in a fast scrolling arena.", "zh": "在快速滚动的竞技场中控制横向移动和射击。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/beam-rider.gif", baseline_budget=2_000_000, baseline_time={"en": "about 3–6 CPU hours", "zh": "约 3–6 个 CPU 小时"}, baseline_outcome={"en": "Sustained shooting and horizontal control with reward improving across checkpoints.", "zh": "能够持续射击和横向控制，奖励随检查点逐步提高。"}),
+    task("enduro", "Enduro", "ALE/Enduro-v5", {"en": "Steer and accelerate through traffic over a long racing horizon.", "zh": "在长时间赛车过程中控制方向、加速并穿过车流。"}, {"en": "Steer / accelerate / brake", "zh": "转向、加速、刹车"}, "assets/enduro.gif", baseline_budget=2_000_000, baseline_time={"en": "about 3–6 CPU hours", "zh": "约 3–6 个 CPU 小时"}, baseline_outcome={"en": "Forward driving with fewer immediate collisions; strong overtaking behavior needs a longer run.", "zh": "能够持续向前行驶并减少即时碰撞；稳定超车仍需要更长训练。"}),
 ]
 
 
@@ -75,7 +98,7 @@ def runtime_status():
         return f"startup check pending · {type(exc).__name__}"
 
 
-def _make_vec_env(environment: str, seed: int):
+def _make_vec_env(environment: str, seed: int, *, training: bool = False):
     import ale_py
     import gymnasium as gym
     from stable_baselines3.common.atari_wrappers import AtariWrapper
@@ -85,7 +108,13 @@ def _make_vec_env(environment: str, seed: int):
 
     def factory():
         base = gym.make(environment, render_mode="rgb_array", frameskip=1, repeat_action_probability=0.0, full_action_space=False)
-        return AtariWrapper(base, frame_skip=4, screen_size=84, terminal_on_life_loss=False, clip_reward=False)
+        return AtariWrapper(
+            base,
+            frame_skip=4,
+            screen_size=84,
+            terminal_on_life_loss=training,
+            clip_reward=training,
+        )
 
     env = DummyVecEnv([factory])
     env.seed(seed)
@@ -198,7 +227,7 @@ def render_preview(model_id: str):
 
     rollout_seed = max(0, min(int(record.get("seed", 42)), 2**32 - 1))
     model = DQN.load(str(model_path), device="cpu")
-    environment = _make_vec_env(task["environment"], rollout_seed)
+    environment = _make_vec_env(task["environment"], rollout_seed, training=False)
     artifacts = ROOT / "artifacts"
     output = artifacts / f"{model_path.stem}-rollout-{time.time_ns()}.gif"
     preview = _record(model, environment, artifacts, rollout_seed, task, output)
@@ -224,9 +253,9 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
     yield from train_sb3(
         root=ROOT,
         task=task,
-        make_train_env=lambda: _make_vec_env(environment, seed),
-        make_eval_env=lambda: _make_vec_env(environment, seed + 1_000),
-        make_record_env=lambda: _make_vec_env(environment, seed),
+        make_train_env=lambda: _make_vec_env(environment, seed, training=True),
+        make_eval_env=lambda: _make_vec_env(environment, seed + 1_000, training=False),
+        make_record_env=lambda: _make_vec_env(environment, seed, training=False),
         budget=budget,
         learning_rate=learning_rate,
         gamma=gamma,

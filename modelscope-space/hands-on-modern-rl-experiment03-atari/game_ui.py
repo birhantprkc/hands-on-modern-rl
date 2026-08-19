@@ -53,14 +53,22 @@ TEXT = {
         "ready_runtime": "Ready · preinstalled",
         "hint": "Adjust the parameters below, then start training. The curve and console update throughout the run.",
         "setup": "Experiment setup",
-        "setup_copy": "Quick defaults are sized for the selected ModelScope runtime. Increase the budget for a longer run.",
+        "setup_copy": "A learning-oriented baseline is loaded for each game. Shorter budgets are useful smoke tests but may not learn visible behavior.",
         "selected": "Selected game",
         "budget": "Training budget",
-        "budget_info": "Environment steps, episodes, or optimization iterations depending on the selected game",
+        "budget_info": "The recommended learning baseline is loaded by default; lower values are smoke tests",
         "lr": "Learning rate",
         "gamma": "Discount factor γ",
         "epsilon": "Exploration ε",
         "seed": "Random seed",
+        "baseline_title": "Recommended learning baseline",
+        "baseline_badge": "DEFAULT PRESET",
+        "baseline_budget": "Budget",
+        "baseline_warmup": "Replay warm-up",
+        "baseline_exploration": "Exploration",
+        "baseline_time": "CPU estimate",
+        "baseline_expected": "Expected signal",
+        "baseline_restore": "Restore recommended baseline",
         "saved_model": "Trained model",
         "saved_model_info": "Every completed training run appears here",
         "saved_model_empty": "No trained models yet. Complete a run to add the first option.",
@@ -115,14 +123,22 @@ TEXT = {
         "ready_runtime": "就绪 · 已预装",
         "hint": "调整下方参数后启动训练。学习曲线和训练日志会持续更新。",
         "setup": "实验设置",
-        "setup_copy": "默认参数适配当前 ModelScope 运行环境；增加训练预算可以运行更久。",
+        "setup_copy": "每个游戏都会载入以学出有效行为为目标的 baseline；更短预算适合检查流程，但通常不足以学出明显效果。",
         "selected": "已选游戏",
         "budget": "训练预算",
-        "budget_info": "根据任务表示环境步数、回合数或优化迭代次数",
+        "budget_info": "默认值是推荐学习 baseline；低于该值属于流程测试",
         "lr": "学习率",
         "gamma": "折扣因子 γ",
         "epsilon": "探索率 ε",
         "seed": "随机种子",
+        "baseline_title": "推荐学习 Baseline",
+        "baseline_badge": "默认配置",
+        "baseline_budget": "训练预算",
+        "baseline_warmup": "经验回放预热",
+        "baseline_exploration": "探索调度",
+        "baseline_time": "CPU 时间估计",
+        "baseline_expected": "预期学习信号",
+        "baseline_restore": "恢复推荐 Baseline",
         "saved_model": "已训练模型",
         "saved_model_info": "每次完成训练都会在这里新增一个模型",
         "saved_model_empty": "还没有已训练模型。完成一次训练后会出现第一个选项。",
@@ -316,6 +332,32 @@ def task_brief(root: Path, task: Any, language: str, space: dict[str, Any]) -> s
 
 def panel_html(title: str, text: str, cls: str = "panel-copy") -> str:
     return f'<h2 class="panel-title">{html.escape(title)}</h2><p class="{cls}">{html.escape(text)}</p>'
+
+
+def baseline_card(task: Any, language: str) -> str:
+    copy = copy_for(language)
+    budget = int(slider_spec(task, "budget", (100, 10_000, 1_000, 100))[2])
+    warmup = int(task_value(task, "learning_starts", max(100, budget // 10)))
+    initial_epsilon = slider_spec(task, "epsilon", (0, 1, 1, .05))[2]
+    final_epsilon = float(task_value(task, "exploration_final_eps", .01))
+    duration = local_value(task_value(task, "baseline_time", {"en": "runtime varies by CPU", "zh": "运行时间取决于 CPU"}), language)
+    outcome = local_value(task_value(task, "baseline_outcome", {"en": "Evaluation should improve over early checkpoints.", "zh": "评估结果应高于早期检查点。"}), language)
+    name = str(task_value(task, "baseline_name", "Atari DQN CPU baseline"))
+    return f"""
+    <section class="baseline-preset">
+      <div class="baseline-preset__head">
+        <div><span>{html.escape(copy['baseline_badge'])}</span><h3>{html.escape(copy['baseline_title'])}</h3></div>
+        <strong>{html.escape(name)}</strong>
+      </div>
+      <div class="baseline-preset__facts">
+        <span><b>{html.escape(copy['baseline_budget'])}</b>{budget:,} steps</span>
+        <span><b>{html.escape(copy['baseline_warmup'])}</b>{warmup:,} steps</span>
+        <span><b>{html.escape(copy['baseline_exploration'])}</b>ε {initial_epsilon:.2f} → {final_epsilon:.2f}</span>
+        <span><b>{html.escape(copy['baseline_time'])}</b>{html.escape(duration)}</span>
+      </div>
+      <p><b>{html.escape(copy['baseline_expected'])}</b>{html.escape(outcome)}</p>
+    </section>
+    """
 
 
 def preview_provenance(task: Any, language: str, model: str | None = None, detail: str | None = None) -> str:
@@ -532,6 +574,7 @@ def build_demo(space_module: Any):
             task_value(task, "key"),
             hero_html(space, tasks, task, language, runtime_status),
             task_brief(root, task, language, space),
+            baseline_card(task, language),
             gr.Slider(minimum=budget[0], maximum=budget[1], value=budget[2], step=budget[3], label=copy["budget"], info=copy["budget_info"]),
             gr.Slider(minimum=lr[0], maximum=lr[1], value=lr[2], step=lr[3], label=copy["lr"]),
             gr.Slider(minimum=gamma[0], maximum=gamma[1], value=gamma[2], step=gamma[3], label=copy["gamma"]),
@@ -556,8 +599,10 @@ def build_demo(space_module: Any):
             gr.Gallery(value=gallery_items(language)),
             task_brief(root, task, language, space),
             panel_html(copy["setup"], copy["setup_copy"]),
+            baseline_card(task, language),
             gr.Textbox(value=key, label=copy["selected"]),
             gr.Number(value=seed, label=copy["seed"], precision=0),
+            gr.Button(value=copy["baseline_restore"]),
             gr.Button(value=copy["start"]),
             status_card("idle", copy["ready"], copy["ready_detail"], language),
             metric_card("—", copy["metric_waiting"], language),
@@ -567,6 +612,21 @@ def build_demo(space_module: Any):
             gr.File(label=copy["download"]),
             selector,
             preview_provenance(task, language, selected_model),
+        )
+
+    def restore_baseline(key: str, language: str):
+        task = get_task(tasks, key)
+        copy = copy_for(language)
+        budget = slider_spec(task, "budget", (100, 10_000, 1_000, 100))
+        lr = slider_spec(task, "learning_rate", (1e-5, .1, 3e-4, 1e-5))
+        gamma = slider_spec(task, "gamma", (0, 1, .99, .01))
+        epsilon = slider_spec(task, "epsilon", (0, 1, .1, .01))
+        return (
+            gr.Slider(minimum=budget[0], maximum=budget[1], value=budget[2], step=budget[3], label=copy["budget"], info=copy["budget_info"]),
+            slider_update(copy["lr"], lr),
+            slider_update(copy["gamma"], gamma),
+            slider_update(copy["epsilon"], epsilon),
+            baseline_card(task, language),
         )
 
     def train_with_ui(key: str, budget: float, learning_rate: float, gamma: float, epsilon: float, seed: float, selected_model: str | None, language: str):
@@ -582,6 +642,14 @@ def build_demo(space_module: Any):
         device = str(space.get("device", "CPU"))
         logs = [f"0.0s  CONFIG  environment={task_value(task, 'environment')} algorithm={task_value(task, 'algorithm')} device={device}"]
         logs.append(f"0.0s  CONFIG  budget={params['budget']} seed={params['seed']}")
+        recommended_budget = int(slider_spec(task, "budget", (100, 10_000, 1_000, 100))[2])
+        if params["budget"] < recommended_budget:
+            logs.append(
+                f"0.0s  WARNING budget is below the recommended {recommended_budget:,}-step learning baseline; "
+                "this run is a smoke test and may not produce visible learned behavior"
+            )
+        else:
+            logs.append(f"0.0s  BASELINE {task_value(task, 'baseline_name', 'recommended')} selected")
         started = time.perf_counter()
         last_x: list[float] = []
         last_y: list[float] = []
@@ -752,12 +820,14 @@ def build_demo(space_module: Any):
         with gr.Row():
             with gr.Column(scale=1, min_width=310, elem_classes="control-card"):
                 settings_header = gr.HTML(panel_html(copy["setup"], copy["setup_copy"]))
+                baseline_info = gr.HTML(baseline_card(default_task, default_language))
                 selected = gr.Textbox(value=task_value(default_task, "key"), label=copy["selected"], interactive=False, elem_classes="selected-experiment")
                 budget = gr.Slider(minimum=initial_budget[0], maximum=initial_budget[1], value=initial_budget[2], step=initial_budget[3], label=copy["budget"], info=copy["budget_info"])
                 learning_rate = slider_update(copy["lr"], initial_lr)
                 gamma = slider_update(copy["gamma"], initial_gamma)
                 epsilon = slider_update(copy["epsilon"], initial_epsilon)
                 seed = gr.Number(value=42, precision=0, label=copy["seed"])
+                restore = gr.Button(copy["baseline_restore"], elem_classes="baseline-restore")
                 start = gr.Button(copy["start"], variant="primary", elem_classes="primary-btn")
                 status = gr.HTML(status_card("idle", copy["ready"], copy["ready_detail"], default_language))
                 metric = gr.HTML(metric_card("—", copy["metric_waiting"], default_language))
@@ -785,8 +855,9 @@ def build_demo(space_module: Any):
 
         gr.HTML(f'<div class="footer-note">{html.escape(local_value(space["title"], "English"))} · <a href="{COURSE_URL}" target="_blank">Hands-On Modern RL</a> · WalkingLab</div>')
 
-        gallery.select(choose_task, inputs=[language, seed], outputs=[selected, hero, task_info, budget, learning_rate, gamma, epsilon, status, metric, console, preview, artifact, model_selector, preview_status], queue=False, show_progress="hidden")
-        language.change(switch_language, inputs=[language, selected, seed, model_selector], outputs=[hero, catalog_header, gallery, task_info, settings_header, selected, seed, start, status, metric, chart_header, console, preview_header, artifact, model_selector, preview_status], queue=False, show_progress="hidden")
+        gallery.select(choose_task, inputs=[language, seed], outputs=[selected, hero, task_info, baseline_info, budget, learning_rate, gamma, epsilon, status, metric, console, preview, artifact, model_selector, preview_status], queue=False, show_progress="hidden")
+        language.change(switch_language, inputs=[language, selected, seed, model_selector], outputs=[hero, catalog_header, gallery, task_info, settings_header, baseline_info, selected, seed, restore, start, status, metric, chart_header, console, preview_header, artifact, model_selector, preview_status], queue=False, show_progress="hidden")
+        restore.click(restore_baseline, inputs=[selected, language], outputs=[budget, learning_rate, gamma, epsilon, baseline_info], queue=False, show_progress="hidden")
         start.click(train_with_ui, inputs=[selected, budget, learning_rate, gamma, epsilon, seed, model_selector, language], outputs=[status, metric, curve, preview, artifact, console, wait_state, start, model_selector, preview_status], concurrency_limit=1)
         model_selector.change(select_saved_model, inputs=[selected, model_selector, language], outputs=[preview, preview_status], queue=False, show_progress="hidden")
 
@@ -806,6 +877,7 @@ CSS = r"""
 .experiment-gallery{margin-top:6px!important;border:0!important;background:transparent!important}.experiment-gallery .grid-wrap{height:auto!important;min-height:0!important}.experiment-gallery .grid-container{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:13px!important}.experiment-gallery button,.experiment-gallery .thumbnail-item{position:relative!important;height:auto!important;aspect-ratio:16/9!important;overflow:hidden!important;border:2px solid transparent!important;border-radius:14px!important;background:#101532!important;transition:transform .16s ease,border-color .16s ease!important}.experiment-gallery button:hover{transform:translateY(-2px);border-color:#7778eb!important}.experiment-gallery img{width:100%!important;height:100%!important;object-fit:cover!important}.experiment-gallery .caption-label{position:absolute!important;z-index:2!important;inset:auto 0 0!important;padding:34px 13px 12px!important;color:#fff!important;background:linear-gradient(transparent,rgba(4,8,28,.92))!important;font-size:12px!important;font-weight:800!important;line-height:1.35!important;white-space:pre-line!important;text-align:left!important}
 .task-brief{display:grid;grid-template-columns:minmax(270px,.9fr) minmax(0,1.7fr);gap:26px;margin:18px 0!important;padding:13px!important;background:linear-gradient(135deg,#fff,#f7f9ff)!important}.task-brief__visual{overflow:hidden;border-radius:12px;background:#101532}.task-brief__visual img{display:block;width:100%;height:100%;min-height:205px;object-fit:cover}.task-brief__body{padding:12px 12px 8px 0}.task-kicker{display:block;margin-bottom:7px;color:#5b5ce2;font-size:10px;font-weight:900;letter-spacing:.13em}.task-brief h3{margin:0 0 5px;color:var(--ink);font-size:23px}.task-brief p{margin:0;color:var(--muted);font-size:13px;line-height:1.55}.task-facts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}.task-facts span{padding:9px 11px;border:1px solid #e1e6ef;border-radius:9px;background:rgba(255,255,255,.88);color:var(--ink);font-size:11px}.task-facts b{display:block;margin-bottom:3px;color:#7a879d;font-size:8px;letter-spacing:.12em;text-transform:uppercase}.task-hint{font-weight:650;color:#465166!important}
 .training-guide{display:grid;grid-template-columns:minmax(210px,.62fr) minmax(0,1.8fr);gap:22px;margin:-4px 0 18px;padding:20px 22px;border:1px solid #dfe4f4;border-radius:17px;background:linear-gradient(135deg,#f8f9ff,#fff);box-shadow:0 12px 28px rgba(31,42,77,.045)}.training-guide__intro{padding:5px 2px}.training-guide__intro h3{margin:0 0 5px;color:var(--ink);font-size:18px}.training-guide__intro p,.training-guide article p{margin:0;color:var(--muted);font-size:12px;line-height:1.55}.training-guide__grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.training-guide article{position:relative;padding:14px 14px 13px;border:1px solid #e0e5f0;border-radius:12px;background:#fff}.training-guide article>b{display:block;margin-bottom:8px;color:#5b5ce2;font-size:10px;letter-spacing:.12em}.training-guide article h4{margin:0 0 6px;color:var(--ink);font-size:13px}.training-guide article p{font-size:11px}
+.baseline-preset{margin:0 0 16px;padding:15px;border:1px solid #cfd5ff;border-radius:13px;background:linear-gradient(145deg,#f4f5ff,#fff);box-shadow:0 8px 20px rgba(71,68,190,.07)}.baseline-preset__head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:11px}.baseline-preset__head span{display:block;margin-bottom:3px;color:#5b5ce2;font-size:8px;font-weight:900;letter-spacing:.12em}.baseline-preset__head h3{margin:0;color:var(--ink);font-size:14px}.baseline-preset__head strong{max-width:45%;padding:5px 7px;border-radius:7px;color:#403fa7;background:#e9eaff;font-size:9px;text-align:right}.baseline-preset__facts{display:grid;grid-template-columns:1fr 1fr;gap:7px}.baseline-preset__facts span{padding:8px;border:1px solid #e1e4f2;border-radius:8px;color:#222a40;background:rgba(255,255,255,.9);font-size:10px}.baseline-preset__facts b,.baseline-preset>p b{display:block;margin-bottom:2px;color:#7a8399;font-size:7px;letter-spacing:.09em;text-transform:uppercase}.baseline-preset>p{margin:9px 1px 0!important;color:#566178!important;font-size:10px!important;line-height:1.45!important}.baseline-restore{margin:2px 0 8px!important;border-color:#cfd5ff!important;color:#403fa7!important;background:#f7f7ff!important;font-weight:750!important}
 .control-card,.chart-card{padding:25px!important}.primary-btn{min-height:46px!important;border:0!important;border-radius:10px!important;background:linear-gradient(135deg,#5b5ce2,#7c4dff)!important;font-weight:850!important}.run-state,.live-metric{display:flex;gap:11px;align-items:center;margin-top:10px;padding:14px 15px;border:1px solid #e3e7ef;border-radius:12px;background:#fafbfe}.run-state__dot{width:9px;height:9px;border-radius:50%;background:#8b95a8;box-shadow:0 0 0 5px rgba(139,149,168,.12)}.run-state--running .run-state__dot{background:#8b5cf6;animation:pulse 1.2s infinite}.run-state--complete .run-state__dot{background:#13a36f}.run-state--error .run-state__dot{background:#e05252}.summary-label{display:block;margin-bottom:2px;color:#7b879c;font-size:8px;font-weight:850;letter-spacing:.12em;text-transform:uppercase}.run-state strong,.live-metric strong{display:block;color:var(--ink);font-size:14px}.run-state small,.live-metric small{display:block;margin-top:2px;color:var(--muted);font-size:11px}.metric-reading{display:flex;gap:9px;align-items:baseline}.metric-reading strong{font-size:20px}
 .model-selector{margin:0 0 10px!important}.model-selector input,.model-selector [role="combobox"]{min-height:46px!important;border-radius:10px!important;background:#fff!important}.preview-provenance{display:flex;gap:9px;align-items:flex-start;margin:0 0 12px;padding:10px 12px;border:1px solid #e0e5f0;border-radius:10px;color:#59657a;background:#f8f9fc;font-size:11px;line-height:1.5}.preview-provenance__dot{flex:0 0 auto;width:8px;height:8px;margin-top:4px;border-radius:50%;background:#9ba5b5}.preview-provenance--ready{color:#16664d;border-color:#cfeadf;background:#f2fbf7}.preview-provenance--ready .preview-provenance__dot{background:#13a36f}
 .console-panel{overflow:hidden;margin-top:14px;border:1px solid #29315e;border-radius:12px;background:#11162d}.console-head{padding:9px 13px;border-bottom:1px solid #28305b;color:#dbe1ff;font-size:11px;font-weight:800}.console-dot{display:inline-block;width:7px;height:7px;margin-right:8px;border-radius:50%;background:#31d39b}.console-text{height:300px!important;margin:0!important;padding:13px!important;overflow:auto!important;color:#d5dcf4!important;background:#11162d!important;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace!important;white-space:pre-wrap!important}.run-wait{display:flex;gap:12px;align-items:center;margin:0 0 13px;padding:13px 15px;border:1px solid #d6d8ff;border-radius:11px;background:#f8f7ff;color:#313774}.run-wait strong,.run-wait small,.run-wait em{display:block}.run-wait small{margin-top:2px;color:#68748a;font-size:11px}.run-wait em{margin-top:4px;color:#5b5ce2;font-size:10px;font-style:normal;font-weight:800}.run-wait__spinner{width:20px;height:20px;border:2px solid #d7d9ff;border-top-color:#5b5ce2;border-radius:50%;animation:spin .75s linear infinite}
