@@ -1,78 +1,204 @@
 # 24.1 音频奖励设计
 
-> [第 23 章 VLM RL](../chapter26_vlm/vlm-challenges) 把强化学习从文本扩展到视觉理解。第 24 章继续沿多模态路线向前推进：24.1～24.2 讨论音频推理、奖励与语音 Agent，24.3 把感知接到机器人动作，24.4～24.5 再转向图像和视频生成。这三条路线面对同一个问题：当输入、动作和输出不再只是文本 token，奖励怎样描述真实任务质量？我们先从语音开始，分析 Step-Audio-R1 的模态接地推理，以及 Step-Audio-R1.5 从 RLVR 转向 RLHF 的原因。
+给一段 3 秒的音频：一个女声说"明天有雨，记得带伞"，语调平缓，语速偏慢，背景有轻微的键盘声。问模型：说话人的情绪是什么？
+
+模型回答"平静"，答案正确。但把这个回答做成语音播报时，它用同样的音高、同样的节奏念出每一句话，无论内容是安慰、警告还是玩笑。用户听完的评价不是"答错了"，而是"不想再聊了"。
+
+这就是音频 RL 的核心困难。许多文本推理任务可以用答案正确性提供主要奖励，端到端语音交互却同时承载三层信息：**说了什么（内容）、怎么说的（韵律）、多快说出来的（实时性）**。只奖励第一层，模型就可能在后两层退化。本节先拆解音频输入的 token 化方式，再给出三层奖励的具体设计，最后沿着 Step-Audio-R1 与 Step-Audio-R1.5 两篇论文的实验线索，观察单一奖励如何形成陷阱，多维奖励又怎样补回真实交互质量。
 
 ## 音频语言模型概览
 
-文本语言模型处理的是离散 token 序列。但音频是 24 kHz 的连续波形——每秒 24000 个浮点采样。要让 Transformer 处理音频，必须先把它"token 化"。这就是**神经音频编解码器（Neural Audio Codec）**的任务。
+### 从波形到 token
 
-### 三大音频 token 化方案
+文本语言模型处理离散 token 序列，音频却是连续波形。例如，24 kHz 音频每秒包含 24000 个采样点。要让 Transformer 高效处理和生成音频，通常要先把波形压缩成离散表示，这是 **神经音频编解码器（Neural Audio Codec）** 的任务。下面是几种代表性方案；帧率和码本数会随具体带宽配置变化，因此这里列的是典型设置。
 
-| 编解码器                       | 帧率     | 码本数                     | 单 token 信息量 | 典型用途          |
-| ------------------------------ | -------- | -------------------------- | --------------- | ----------------- |
-| **SoundStream**（Google 2021） | 50 Hz    | 8 RVQ 层                   | 中              | 语音合成、TTS     |
-| **EnCodec**（Meta 2022）       | 75 Hz    | 8 RVQ 层                   | 中              | 通用音频、音乐    |
-| **SpeechTokenizer**（2023）    | 50 Hz    | 8（前 1 语义 + 后 7 声学） | 高（语义层）    | 语义理解          |
-| **WavTokenizer**（ICLR 2025）  | 40-75 Hz | 1（VQ）                    | 极高            | 极致压缩、AudioLM |
-| **Mimi**（Kyutai 2024）        | 12.5 Hz  | 8（语义+声学联合）         | 高              | 实时对话（Moshi） |
+- **编解码器 — SoundStream（Google 2021）**
+  - 帧率: 50 Hz
+  - 码本数: 8 RVQ 层
+  - 单 token 信息量: 中
+  - 典型用途: 语音合成、TTS
+- **编解码器 — EnCodec（Meta 2022）**
+  - 帧率: 75 Hz
+  - 码本数: 8 RVQ 层
+  - 单 token 信息量: 中
+  - 典型用途: 通用音频、音乐
+- **编解码器 — SpeechTokenizer（2023）**
+  - 帧率: 50 Hz
+  - 码本数: 8（前 1 语义 + 后 7 声学）
+  - 单 token 信息量: 高（语义层）
+  - 典型用途: 语义理解
+- **编解码器 — WavTokenizer（ICLR 2025）**
+  - 帧率: 40-75 Hz
+  - 码本数: 1（VQ）
+  - 单 token 信息量: 极高
+  - 典型用途: 极致压缩、AudioLM
+- **编解码器 — Mimi（Kyutai 2024）**
+  - 帧率: 12.5 Hz
+  - 码本数: 8（语义+声学联合）
+  - 单 token 信息量: 高
+  - 典型用途: 实时对话（Moshi）
 
-RVQ（Residual Vector Quantization，残差向量量化）是 EnCodec/SoundStream 的核心。它把一帧音频编码成 $K$ 层码本索引 $c_1, c_2, \ldots, c_K$，每一层量化上一层的残差：
+其中 [SoundStream](https://arxiv.org/abs/2107.03312) 与 [EnCodec](https://arxiv.org/abs/2210.13438) 的核心是 **RVQ（Residual Vector Quantization，残差向量量化）**。先看直觉：一帧音频的编码向量很难用一个码本里的条目精确表示，那就分层逼近，第一层量化原向量，第二层量化第一层的残差，第三层再量化第二层的残差，逐层把误差压小。
 
-$$e^{(0)} = \text{Encoder}(x), \quad c_k = \arg\min_c \|e^{(k-1)} - \text{CB}_k[c]\|, \quad e^{(k)} = e^{(k-1)} - \text{CB}_k[c_k]$$
+形式化地，设编码器输出 $e^{(0)} = \text{Encoder}(x)$，第 $k$ 层在码本 $\text{CB}_k$ 中找最近邻并记录残差：
 
-最终波形 $\hat{x} = \text{Decoder}(c_1, \ldots, c_K)$。$K$ 越大重建质量越高，但每多一层码本就多一份 token 序列，自回归生成长度翻倍。SpeechTokenizer 的关键洞察：**把第一层码本蒸馏成 HuBERT 语义特征**，使 $c_1$ 编码"说了什么"，$c_2 \ldots c_K$ 编码"怎么说的"（韵律、音色）。
+$$c_k = \arg\min_c \|e^{(k-1)} - \text{CB}_k[c]\|, \quad e^{(k)} = e^{(k-1)} - \text{CB}_k[c_k]$$
+
+最终波形由全部码本索引重建：$\hat{x} = \text{Decoder}(c_1, \ldots, c_K)$。$K$ 越大重建质量越高，但每多一层码本就多一份 token 序列，自回归生成长度成倍增长。
+
+[SpeechTokenizer](https://arxiv.org/abs/2308.16692) 在这个结构上做了一个关键改动：用 HuBERT 特征指导第一层 RVQ，使较浅层更偏向语义信息，后续层继续补充声学细节。这个分层为后文分别设计内容奖励与韵律奖励提供了一个直观的表示基础。
 
 ### 语音生成与文本生成的差异
 
-把音频 token 喂进 LLM 后，生成机制看似与文本一致（自回归 next-token），实则天差地别：
+把音频 token 喂进 LLM 后，生成机制看似与文本一致（自回归 next-token），实际约束完全不同：
 
-| 维度     | 文本生成                 | 语音生成                                        |
-| -------- | ------------------------ | ----------------------------------------------- |
-| 序列长度 | 1 token ≈ 0.5 词 ≈ 0.3 s | 1 token ≈ 0.013 s（75 Hz）→ 1 s 语音 = 75 token |
-| 评价维度 | 内容正确性               | 内容 + 韵律 + 情感 + 音色 + 节奏                |
-| 错误容忍 | 错 1 词可读              | 错 1 帧 → 爆音、电流声                          |
-| 多码本   | 单流                     | 8 层 RVQ 需同步生成                             |
-| 实时性   | 流式即可                 | 首 packet 延迟 < 1 s                            |
+- **维度 — 序列长度**
+  - 文本生成: 长度主要随词语数量增加
+  - 语音生成: 长度还随音频时长与编码帧率增加；75 Hz 表示每秒 75 个时间步
+- **维度 — 评价维度**
+  - 文本生成: 内容正确性
+  - 语音生成: 内容 + 韵律 + 情感 + 音色 + 节奏
+- **维度 — 错误容忍**
+  - 文本生成: 错 1 词仍可读
+  - 语音生成: 错 1 帧可能出现爆音、电流声
+- **维度 — 多码本**
+  - 文本生成: 单流
+  - 语音生成: 8 层 RVQ 需同步生成
+- **维度 — 实时性**
+  - 文本生成: 流式即可
+  - 语音生成: 对话体验通常追求亚秒级或接近亚秒级首包延迟
 
-一秒语音要生成 75 × 8 = 600 个 token，10 秒对话就是 6000 个 token——比同等内容文本长 20 倍。这是音频 LLM 的**序列长度爆炸**问题。
+算一笔账：75 Hz、8 层 RVQ 的配置下，一秒语音要生成 75 × 8 = 600 个 token，10 秒对话就是 6000 个 token；同样内容的文本通常只要几百个 token。这是音频 LLM 的 **序列长度爆炸** 问题，它直接决定了音频 RL 的采样成本远高于文本 RL。
 
 ### 实时推理的工程挑战
 
 实时语音对话要求**全双工**：模型边听边想边说。三个工程难点：
 
-1. **首 packet 延迟**：用户说完到模型开口的间隔，业界目标 < 500 ms
+1. **首 packet 延迟**：用户说完到模型开口的间隔。硬件、网络与模型规模都会改变可达阈值。
 2. **流式解码**：不能等整句生成完再合成，必须 chunk-by-chunk 输出
 3. **可打断**：用户随时插话，模型必须立刻停止生成并切到听模式
 
-GPT-4o Realtime、Gemini Live、Moshi 用 **chunked autoregressive** + **streaming vocoder** 解决。本章后半部分会看到，Step-Audio-R1 Realtime 用"边听边想 + 边想边说"的**双脑架构**实现亚秒级延迟。
+[Moshi](https://arxiv.org/abs/2410.00037) 直接联合建模多条音频与文本流；商业实时模型的内部实现并不完全公开，能确定的是它们都必须流式处理输入和输出。本章还会看到，Step-Audio-R1 Realtime 通过“边听边想、边想边说”的并行结构实现亚秒级首包延迟。
 
-## Step-Audio 系列：中国团队的音频推理路线
+## 音频奖励的三个维度
 
-StepFun（阶跃星辰）是国内音频 LLM 的代表厂商。Step-Audio 系列从 Step-Audio 2（基础对话模型）演进到 **Step-Audio-R1**（推理模型，2025.11）和 **Step-Audio-R1.5**（RLHF 对齐，2026.04），完整覆盖了"音频理解 + 推理 + 生成"的全链路。
+先从最容易写成程序的正确性奖励开始，再逐步加入较难量化的韵律和延迟。三类信号的可验证程度不同，组合时也会产生冲突。
 
-### Step-Audio-R1：Test-Time Compute Scaling
+### 内容正确性奖励
 
-[Step-Audio-R1](https://arxiv.org/abs/2511.15848) 的核心贡献：**首个在音频域成功解锁 test-time compute scaling 的模型**。
+最直接的形式是把最终答案 $a$ 与标准答案 $a^*$ 比对。下面的二值函数解决“能否自动判对错”这一问题：
 
-#### Inverted scaling 反常现象
+$$R_{\text{content}}(r, a) = \begin{cases}1, & \text{if } a = a^* \\ 0, & \text{else}\end{cases}$$
 
-文本和视觉推理模型普遍遵循 test-time compute scaling law——给模型更多推理 token，性能可预测地提升（见 [第 16 章推理模型](../chapter19_reasoning/r1-zero-pure-rl-reasoning)）。但音频域出现反常：
+二值奖励之外还有三种常用变体：
+
+- **ASR 字错率**：WER 越低奖励越高，$R = 1 - \text{WER}$
+- **语义匹配**：用 embedding 余弦相似度，$R = \cos(\text{emb}(a), \text{emb}(a^*))$
+- **LLM-as-judge**：让大模型判断答案是否等价，输出 $R \in [0, 1]$
+
+内容奖励适合客观任务（数学、知识问答、ASR），但对开放式对话失效，因为这类任务没有标准答案。
+
+### 韵律自然度奖励
+
+韵律（prosody）包括音高、节奏、强度和停顿。它很难像数学答案那样得到唯一标签，因此需要从人类比较或声学统计中学习偏好。开头那个“答对但难听”的例子，问题就出在这一层。
+
+先看传统做法。训练一个标量奖励模型 $R_\phi(\text{audio}) \to \mathbb{R}$，用人类两两偏好数据，按 Bradley-Terry 模型优化：
+
+$$\mathcal{L}_{\text{RM}} = -\log\sigma(R_\phi(y_w) - R_\phi(y_l))$$
+
+举一个具体例子。同一句"路上小心"，回答 A 内容正确但音高一条直线，回答 B 内容答非所问但语气自然。人类标注者可能给出 A 优于 B（内容优先），也可能给出 B 优于 A（体验优先）。标量 RM 把这些判断压成一个数字，训练结束后无人知道模型到底学到了哪个维度。"内容对但韵律怪"和"内容错但韵律自然"在标量下无法区分。
+
+Step-Audio-R1.5 的解法是分维度打分。用 **rubric prompting** 让评审模型在每个维度上独立给分：
+
+```text
+请按以下 rubric 评估回复（0-10 分）：
+1. 内容正确性：答案是否准确？
+2. 流畅度：是否连贯无卡顿？
+3. 韵律自然度：音高、节奏是否符合人类说话习惯？
+4. 情感匹配：语气是否与上下文情感一致？
+5. 沉浸感：是否像在与人对话？
+
+回复：[音频]
+```
+
+每个维度一个分数，再用从人类偏好回归学到的权重 $w_k$ 聚合：
+
+$$R_{\text{prosody}}(y) = \sum_k w_k \cdot \text{GRM}_k(y), \quad w = \arg\min_w \left\|R_{\text{human}}(y) - \sum_k w_k \cdot \text{GRM}_k(y)\right\|^2$$
+
+上面的加权公式是帮助理解多维奖励聚合的教学化写法，并非 Step-Audio-R1.5 公布的训练公式。论文实际采用**生成式奖励模型（Generated Reward Model, GRM）**：给定多轮上下文、策略回答、参考回答以及可选的 rubric，让奖励模型产生相对质量判断，再映射为标量奖励。它把 [RLHF](../chapter15_rlhf/base-model-to-assistant) 中难以解释的单一总分，变成可以随任务条件变化的评审依据。
+
+没有偏好标注数据时，还可以用声学特征直接打分。下面是一段示意代码，核心是用基频分布与人类参考分布的距离衡量自然度，并显式惩罚单调：
+
+```python
+def prosody_reward(audio):
+    # 提取韵律特征
+    f0 = extract_pitch(audio)            # 基频曲线
+    energy = extract_energy(audio)       # 能量包络
+
+    # 与参考韵律分布对比
+    f0_score = -wasserstein(f0_dist(audio), f0_dist_human)
+    energy_score = -wasserstein(energy_dist(audio), energy_dist_human)
+
+    # 抑制单调（针对后文 RLVR 导致的扁平化）
+    f0_var = np.std(f0)
+    monotonicity_penalty = -max(0, 0.2 - f0_var)  # 基频方差过低就罚
+
+    return 0.5 * f0_score + 0.3 * energy_score + 0.2 * monotonicity_penalty
+```
+
+最后那一项惩罚值得留意：它不是奖励"好韵律"，而是惩罚"没有韵律"。后文会看到，这正是对抗 RLVR 扁平化的第一道防线。
+
+### 实时性奖励
+
+延迟奖励需要先定义测量起点和终点。这里把“用户话音结束”作为起点，把“系统输出第一段可播放音频”作为终点，得到首包延迟 $T_{\text{first-packet}}$。下面的分段函数是教学示例，阈值应由产品预算与测量环境决定：
+
+$$R_{\text{latency}}(y) = \begin{cases}1, & T_{\text{first-packet}} < 0.5\text{s} \\ 0.5, & 0.5\text{s} \leq T_{\text{first-packet}} < 1.0\text{s} \\ 0, & T_{\text{first-packet}} \geq 1.0\text{s}\end{cases}$$
+
+也可以用连续形式 $R_{\text{latency}}(y) = \exp(-\alpha \cdot T_{\text{first-packet}})$，避免阈值附近的行为突变。
+
+实时性奖励会和深度推理冲突：想得越久，首 packet 越晚。这个矛盾不是靠调权重解决的，而是靠架构，后文的双脑架构让表达脑在构思脑还在推理时就开始合成，把延迟隐藏进生成流水线。
+
+### 综合奖励
+
+最终的音频 RL 奖励通常是三类的加权组合：
+
+$$R_{\text{total}} = w_c \cdot R_{\text{content}} + w_p \cdot R_{\text{prosody}} + w_l \cdot R_{\text{latency}}$$
+
+权重 $(w_c, w_p, w_l)$ 反映应用场景：
+
+- **场景 — 客服问答**
+  - 权重倾向: $w_c$ 大
+  - 原因: 信息准确性决定业务价值
+- **场景 — 陪伴机器人**
+  - 权重倾向: $w_p$ 大
+  - 原因: 对话体验决定用户留存
+- **场景 — 实时翻译**
+  - 权重倾向: $w_l$ 大
+  - 原因: 延迟超过阈值即不可用
+
+Step-Audio-R1.5 的核心贡献可以概括为：只优化 $w_c$ 会掉进可验证奖励陷阱，还要把交互偏好纳入奖励。下面两节沿论文实验把这个结论展开。
+
+## 案例一：Step-Audio-R1 与模态接地推理
+
+Step-Audio 系列从 [Step-Audio 2](https://arxiv.org/abs/2507.16632) 的音频理解与对话基础，演进到 Step-Audio-R1（2025 年 11 月）和 Step-Audio-R1.5（2026 年 4 月）。R1 要解决的问题与奖励设计直接相关：为什么音频模型“越想越差”。
+
+### Inverted Scaling 反常现象
+
+文本和视觉推理模型普遍遵循 test-time compute scaling law：给模型更多推理 token，性能可预测地提升（见[第 16 章推理模型](../chapter19_reasoning/r1-zero-pure-rl-reasoning)）。音频域却出现反常：
 
 ```mermaid
 graph LR
-    A[音频输入] --> B{推理长度}
-    B -->|0 token| C[直接回答<br/>准确率 70%]
-    B -->|500 token| D[简短 CoT<br/>准确率 65%]
-    B -->|3000 token| E[长 CoT<br/>准确率 55%]
-    style C fill:#9f9
-    style E fill:#f99
+    A[音频输入] --> B{推理方式}
+    B -->|直接回答| C[依赖当前声学表征]
+    B -->|声学接地推理| D[分析音高、节奏与音色]
+    B -->|文本替代推理| E[围绕转写或想象出的文字继续推导]
+    D --> F[推理长度可能带来收益]
+    E --> G[推理越长，错误可能累积]
 ```
 
-越想越差。Step-Audio-R1 团队通过系统案例分析找到了根因：**文本替代推理（Textual Surrogate Reasoning）**。
+这张图只解释机制，不对应一组虚构的准确率。论文用多项音频基准和后续消融验证这一现象，具体数值随任务变化。
 
-#### 文本替代推理的病根
-
-大多数音频 LLM 用文本 CoT 数据做 SFT 初始化（继承文本模型的推理能力）。结果是模型"想"的不是音频，而是**对音频的文本描述**：
+[Step-Audio-R1](https://arxiv.org/abs/2511.15848) 团队通过系统案例分析找到了根因，他们称之为 **文本替代推理（Textual Surrogate Reasoning）**。大多数音频 LLM 用文本 CoT 数据做 SFT 初始化，结果是模型“想”的对象不是音频，而是对音频的文本描述：
 
 ```text
 ❌ 文本替代推理：
@@ -82,11 +208,11 @@ graph LR
 "小调和声进行 + 下行旋律轮廓 + 缓慢节奏 → 悲伤情感"
 ```
 
-前者只看歌词文本（甚至幻觉出歌词），后者真正分析了音高、节奏、和声。当推理链变长时，文本替代模型只会越走越偏——这就是 inverted scaling 的根。
+前者只看歌词文本（甚至幻觉出歌词），后者真正分析了音高、节奏、和声。推理链变长时，文本替代推理只会在错误的基底上越走越偏。这就是 inverted scaling 的根源，也是音频域奖励设计的第一个特殊性：奖励不仅要判答案对错，还要能区分推理是否落在声学证据上。
 
-#### 模态接地推理蒸馏
+### MGRD：模态接地推理蒸馏
 
-**Modality-Grounded Reasoning Distillation（MGRD）** 是 Step-Audio-R1 的核心训练框架。它通过 $T$ 轮迭代，把推理基底从文本逐步迁移到声学：
+**MGRD（Modality-Grounded Reasoning Distillation，模态接地推理蒸馏）** 是 Step-Audio-R1 的核心训练框架，通过 $T$ 轮迭代把推理基底从文本迁移到声学：
 
 ```mermaid
 graph TB
@@ -100,58 +226,84 @@ graph TB
     end
 ```
 
-每轮 MGRD 包含三个阶段，整体损失：
+整体损失是各轮 SFT 与 RLVR 的累加：
 
 $$\mathcal{L}_{\text{MGRD}} = \sum_{t=1}^{T}\left(\mathcal{L}_{\text{SFT}}^{(t)} + \mathcal{L}_{\text{RLVR}}^{(t)}\right)$$
 
-**阶段一：自蒸馏采样**。在需要声学分析的数据上（音色识别、节奏判断、情感分类），让 $\pi_{\theta_t}$ 采样 $K$ 条候选：
+每轮包含三个阶段。
+
+**阶段一：自蒸馏采样。** 在需要声学分析的数据上（音色识别、节奏判断、情感分类），让当前模型 $\pi_{\theta_t}$ 采样 $K$ 条候选：
 
 $$(r^{(i)}, a^{(i)}) \sim \pi_{\theta_t}(\cdot \mid x_{\text{audio}}, q), \quad i=1,\ldots,K$$
 
-筛选用三条标准：(1) 推理必须显式提及感知特征（音高、节奏、音色）；(2) 推理步骤逻辑连贯；(3) 最终答案正确。
+筛选用三条标准：推理必须显式提及感知特征（音高、节奏、音色）；推理步骤逻辑连贯；最终答案正确。第一条就是"推理落在声学证据上"的可判定版本。
 
-**阶段二：多模态监督精炼**。在蒸馏数据 + 原始文本推理数据上联合 SFT：
+**阶段二：多模态监督精炼。** 在蒸馏数据与原始文本推理数据上联合 SFT：
 
 $$\mathcal{L}_{\text{SFT}}^{(t)} = \mathbb{E}_{\mathcal{D}_t^{\text{audio-cot}}}\left[\log \pi_\theta(r, a \mid x_{\text{audio}}, q)\right] + \mathbb{E}_{\mathcal{D}_{\text{task}}}\left[\log \pi_\theta(r, a \mid q)\right]$$
 
-混合训练防止"灾难性遗忘"——声学接地的同时保留文本推理能力。
+混合训练是为了防止灾难性遗忘：声学接地的同时保留文本推理能力。
 
-**阶段三：多模态 RL**。文本用标准二值奖励，音频用复合奖励：
+**阶段三：多模态 RL。** 文本任务用标准二值奖励，音频任务用复合奖励：
 
 $$R_{\text{audio}}(r, a) = 0.8 \cdot \mathbb{1}[a = a^*] + 0.2 \cdot \mathbb{1}[\text{reasoning present in } r]$$
 
-权重 0.8 + 0.2 的设计有深意：**0.2 的格式奖励防止推理塌缩**。消融实验显示，去掉格式奖励后推理 token 数从 2800 跌到 1500，MMAU 准确率从 77.7 掉到 76.5。RL 优化器天然倾向"最 token 高效"策略——直接给答案——必须显式奖励"思考行为"才能保住推理链。
+0.8 + 0.2 的拆分有明确的实验依据：去掉 0.2 的格式奖励后，推理 token 数从 2800 跌到 1500，MMAU 准确率从 77.7 掉到 76.5。RL 优化器天然倾向"最省 token"的策略，也就是跳过推理直接给答案，必须显式奖励思考行为才能保住推理链。这与第 23 章视觉幻觉一节的结论一致：奖励只考核结果时，模型会找到绕开过程的路径。
 
 ::: details MGRD 的数据筛选：pass@8 ∈ [3, 6]
-RL 数据集只有 5000 条，但质量极严。用上一轮模型对每个问题采样 $k=8$ 次，**只保留 pass@8 ∈ [3, 6] 的题**——既不太简单（pass@8 > 6 学不到东西），也不太难（pass@8 < 3 多半是题目本身有歧义）。
+RL 数据集只有 5000 条，但筛选极严。用上一轮模型对每个问题采样 $k=8$ 次，只保留 pass@8 ∈ [3, 6] 的题：太简单的题（pass@8 > 6）学不到东西，太难的题（pass@8 < 3）多半本身有歧义。
 
-实验对比三种数据策略：
+三种数据策略的对比：
 
-| 数据策略                   | 最终 reward       | 推理长度稳定性       |
-| -------------------------- | ----------------- | -------------------- |
-| 全失败题（pass@8 = 0）     | 0.45-0.70，方差大 | 跌到 1800 token      |
-| 中等难度（pass@8 ∈ [3,6]） | 0.75-0.80，稳定   | 维持 2300-2800 token |
-| 200K 无筛选（10× 放量）    | 无提升            | —                    |
+- **数据策略 — 全失败题（pass@8 = 0）**
+  - 最终 reward: 0.45-0.70，方差大
+  - 推理长度稳定性: 跌到 1800 token
+- **数据策略 — 中等难度（pass@8 ∈ [3,6]）**
+  - 最终 reward: 0.75-0.80，稳定
+  - 推理长度稳定性: 维持 2300-2800 token
+- **数据策略 — 200K 无筛选（10× 放量）**
+  - 最终 reward: 无提升
+  - 推理长度稳定性: 推理长度不稳定
 
-**数据质量 >> 数据数量**。盲目扩大音频 RL 数据反而引入歧义噪声。
+数据质量高于数据数量：盲目扩大音频 RL 数据反而引入歧义噪声。
 :::
 
-#### Acoustic-Grounded Reasoning
+### 结果与实时推理
 
-MGRD 的产物是**声学接地推理（Acoustic-Grounded Reasoning）**——推理链显式引用声学属性。Step-Audio-R1 在 MMAU（Massive Multi-Task Audio Understanding）上的表现：
+MGRD 的产物是**声学接地推理（Acoustic-Grounded Reasoning）**：推理链显式引用声学属性。Step-Audio-R1 在 MMAU（Massive Multi-Task Audio Understanding）系列基准上的表现：
 
-| 模型              | 平均     | Big Bench Audio | Spoken MQA | MMSU | MMAU     | Wild Speech |
-| ----------------- | -------- | --------------- | ---------- | ---- | -------- | ----------- |
-| Step-Audio 2      | 68.3     | 59.1            | 88.8       | 64.3 | 78.0     | 51.1        |
-| Gemini 2.5 Pro    | 81.5     | 96.1            | 94.8       | 79.3 | 77.4     | 60.0        |
-| Gemini 3 Pro      | 85.1     | 92.1            | 95.3       | 82.9 | 78.9     | 76.4        |
-| **Step-Audio-R1** | **83.6** | **98.7**        | 95.2       | 75.9 | **77.7** | 70.6        |
+- **模型 — Step-Audio 2**
+  - 平均: 68.3
+  - Big Bench Audio: 59.1
+  - Spoken MQA: 88.8
+  - MMSU: 64.3
+  - MMAU: 78.0
+  - Wild Speech: 51.1
+- **模型 — Gemini 2.5 Pro**
+  - 平均: 81.5
+  - Big Bench Audio: 96.1
+  - Spoken MQA: 94.8
+  - MMSU: 79.3
+  - MMAU: 77.4
+  - Wild Speech: 60.0
+- **模型 — Gemini 3 Pro**
+  - 平均: 85.1
+  - Big Bench Audio: 92.1
+  - Spoken MQA: 95.3
+  - MMSU: 82.9
+  - MMAU: 78.9
+  - Wild Speech: 76.4
+- **模型 — Step-Audio-R1**
+  - 平均: **83.6**
+  - Big Bench Audio: **98.7**
+  - Spoken MQA: 95.2
+  - MMSU: 75.9
+  - MMAU: **77.7**
+  - Wild Speech: 70.6
 
-平均 83.6 超过 Gemini 2.5 Pro，逼近 Gemini 3 Pro。Big Bench Audio（多步逻辑推理）达 98.7，是所有模型最高。
+平均 83.6 超过 Gemini 2.5 Pro，逼近 Gemini 3 Pro；Big Bench Audio（多步逻辑推理）达 98.7，为所有模型最高。
 
-### Mind-Paced Speaking：边想边说
-
-实时语音对话的瓶颈是**推理与生成的串行依赖**：模型必须先想完，才能开口。Step-Audio-R1 Realtime 借鉴 **listen-while-thinking** 和 **think-while-speaking** 架构，实现**思维步调说话（Mind-Paced Speaking）**：
+客观分数解决后，下一个瓶颈是实时性。传统流程里推理与生成串行：先想完，再开口。Step-Audio-R1 Realtime 借鉴 listen-while-thinking 与 think-while-speaking 两类架构，实现 **Mind-Paced Speaking（思维步调说话）**：
 
 ```mermaid
 sequenceDiagram
@@ -169,13 +321,7 @@ sequenceDiagram
     Note over L,A: 全程 < 1 s 首 packet
 ```
 
-关键洞察：**人类说话是流式的**——我们边想边说，前半句还在思考后半句的内容。Mind-Paced Speaking 让模型也具备这种能力，不需要等整段推理完成才开始合成语音。
-
-Step-Audio-R1 Realtime 在 Big Bench Audio speech-to-speech 上达到 **96.1 分**（推理性能）+ **0.92 s 首 packet 延迟**，全面超越 GPT Realtime 0825（83 分 / 0.98 s）和 Gemini 2.5 Flash Native Audio（92 分 / 0.63 s）。
-
-### Dual-Brain Architecture：双脑架构
-
-把"想"和"说"解耦的架构叫**双脑（Dual-Brain）**：
+支撑这种并行的就是**双脑（Dual-Brain）架构**：
 
 ```mermaid
 graph TB
@@ -194,198 +340,118 @@ graph TB
     A4 --> B1
 ```
 
-- **构思脑（Formulation Brain）**：音频编码器 + LLM，输出 `<think>...</think>` 推理 + 文本回复
-- **表达脑（Articulation Brain）**：把文本回复转成带韵律、情感、音色的 codec token，再解码为波形
+这套实时结构来自 [Mind-Paced Speaking](https://arxiv.org/abs/2510.09592)。构思脑（Formulation Brain）由音频编码器加 LLM 组成，输出 `<think>...</think>` 推理和文本回复；表达脑（Articulation Brain）把文本回复转成带韵律、情感、音色的 codec token，再解码为波形。两脑解耦后，构思与语音合成可以流水化执行。Step-Audio-R1 论文报告，Realtime 版本在 Big Bench Audio speech-to-speech 上达到 96.1 分，首包延迟为 0.92 秒；同一评测中的 GPT Realtime 0825 为 83 分、0.98 秒，Gemini 2.5 Flash Native Audio 为 92 分、0.63 秒。
 
-两脑解耦让"想得深"和"说得快"互不拖累——构思脑可以跑长 CoT，表达脑并行合成语音。这是 Step-Audio-R1 Realtime 能在亚秒延迟下保留推理能力的关键。
+注意表达脑的职责：韵律、情感、音色都在这一层生成。如果 RL 只奖励答案正确性，表达脑没有任何动力去维持韵律质量。这正是下一节陷阱的机制。
 
-## 本节总结
+## 案例二：可验证奖励陷阱与 RLHF 修正
 
-Step-Audio-R1 是 StepWise 2026 年初发布的音频 reasoning 模型，核心创新是 **MGRD（模态接地推理蒸馏）**——把文本推理链蒸馏到音频模态，解决"想得越多越差"的 inverted scaling 问题。Step-Audio-R1.5 进一步把训练范式从 RLVR 转向 RLHF，让音频模型不再只是"机械答题机"，而是真正可对话的语音助手。
+Step-Audio-R1 用 MGRD 加 RLVR 在客观 benchmark 上达到 SOTA。但部署到真实对话后，团队观察到一个反直觉现象：benchmark 分数越高，对话越难听。
 
-下面继续聚焦音频奖励设计：为什么文本奖励模型不能直接评价韵律、情感、口音和实时性，以及 RLVR 为什么需要与多维偏好奖励结合。
+### 陷阱的机制
 
-前文介绍了 Step-Audio 系列的发展。本节聚焦核心工程问题：**音频奖励如何设计？** 文本奖励模型可以直接使用偏好对训练，音频还包含韵律、情感和口音等维度，单一奖励信号无法覆盖。
-
-## RLVR → RLHF 演进
-
-Step-Audio-R1 用 MGRD + RLVR 在客观 benchmark 上达到 SOTA。但部署到真实对话后，团队发现了一个反直觉问题：**benchmark 分数越高，对话越难听**。
-
-### 可验证奖励陷阱
-
-[Step-Audio-R1.5](https://arxiv.org/abs/2604.25719) 把这个问题命名为**可验证奖励陷阱（Verifiable Reward Trap）**。
+[Step-Audio-R1.5](https://arxiv.org/abs/2604.25719) 把这个问题命名为**可验证奖励陷阱（Verifiable Reward Trap）**：
 
 ::: warning 可验证奖励陷阱
-当音频 benchmark 的 ground truth 只是一个离散标签（情感类别、ASR 文本、场景标签）时，RLVR 只能奖励"猜对标签"，**结构性无视**韵律自然度、情感连贯性、对话流畅度。
+当音频 benchmark 的 ground truth 只是一个离散标签（情感类别、ASR 文本、场景标签）时，RLVR 只能奖励"猜对标签"，结构性地无视韵律自然度、情感连贯性、对话流畅度。
 :::
 
-陷阱的机制：
+机制可以写成一条链：
 
 ```text
-RLVR 目标 = 答案正确性 → 模型学到 "最 token 高效" → 回答变简短、机械、扁平
+RLVR 目标 = 答案正确性 → 模型学到"最省 token"策略 → 回答变简短、机械、扁平
                 ↓
          benchmark ↑  真实对话体验 ↓
 ```
 
-RLVR 优化的是"what to say"（说什么），用户关心的是"how to say it"（怎么说）。两者解耦时，模型退化成**答题机**——技术上准确，体验上空洞。
+用本节开头的三层框架来表述：RLVR 只优化 $w_c$，模型把全部容量投向内容正确性；韵律维度没有奖励信号，就在优化过程中被逐步丢弃。RLVR 优化的是"说什么"，用户关心的是"怎么说"，两者解耦时，模型退化成答题机：技术上准确，体验上空洞。
 
-### Step-Audio-R1.5：从 RLVR 到 RLHF
+### Step-Audio-R1.5 的三阶段修正
 
-R1.5 的解法：**用 RLHF 补 RLHF**——训练一个 holistic 偏好奖励模型，把正确性、流畅度、情感共鸣蒸馏成统一监督信号。
+R1.5 的解法是把 RLHF 补回训练流程：训练一个整体性偏好奖励模型，把正确性、流畅度、情感共鸣蒸馏成统一的监督信号。整个流程分三步。
 
-#### Audio-Centric Mid-Training
-
-RLHF 之前先做一轮中间训练，强化音频理解和推理基底：
+**第一步：Audio-Centric Mid-Training。** RLHF 之前先做一轮中间训练，强化音频理解和推理基底：
 
 $$\mathcal{L}_{\text{mid}} = \mathbb{E}_{(x,q,r,y) \sim \mathcal{D}_{\text{audio}}}\left[\log \pi_\theta(r, y \mid x, q)\right] + \mathbb{E}_{(q,r,y) \sim \mathcal{D}_{\text{text}}}\left[\log \pi_\theta(r, y \mid q)\right]$$
 
-其中 $(x, q, r, y)$ 是音频输入 + 上下文 + 推理 + 回复。文本数据保留长 CoT 推理结构， facilitating transfer 到音频。
+其中 $(x, q, r, y)$ 分别是音频输入、上下文、推理、回复。文本数据保留长 CoT 推理结构，推理能力从文本模态迁移到音频模态。
 
-#### Cold-Start SFT
-
-Cold-start SFT 不再扩领域知识，而是**对齐交互行为**：
+**第二步：Cold-Start SFT。** 这一步不再扩领域知识，而是对齐交互行为：
 
 1. **多轮对话连续性**：跨轮保持上下文和约束
 2. **指令遵循**：按用户指定的内容、格式、风格响应
 3. **回复自然度**：连贯、对话得当
 4. **交互感知**：处理追问、澄清、打断、用户修正
 
-这一步为后续 RLHF 提供更好的初始化——避免 preference optimization 浪费在纠正基本对话行为上。
+它为后续 RLHF 提供更好的初始化，避免偏好优化浪费在纠正基本对话行为上。
 
-#### RLHF with Rubric-based Reward Model
+**第三步：使用 rubric-based GRM 做 RLHF。** 音频交互包含内容约束、格式要求、跨轮记忆、自然度和语气等异质目标。R1.5 没有把每个维度手工压成固定权重，而是让生成式奖励模型在两种模式之间切换：任务给出明确 rubric 时，按照 rubric 比较回答；没有明确规则时，做普通的成对偏好判断。
 
-音频交互是多目标优化——内容正确、韵律自然、情感连贯、延迟可控。R1.5 用 **rubric-based 生成式奖励模型（Generated Reward Model, GRM）**替代标量 RM：
+论文先把截至第 $T$ 轮的对话历史记为 $\mathcal{H}_{1:T}$，策略回答记为 $y$，参考回答记为 $y^{\text{ref}}$，可选评审标准记为 $c$。生成式奖励模型给出相对质量判断：
 
-```python
-def audio_rlhf_reward(response, context, rubric):
-    """多维度打分而非标量"""
-    scores = {}
-    scores["correctness"] = grm.score(response, context, rubric="内容是否正确")
-    scores["fluency"] = grm.score(response, context, rubric="表达是否流畅自然")
-    scores["prosody"] = grm.score(response, context, rubric="韵律是否符合情感")
-    scores["emotional_resonance"] = grm.score(response, context, rubric="情感共鸣")
-    scores["latency"] = grm.score(response, context, rubric="响应延迟")
-    # 加权聚合（权重由人类偏好回归学到）
-    return sum(w[k] * scores[k] for k in scores)
-```
+$$
+g = \mathcal{R}(\mathcal{H}_{1:T}, y, y^{\text{ref}}; c),
+\qquad c \in \mathcal{C} \cup \{\varnothing\},
+$$
 
-GRM 的优势：**人类偏好多维度**，标量 RM 无法捕捉。用 LLM-as-judge 给每个维度打分（rubric prompting），再学一个权重聚合器，相当于把 [RLHF](../chapter15_rlhf/base-model-to-assistant) 的 RM 从"打总分"升级成"打分卡"。
+再通过映射函数 $\phi$ 把判断结果变成策略优化所需的标量奖励：
 
-#### 多目标 RL 训练目标
+$$
+r = \phi(g).
+$$
 
-R1.5 的 RL 损失综合 RLVR 和 RLHF：
+当 $c \neq \varnothing$ 时，评审会检查“是否记住第三轮给出的语速要求”一类明确条件；当 $c=\varnothing$ 时，评审比较哪段回答整体更自然。这个设计把可说明的约束与难以写成规则的体验放进同一个奖励接口。
 
-$$\mathcal{L}_{\text{RL}} = \underbrace{\mathbb{E}_{\mathcal{D}_{\text{verified}}}\left[R_{\text{verify}}(r, a)\right]}_{\text{客观正确性（RLVR）}} + \lambda \cdot \underbrace{\mathbb{E}_{\mathcal{D}_{\text{pref}}}\left[\log\sigma\left(\beta \log\frac{\pi_\theta(y_w \mid x)}{\pi_{\text{ref}}(y_w \mid x)} - \beta \log\frac{\pi_\theta(y_l \mid x)}{\pi_{\text{ref}}(y_l \mid x)}\right)\right]}_{\text{主观偏好（DPO 形式）}}$$
+得到优势估计 $\hat A_t$ 后，论文使用带参考策略 KL 约束的 PPO 风格目标：
 
-前项保住客观推理能力（不让 RLHF 把 RLVR 学到的东西遗忘），后项用 DPO 损失（见[第 14 章 DPO](../chapter17_dpo/dpo-theory-and-family)）对齐主观体验。$\lambda$ 平衡两者——这是音频 RL 的核心超参。
+$$
+\mathcal{L}_{\text{RLHF}}(\theta)
+= \mathbb{E}_t\!\left[
+\min\!\left(
+\rho_t(\theta)\hat A_t,
+\operatorname{clip}(\rho_t(\theta),1-\epsilon,1+\epsilon)\hat A_t
+\right)
+\right]
+-\beta D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}}),
+$$
 
-### 保留韵律自然度
+其中 $\rho_t(\theta)$ 是新旧策略对当前 token 的概率比，裁剪项限制一次更新的幅度，KL 项防止策略远离参考模型。这里的目标来自 [Step-Audio-R1.5 第 3.3 节](https://arxiv.org/html/2604.25719#S3.SS3)，不应写成 DPO 损失。
 
-RLVR 最大的破坏是**韵律扁平化**：模型为最大化答案正确性，把语音变成单调的"朗读"。R1.5 用三个机制保住韵律：
+### 韵律自然度的保留
 
-1. **偏好数据包含韵律维度**：标注者比较两个回复时，不仅看内容，还听"哪个更自然、情感更对、节奏更像人"
-2. **Rubric 显式评分 prosody**：GRM 单独打韵律分，不与正确性混淆
-3. **Codec token 层级监督**：RVQ 的 $c_2 \ldots c_K$（声学层）参与 preference，确保生成阶段就保留韵律信息
+RLVR 训练中最明显的退化是**韵律扁平化**：回答更短、更机械，情感连续性也变差。R1.5 的修正信号来自端到端交互偏好，GRM 比较完整回答在正确性、流畅度与情感共鸣上的整体质量；有明确任务条件时，再用 rubric 检查具体约束。需要注意，R1.5 的架构输出纯文本，论文没有声称在 RVQ codec token 层直接施加偏好监督。
 
-R1.5 在 AudioMultiChallenge（多轮对话基准，测 Inference Memory / Instruction Retention / Self Coherence / Voice Editing）上达到或超越 Gemini-2.5-Flash，**同时**在传统推理 benchmark 上不掉分。RLVR 的"陷阱"被 RLHF 解开。
+论文在 AudioMultiChallenge、Big Bench Audio、MMSU、MMAU 等八项语音到文本基准上统一评测。R1.5 的平均分为 77.97，高于 R1 的 72.50；提升主要来自多轮交互与长上下文任务，同时保留了原有分析能力。这里的结论比“所有传统基准都不掉分”更准确：RLHF 改善了总体平衡，但不同单项仍有升降。
 
-## 音频奖励设计
+## 与前面章节的联系
 
-音频 RL 的 reward 比文本复杂得多——文本主要看正确性，音频要看内容、韵律、实时性三层。本节系统讨论三类奖励的设计。
+- **前面章节的概念 — RLVR 的二值奖励（第 15 章）:** 内容正确性奖励，单独使用时引发可验证奖励陷阱
+- **前面章节的概念 — 偏好奖励模型（第 13 章）:** rubric-based GRM，从标量打分升级为分维度打分卡
+- **前面章节的概念 — PPO 与 KL 约束（第 8、13 章）:** R1.5 用裁剪目标和参考策略正则，把生成式奖励转成稳定的策略更新
+- **前面章节的概念 — 格式奖励防推理塌缩（第 16 章）:** 音频 RL 中 0.2 的推理存在性奖励，机制相同
+- **前面章节的概念 — VLM RL 的视觉捷径（第 23 章）:** 音频域的文本替代推理：绕开模态证据，直接猜答案
 
-### 内容正确性奖励
+<details>
+<summary>思考题：为什么音频 RL 的格式奖励（0.2）比文本 RL 更必要？</summary>
 
-最直接：最终答案与 ground truth 比对。
+文本 RL 里，推理链本身就在提升答案正确率，推理行为和结果奖励方向一致，CoT 可以自然涌现。音频域不同：文本替代推理的存在意味着，长推理链既可能基于声学证据，也可能基于幻觉出的文本描述，推理长度与正确率甚至负相关（inverted scaling）。这时结果奖励无法区分两种推理，只有显式的格式与接地奖励才能把优化方向锚定在声学证据上。
 
-$$R_{\text{content}}(r, a) = \begin{cases}1, & \text{if } a = a^* \\ 0, & \text{else}\end{cases}$$
+</details>
 
-变体包括：
+## 本节小结
 
-- **ASR 字错率**：WER 越低奖励越高，$R = 1 - \text{WER}$
-- **语义匹配**：用 embedding cosine 相似度，$R = \cos(\text{emb}(a), \text{emb}(a^*))$
-- **LLM-as-judge**：让大模型判答案是否等价，$R \in [0, 1]$
+- 音频先经编解码器 token 化才能进入 LLM；RVQ 的分层结构（语义层 + 声学层）与奖励的分层结构（内容 + 韵律）同构。
+- 音频奖励必须覆盖内容、韵律、实时性三层。只奖励内容的 RLVR 会把模型推进可验证奖励陷阱：benchmark 上升，对话体验下降。
+- Step-Audio-R1 用 MGRD 解决“越想越差”的 inverted scaling，把推理锚定到声学证据；Step-Audio-R1.5 用 rubric-based GRM 与 PPO 风格的 RLHF 把交互质量补回奖励。
+- 实时性与深度推理的冲突靠双脑架构解决：构思脑负责长推理，表达脑并行合成语音。
 
-内容奖励适合客观任务（数学、知识问答、ASR），但对开放式对话失效——没有标准答案。
+下一节 [24.2 多模态音频 Agent](./future) 把奖励设计与训练循环落到代码层面，走一遍最小可运行的音频 GRPO 训练，再看音频模型如何变成能调用工具、参与多轮协作的 Agent。
 
-### 韵律自然度奖励
+## 参考资料
 
-韵律（prosody）包括音高、节奏、强度、停顿。建模人类对自然度的偏好是音频 RL 的难点。
-
-#### 标量 RM 的局限
-
-传统做法：训练一个 RM $R_\phi(\text{audio}) \to \mathbb{R}$，用人类两两偏好数据：
-
-$$\mathcal{L}_{\text{RM}} = -\log\sigma(R_\phi(y_w) - R_\phi(y_l))$$
-
-问题：标量 RM 把多维偏好压成一维，丢失了"内容对但韵律怪"vs"内容错但韵律自然"的区别。
-
-#### 多维偏好建模
-
-R1.5 的 GRM 用 **rubric prompting** 让 LLM 分维度打分：
-
-```text
-请按以下 rubric 评估回复（0-10 分）：
-1. 内容正确性：答案是否准确？
-2. 流畅度：是否连贯无卡顿？
-3. 韵律自然度：音高、节奏是否符合人类说话习惯？
-4. 情感匹配：语气是否与上下文情感一致？
-5. 沉浸感：是否像在与人对话？
-
-回复：[音频]
-```
-
-每个维度独立打分，再学权重 $w_k$ 聚合：
-
-$$R_{\text{prosody}}(y) = \sum_k w_k \cdot \text{GRM}_k(y), \quad w = \arg\min_w \|R_{\text{human}}(y) - \sum_k w_k \cdot \text{GRM}_k(y)\|^2$$
-
-权重通过 Bradley-Terry 回归从人类偏好学到。
-
-#### 直接韵律特征奖励
-
-除了偏好建模，还可以用声学特征直接打分：
-
-```python
-def prosody_reward(audio):
-    # 提取韵律特征
-    f0 = extract_pitch(audio)          # 基频曲线
-    energy = extract_energy(audio)     # 能量包络
-    duration = extract_durations(audio)  # 音素时长
-
-    # 与参考韵律分布对比
-    f0_score = -wasserstein(f0_dist(audio), f0_dist_human)
-    energy_score = -wasserstein(energy_dist(audio), energy_dist_human)
-
-    # 抑制单调（避免 RLVR 导致的扁平化）
-    f0_var = np.std(f0)
-    monotonicity_penalty = -max(0, 0.2 - f0_var)  # f0 方差太低就罚
-
-    return 0.5 * f0_score + 0.3 * energy_score + 0.2 * monotonicity_penalty
-```
-
-这种"基于人类韵律分布"的奖励，能在没有偏好标注时抑制 RLVR 的扁平化倾向。
-
-### 实时性奖励
-
-实时对话要求首 packet 延迟 < 1 s，整体响应时间合理。把延迟纳入 reward：
-
-$$R_{\text{latency}}(y) = \begin{cases}1, & T_{\text{first-packet}} < 0.5\text{s} \\ 0.5, & 0.5\text{s} \leq T_{\text{first-packet}} < 1.0\text{s} \\ 0, & T_{\text{first-packet}} \geq 1.0\text{s}\end{cases}$$
-
-或用连续形式：
-
-$$R_{\text{latency}}(y) = \exp(-\alpha \cdot T_{\text{first-packet}})$$
-
-实时性奖励会和深度推理冲突——想得越久首 packet 越晚。这是 [双脑架构](#_30-2-3-dual-brain-architecture-双脑架构) 的价值：表达脑可以在构思脑还在想时就开始合成，把延迟隐藏在生成流水线里。
-
-### 综合奖励
-
-最终音频 RL 的 reward 通常加权组合三类：
-
-$$R_{\text{total}} = w_c \cdot R_{\text{content}} + w_p \cdot R_{\text{prosody}} + w_l \cdot R_{\text{latency}}$$
-
-权重 $(w_c, w_p, w_l)$ 反映应用场景：客服侧重内容（$w_c$ 大），陪伴机器人侧重韵律（$w_p$ 大），实时翻译侧重延迟（$w_l$ 大）。R1.5 的核心贡献就是证明了**只在 $w_c$ 上优化会掉进 verifiable reward trap**——必须引入 $w_p$ 才能保住真实对话体验。
-
-## 本节总结
-
-音频奖励设计比文本复杂得多——除了内容正确性，还要考虑韵律、情感、口音、说话风格。多维度 reward 的工程化方案有两条路线：(1) 加权多个 RM；(2) 用 LLM-as-Judge 直接评估综合质量。Step-Audio-R1.5 采用后者，把音频理解 + 评估合二为一。
-
-下一节 [24.2 多模态音频 Agent 与未来方向](./future) 走向更前沿——音频不再只是输入输出，而是 agent 调用的工具（语音搜索、语音翻译、实时对话）。
+- [Step-Audio-R1 Technical Report（arXiv:2511.15848）](https://arxiv.org/abs/2511.15848)：MGRD 框架原文，音频推理的奠基工作
+- [Step-Audio-R1.5 Technical Report（arXiv:2604.25719）](https://arxiv.org/abs/2604.25719)：RLHF 范式迁移，提出并破解可验证奖励陷阱
+- [Step-Audio 2 Technical Report（arXiv:2507.16632）](https://arxiv.org/abs/2507.16632)：Step-Audio 系列基础模型
+- [EnCodec（arXiv:2210.13438）](https://arxiv.org/abs/2210.13438)：RVQ 编解码器的经典工作
+- [SpeechTokenizer（arXiv:2308.16692）](https://arxiv.org/abs/2308.16692)：语义层与声学层分离的语音 token 化
+- [Moshi（arXiv:2410.00037）](https://arxiv.org/abs/2410.00037)：全双工实时对话与 Mimi 编解码器

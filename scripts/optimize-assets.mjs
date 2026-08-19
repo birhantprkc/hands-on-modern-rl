@@ -301,6 +301,21 @@ function findBrowserExecutable() {
 }
 
 async function createBrowser() {
+  // Chromium cannot register its required Mach services from Codex's macOS
+  // seatbelt sandbox. Attempting to launch it there aborts the process and
+  // makes macOS show a misleading “Google Chrome quit unexpectedly” dialog.
+  // An explicitly approved, unsandboxed build does not set CODEX_SANDBOX and
+  // can still render SVG and Mermaid assets normally.
+  if (
+    process.platform === 'darwin' &&
+    process.env.CODEX_SANDBOX === 'seatbelt'
+  ) {
+    return {
+      error:
+        'browser rendering skipped inside the Codex macOS sandbox; rerun the build with unsandboxed approval to refresh SVG and Mermaid assets'
+    }
+  }
+
   const executablePath = findBrowserExecutable()
 
   if (!executablePath) {

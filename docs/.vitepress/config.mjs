@@ -1280,11 +1280,11 @@ const zhSidebar = {
           collapsed: false,
           items: [
             {
-              text: '23.1 视觉奖励设计',
+              text: '23.1 视觉奖励与幻觉',
               link: '/chapter26_vlm/vlm-challenges'
             },
             {
-              text: '23.2 视觉反思 RL',
+              text: '23.2 视觉反思：带着证据回答',
               link: '/chapter26_vlm/qwen3-vl-reflection'
             },
             {
@@ -1306,7 +1306,7 @@ const zhSidebar = {
               link: '/chapter27_audio_rl/reward-design'
             },
             {
-              text: '24.2 多模态音频 Agent',
+              text: '24.2 从音频奖励到实时 Agent',
               link: '/chapter27_audio_rl/future'
             },
             {
@@ -1387,19 +1387,19 @@ const zhSidebar = {
           collapsed: false,
           items: [
             {
-              text: 'A.1 训练调试指南',
+              text: 'A.1 训练为什么跑偏',
               link: '/appendix_industrial_training/training-debugging'
             },
             {
-              text: 'A.2 训练系统底座',
+              text: 'A.2 一批轨迹怎样变成一次更新',
               link: '/appendix_industrial_training/rl-infrastructure'
             },
             {
-              text: 'A.3 Agent 沙箱',
+              text: 'A.3 Agent 为什么必须在沙箱里训练',
               link: '/appendix_industrial_training/agentic-rl-infra'
             },
             {
-              text: 'A.4 评测基准',
+              text: 'A.4 怎样证明模型真的变好',
               link: '/appendix_industrial_training/evaluation-badcase'
             }
           ]

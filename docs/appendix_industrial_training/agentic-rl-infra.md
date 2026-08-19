@@ -1,47 +1,41 @@
-# A.3 Agent 沙箱
+# A.3 Agent 为什么必须在沙箱里训练：隔离、轨迹与调度
 
-> A.2 讨论的是 RL 训练系统底座：rollout、buffer、trainer、权重同步和分布式并行。本页从另一个边界开始：模型的 action 不再只是生成 token，而是会调用工具、运行代码、读写文件、访问网页，或在多轮环境中改变外部状态。
+设想一个代码修复 Agent。它收到仓库和问题描述，先读取源码，再修改文件并运行测试。一次探索中，Agent 发现删除一个本地测试文件后，公开测试仍然返回成功；另一次探索中，它读取了工作目录里的 `.env`，把其中的信息写进答案。两条轨迹都可能得到高奖励，但都没有完成真实任务。
 
-## 与 A.2 的分工
+这类问题来自 Agent 的动作边界。普通语言模型 rollout 主要产生 token；Agent 的动作还会改变文件、数据库、浏览器页面和网络状态。强化学习又会主动探索高奖励行为，因此每条轨迹都必须在可丢弃、可重置、权限受限的环境中执行。这个环境就是**沙箱**。
 
-A.3 不重复讲 vLLM/SGLang 如何做高吞吐生成，也不重复讲 FSDP、ZeRO、TP、PP、EP 如何把模型切到多张卡上。这些都是 A.2 的内容。A.3 只讨论 Agentic RL 比普通 LLM RL 多出来的工程问题。
+本节回答三个递进的问题：动作怎样与宿主机隔离，多轮轨迹怎样完整保存，工具等待期间怎样继续利用 GPU。[A.2](./rl-infrastructure) 已经介绍 rollout、buffer、trainer 和权重同步；这里从“模型动作离开 GPU”这一刻继续。
 
-| 问题           | A.2 训练系统底座                                            | A.3 Agentic RL 基础设施                                             |
-| -------------- | ----------------------------------------------------------- | ------------------------------------------------------------------- |
-| rollout 的含义 | prompt 进入模型，生成 completion 或一段轨迹                 | 模型多轮行动，每步可能调用工具、执行代码或改变环境                  |
-| 样本结构       | token、mask、logprob、reward、policy version、rollout batch | episode、tool call、tool result、环境快照、步骤级 reward、loss mask |
-| 主要等待       | rollout batch 生成完再训练，或训练后权重回流                | 每一轮工具执行、文件 IO、网络响应、沙箱启动都会让 GPU 空等          |
-| 系统重点       | buffer 深度、异步训练、staleness、权重同步、模型并行        | 沙箱隔离、多轮轨迹存储、批内流水线、环境接口、可复现性              |
-| 代表框架       | OpenRLHF、veRL、slime                                       | Relax、AReaL、Agent-R1、NeMo Gym                                    |
+```mermaid
+flowchart LR
+    M["策略模型"] -->|"工具调用"| G["沙箱网关"]
+    G --> S["一次性沙箱<br/>代码 / 浏览器 / 数据库"]
+    S -->|"观察与退出状态"| G
+    G --> M
+    S -.-> L["轨迹与环境快照"]
+    H["宿主机密钥与训练数据"] -.->|"默认不可见"| S
+```
 
-一句话区分：A.2 解决“训练系统怎么把样本喂给模型”；A.3 解决“Agent 的动作真的发生在外部世界时，训练系统怎么安全、可复现、高吞吐地收集这些动作”。
+## 第一步：理解多轮行动多了什么
 
-## 从单轮生成到多轮行动
+数学题的 GRPO rollout 可以简化为“生成一段答案，再用 verifier 打分”。代码修复任务会经历“读文件—修改—运行测试—读取错误—再次修改”。每一步都依赖上一步留下的环境状态，工具执行还会引入磁盘、网络和进程等待。
 
-以第 15 章的 GRPO 训练为例：给定一道数学题，模型一次性生成完整解答，随后检查答案是否正确。整个过程在单轮内完成，模型唯一的操作是文本生成，所有计算均在 GPU 上进行。
+于是，一条 Agent 轨迹比单轮回答多出三类信息：工具调用及返回值、每一步之后的环境变化、能够重建当时世界的版本与快照。系统也多出三项职责：隔离动作、保存轨迹、并发调度等待中的任务。下面按照这条因果线展开。
 
-相比之下，训练一个具备 bug 修复能力的 Agent 需要完全不同的交互模式。模型拿到一段有错误的代码后，需要先读取代码、定位问题、修改代码、运行测试验证结果。若测试未通过，还需继续修改。一个任务可能需要五六个回合，而每一步之间都存在等待——读文件依赖磁盘 IO，跑测试依赖沙箱执行，搜索依赖网络响应。这些操作不在 GPU 上运行，延迟从几十毫秒到几秒不等。
+## 第二步：把动作关进可重置的环境
 
-由此产生了一组环环相扣的工程问题。当 Agent 需要执行代码时，如何确保安全性？这需要**沙箱隔离**。当交互变成多轮之后，如何存储比普通 rollout batch 更复杂的训练数据？这需要**多轮轨迹存储**。当每一轮交互都让 GPU 空闲数百毫秒时，如何避免算力浪费？这需要**GPU 调度优化**。这些问题不是“再多加几个 GPU”就能解决的训练并行问题，而是 Agent 行动本身带来的环境执行问题。下面的讨论将沿着这条链条逐一展开。
+沙箱需要同时限制四类资源：可见文件、网络目的地、CPU/内存/运行时间，以及可调用的系统能力。只设置超时无法阻止进程读取宿主机文件；只关闭网络也无法阻止它改写共享工作目录。完整边界通常由文件系统、网络、进程身份和资源配额共同组成。
 
-## 沙箱隔离
+### 四类隔离方案怎样选择
 
-Agent 的核心能力之一是执行代码，这也带来了最大的安全隐患。在训练过程中，模型会尝试各种策略以获取更高分数。如果不加限制，它可能生成 `os.system("rm -rf /")` 来删除训练服务器上的文件，或读取环境变量中的 API key。这些行为并非恶意——模型只是在探索动作空间。但后果是灾难性的：一个运行中的训练任务可能被破坏，导致文件系统被清空、训练数据丢失。
+启动时间受镜像大小、缓存、宿主机和运行时配置影响，不能把某个实验数字当成统一结论。选型时先看信任边界，再在目标机器上测冷启动、热启动、重置时间和并发密度。
 
-因此，Agent 执行代码必须在*隔离环境*（sandbox）中运行。隔离方案的选择需要在安全性、启动开销和资源利用率之间取得平衡。
+- `subprocess` 配合 `rlimit` 只提供进程级资源限制，仍与宿主共享内核和可见文件。它适合运行受信任的教学代码或最小原型，不应承载任意模型生成代码。
+- Docker 通过 Linux namespaces 和 cgroups 隔离进程视图与资源，是代码评测中常见的可复现执行单元。Docker 官方安全文档同时提醒：容器仍共享宿主内核，镜像、权限、挂载与 daemon 配置都属于安全边界[^docker_security]。
+- Firecracker 使用 KVM 运行精简 microVM，每个实例拥有独立 guest kernel，适合多租户和更高风险的代码执行。其官方资料给出的“应用代码最快约 125 ms 启动”是特定实现目标，部署仍应本地测量[^firecracker]。
+- WebAssembly 只允许程序调用宿主显式暴露的能力，适合依赖较少、可以编译到 Wasm 的计算任务。Python 科学生态或完整操作系统工具链通常更适合容器或 microVM。
 
-### 隔离方案对比
-
-实践中主要有四种隔离方案，适用于不同的场景：
-
-| 方案                   | 隔离粒度               | 启动延迟 | 适用场景                     |
-| ---------------------- | ---------------------- | -------- | ---------------------------- |
-| subprocess + 资源限制  | 进程级                 | ~10 ms   | 原型验证，信任环境           |
-| Docker 容器            | 文件系统 + 网络 + 资源 | ~100 ms  | 通用训练，需要完整隔离       |
-| MicroVM（Firecracker） | 内核级                 | ~125 ms  | 安全敏感场景，需要硬件级隔离 |
-| WebAssembly（Wasm）    | 指令集级               | ~1 ms    | 纯计算任务，追求极低延迟     |
-
-**subprocess + 资源限制**是最轻量的方案。通过 `rlimit` 限制 CPU 时间和内存、通过 `chroot` 限制文件系统访问、通过 `unshare` 限制网络命名空间。隔离强度有限（进程仍共享宿主内核），但启动开销极低，适合早期原型验证阶段：
+下面的 `subprocess` 代码只演示如何限制 CPU 时间和地址空间。它没有隔离文件系统和网络，因此是一段**资源限制示例**，不能视为不可信代码沙箱：
 
 ```python
 import subprocess, resource
@@ -61,41 +55,53 @@ def run_in_subprocess(code, timeout=10, max_memory=256 * 1024 * 1024):
     return result
 ```
 
-**Docker 容器**是工业级训练中最常用的方案。通过 Linux cgroups 和 namespace 提供文件系统、网络和资源的三重隔离，且拥有完整的镜像生态（可直接使用 `python:3.11-slim`、`node:20` 等基础镜像）。主要开销在于容器启动（约 100 毫秒），可通过预热容器池优化：
+容器方案还需要避免把模型输出拼进 shell 字符串。更稳妥的做法是先把待执行文件放入只属于当前任务的工作目录，再用参数数组启动固定入口：
 
 ```python
 container = client.containers.run(
     "python:3.11-slim",
-    command=f"python -c '{code}'",
+    command=["python", "/workspace/submission.py"],
     detach=True,
-    mem_limit="512m",       # 内存限制
-    cpu_quota=50000,         # CPU 限制
-    network_mode="none",     # 禁止联网
+    mem_limit="512m",
+    cpu_quota=50000,
+    network_mode="none",
+    read_only=True,
+    volumes={task_dir: {"bind": "/workspace", "mode": "ro"}},
     remove=True,
 )
 ```
 
-**MicroVM（如 Firecracker）** 提供内核级隔离——每个 VM 运行独立的精简 Linux 内核，即使一个 VM 被攻破也无法影响宿主机或其他 VM。AWS Lambda 和 Fly.io 的沙箱即基于此技术。启动延迟约 125 毫秒，与 Docker 相当，但安全性显著更高。适合训练中存在不可信代码执行的场景。
-
-**WebAssembly（Wasm）** 通过 WASI（WebAssembly System Interface）提供一种指令集级别的沙箱。代码被编译为 Wasm 字节码后，只能调用宿主显式导出的函数，无法访问文件系统或网络。启动延迟仅约 1 毫秒，但生态仍在发展中，不支持所有 Python 包。
-
 ### 网络策略
 
-无论选择哪种方案，网络访问都需要严格控制。训练中的 Agent 不应直接访问外网——这既不安全，也不可复现（同一个 Agent 第二次运行相同任务时，搜索引擎返回的结果可能已经变化，导致训练轨迹无法重现）。对于确实需要联网的场景（如 Web Agent），应通过代理做请求过滤和缓存，而非简单地断网。
+默认策略应拒绝外网访问。需要联网的 Web Agent 可通过代理访问允许列表中的目标，并记录请求、响应摘要、缓存版本和时间戳。这样既能限制数据外传，也能解释同一任务在不同日期为何得到不同观察。
 
 ### 预热容器池
 
-当采用 Docker 方案时，容器的启动开销不容忽视。如果同时运行 1000 个 episode，每个都创建新容器，仅启动就需约一分钟。工业级的做法是维护一个*预热容器池*（warm container pool）——提前创建好 N 个容器，用完回收重置而非销毁，启动开销可降至约 5 毫秒。
+当每条 episode 都需要冷启动环境时，启动时间会进入训练关键路径。预热池提前准备一组干净实例，任务结束后恢复快照或重新创建。池化能减少等待，但复用前必须确认文件、进程、网络连接和环境变量均已清理；否则上一条轨迹会污染下一条轨迹。冷启动、热启动和彻底重置的时间都应在目标集群上分别测量。
 
 沙箱解决了"Agent 能安全地执行动作"的问题。接下来，Agent 的多轮交互会产生大量结构化的训练数据，这些数据需要被妥善存储和管理。
 
-## 多轮轨迹存储
+## 第三步：保存一条可以重放的轨迹
 
 ### LLM RL vs. Agentic RL 的数据结构差异
 
 A.2 中的 LLM RL 样本并不只是原始文本。真实系统会记录 token ids、attention mask、response mask、old logprob、policy version、reward 等字段。但从结构上看，它仍然接近一条线性序列：`prompt -> completion -> reward`。
 
 Agentic RL 的训练数据则更像一棵带状态的对话树。一个 episode 可能包含七八轮交互，每轮包含模型输出、工具调用参数、工具返回、环境状态变化和步骤级奖励。以"修复 Python bug"任务为例：模型先读代码，然后修改，跑测试发现失败，继续修改，再跑测试通过——这些交互过程都需要完整记录。
+
+```mermaid
+sequenceDiagram
+    participant P as 策略模型
+    participant S as 沙箱
+    participant T as 轨迹存储
+    P->>S: 读取文件
+    S-->>P: 文件内容
+    P->>S: 写入补丁并运行测试
+    S-->>P: 测试失败与错误日志
+    P->>S: 修正补丁并再次测试
+    S-->>P: 测试通过
+    S->>T: 动作、观察、文件 diff、镜像版本、奖励
+```
 
 ### 存储需求
 
@@ -105,21 +111,21 @@ Agentic RL 的训练数据则更像一棵带状态的对话树。一个 episode 
 - **按步骤切片**：定位具体哪一步决策出错
 - **去重和过期处理**：同一任务不重复训练，旧轨迹可能因环境变化而失效
 
-规模较小时（不到一万条轨迹），JSON 文件加 SQLite 即可满足需求。中等规模（一万到一百万条）可以使用 Redis 做索引、S3 存储数据。超过一百万条则需要分布式数据库（MongoDB 或 DynamoDB）。对于多模态 Agent，轨迹中还包含图片和音频——此时应存储引用（URL）而非原始数据，训练时按需下载，保持轨迹索引在 KB 级别。
+小规模实验可用 JSONL 保存事件、SQLite 建索引；并发和数据量增大后，再把索引、对象存储与队列拆开。选择 Redis、S3、MongoDB 或其他服务应由访问模式决定：训练端顺序读取轨迹，分析端按任务和步骤检索，重放端还要取回环境快照。多模态轨迹可在事件中保存对象引用与内容哈希，原始图片和音频放入对象存储。
 
 存储问题解决后，训练过程中的下一个瓶颈出现了：多轮交互中大量的等待时间导致 GPU 严重空等。
 
-## GPU 空等与异步调度
+## 第四步：在工具等待期间继续生成
 
 ### 问题量化
 
 A.2 讨论过 LLM RL 的 GPU 空等问题：生成和训练串行执行，训练 GPU 有大量时间在等待生成完成。Agentic RL 将这一问题进一步加剧，而且等待位置发生变化。
 
-以单条 Agentic 轨迹的时间线为例：GPU 生成一个动作约需 3 毫秒，随后 CPU 执行工具约需 500 毫秒。在这 500 毫秒内 GPU 处于空闲状态。下一轮类似：GPU 3 毫秒，CPU 300 毫秒。几轮交互后，GPU 实际工作时间不到 1%。与 LLM RL 相比，LLM RL 的空等发生在 rollout 和 training 之间，而 Agentic RL 的空等发生在每一轮交互内部。
+以单条轨迹的时间线为例，模型很快生成一次工具调用，测试进程随后运行数秒。在测试返回之前，这条轨迹没有新的 token 可以生成。若调度器只处理一条轨迹，推理 GPU 会长期等待；Agentic RL 的空等因此发生在每一轮交互内部。
 
 ### 批次内并发 与 流水线调度
 
-解法与 A.2 的异步训练思路一脉相承：并发运行多条轨迹。轨迹 A 等待工具返回时，GPU 为轨迹 B 生成动作；轨迹 B 等待工具时，GPU 为轨迹 C 生成动作。通过流水线调度，GPU 持续保持工作状态。这种设计可将 GPU 利用率从约 1% 提升至 70-80%，吞吐量提升 50-100 倍。
+解法与 A.2 的异步训练思路一脉相承：并发运行多条轨迹。轨迹 A 等待工具返回时，GPU 为轨迹 B 生成动作；轨迹 B 等待工具时，再调度轨迹 C。实际收益取决于动作生成长度、工具延迟分布、并发上限和批处理效率，应通过端到端吞吐与 GPU 利用率实测。
 
 ### 两级异步
 
@@ -127,7 +133,7 @@ A.2 讨论过 LLM RL 的 GPU 空等问题：生成和训练串行执行，训练
 
 至此，Agentic RL 的三个基础工程问题——安全执行、数据存储、GPU 调度——已逐一讨论。这些解决方案在真实的工业系统中如何组织？下面的 Relax 案例提供了一个完整的参考实现。
 
-## 工业级实现 与 Relax
+## 第五步：从 Relax 看完整系统怎样组装
 
 Relax 是小红书 AI Infra 团队开源的多模态 Agentic RL 后训练框架，也是目前少数支持全模态（文本、图像、音频）Agentic RL 训练的引擎之一。以下从架构、数据流、执行模式和工程细节四个层面进行分析。
 
@@ -177,7 +183,7 @@ Relax 提供两种模式以适应不同的硬件条件。
 
 **多模态上下文保持。** 多轮对话里，第一轮用户发的图片，到第三轮模型仍需看到。Relax 在 Rollout 端维护 `image_data`，在 Training 端维护 `multimodal_train_inputs`，每轮自动合并。
 
-**弹性扩展。** RL 训练的 60-70% 时间花在 Rollout 上。若训练过程中发现 Rollout 速度成为瓶颈，Relax 支持在不中断训练的情况下动态增加推理引擎：
+**弹性扩展。** 当监控显示 Rollout 成为瓶颈时，Relax 支持动态增加推理引擎。下面的接口展示了“控制器调整引擎数量”这一设计；具体参数应以项目版本文档为准：
 
 ```bash
 # 在当前集群里加引擎
@@ -197,30 +203,52 @@ curl -X POST http://controller:8000/scale \
 
 **模型支持。** Qwen3 全系列（4B、30B-A3B MoE）、Qwen3-VL（视觉语言）、Qwen3-Omni（全模态）和 Qwen3.5。
 
-**运维体系。** HealthManager 负责心跳监控和两级自动恢复（先尝试原地重启，失败后全局重启）；Metrics Service 将训练指标分发到 TensorBoard / WandB / ClearML；Apprise 负责推送告警到 Slack、微信、邮件。大规模 RL 训练的挑战不在于启动，而在于持续稳定运行——一个训练任务可能持续数天甚至数周，期间 GPU 故障、网络抖动、OOM 都是常态。缺乏自动恢复机制将导致运维人员频繁手动介入，严重影响训练效率。
+**运维体系。** HealthManager 负责心跳监控和恢复；Metrics Service 将训练指标分发到 TensorBoard、Weights & Biases 或 ClearML；Apprise 负责发送告警。长时间训练还要保存组件状态、队列位置、策略版本和环境版本，恢复后才能判断旧轨迹是否仍然可用。
 
 ### 与其他框架对比
 
-| 框架     | 出品方             | 特点                              | 多模态 | 异步       |
-| -------- | ------------------ | --------------------------------- | ------ | ---------- |
-| AReaL    | Ant Group 和清华   | 全异步，2.77x 提速                | 否     | 全异步     |
-| Seer     | Moonshot AI (Kimi) | 极致同步，rollout 吞吐 +74–97%    | 否     | 同步       |
-| Agent-R1 | 中科大             | MDP 扩展，过程/结果奖励分离       | 否     | 部分异步   |
-| NeMo Gym | NVIDIA             | 科学 Agent 环境                   | 否     | 同步为主   |
-| slime    | THUDM / 智谱生态   | Megatron + SGLang，MoE 原生优化   | 否     | 支持异步   |
-| Relax    | 小红书             | TransferQueue + 弹性扩展 + 全模态 | 是     | 全异步流式 |
+- **框架 — AReaL**
+  - 出品方: Ant Group 和清华
+  - 特点: 全异步，2.77x 提速
+  - 多模态: 否
+  - 异步: 全异步
+- **框架 — Seer**
+  - 出品方: Moonshot AI (Kimi)
+  - 特点: 极致同步，rollout 吞吐 +74–97%
+  - 多模态: 否
+  - 异步: 同步
+- **框架 — Agent-R1**
+  - 出品方: 中科大
+  - 特点: MDP 扩展，过程/结果奖励分离
+  - 多模态: 否
+  - 异步: 部分异步
+- **框架 — NeMo Gym**
+  - 出品方: NVIDIA
+  - 特点: 科学 Agent 环境
+  - 多模态: 否
+  - 异步: 同步为主
+- **框架 — slime**
+  - 出品方: THUDM / 智谱生态
+  - 特点: Megatron + SGLang，MoE 原生优化
+  - 多模态: 否
+  - 异步: 支持异步
+- **框架 — Relax**
+  - 出品方: 小红书
+  - 特点: TransferQueue + 弹性扩展 + 全模态
+  - 多模态: 是
+  - 异步: 全异步流式
 
-Relax 是目前唯一同时支持全模态和全异步弹性扩展的 Agentic RL 引擎。Seer 则代表了另一个方向——不走向异步，而是在同步框架内通过在线上下文学习（divided rollout、context-aware scheduling、adaptive grouped speculative decoding）消除 rollout 长尾延迟，在不改变 GRPO 算法的前提下将吞吐提升 74–97%，同时保持严格的 on-policy 保证（[arXiv:2511.14617](https://arxiv.org/abs/2511.14617)）。slime 把 SGLang 作为原生推理层、Megatron 作为训练后端，对 GLM-4.5、Qwen3-30B-A3B、DeepSeek-R1 等 MoE 模型做了 fp8 rollout、DeepEP 通信等专项优化，适合 MoE 架构的大规模后训练（[THUDM/slime](https://github.com/THUDM/slime)）。Relax 论文见 [arxiv.org/abs/2604.11554](https://arxiv.org/abs/2604.11554)，代码见 [github.com/redai-infra/Relax](https://github.com/redai-infra/Relax)。
+这些框架强调的瓶颈不同。AReaL 与 Relax 重点讨论异步数据流；Seer 研究同步训练中的 rollout 长尾，并在论文实验中报告吞吐提升（[论文](https://arxiv.org/abs/2511.14617)）；slime 把 SGLang 作为推理层、Megatron 作为训练后端，并面向 MoE 模型提供相应工程支持（[代码](https://github.com/THUDM/slime)）。Relax 的设计与实验见其[论文](https://arxiv.org/abs/2604.11554)和[代码仓库](https://github.com/redai-infra/Relax)。这些结果来自各自的模型、硬件和负载，选型前仍需在目标任务上复测。
 
 ## 选型建议
 
-以下是实践层面的选型建议。原型验证阶段，TRL 配合 subprocess 即可满足需求——先验证训练流程的可行性和 reward 信号的正确性。需要开箱即用的全流程支持（SFT → DPO/GRPO → 部署）时，[ms-swift](https://github.com/modelscope/ms-swift) 提供了 ModelScope 生态的一体化方案，适合快速上手和国产模型适配。中等规模（如数百条轨迹并发）可以采用 veRL 或 OpenRLHF，配合 Docker 沙箱和 asyncio 实现异步并发。大规模 Agentic 训练则需要 Relax 或 AReaL 等全异步框架。多模态 Agent 场景下，Relax 是目前唯一的选择。
+原型阶段先用受信任任务验证 reward、轨迹字段和重放流程。开始运行模型生成代码后，应加入容器或 microVM，并用 asyncio 等机制并发推进多条轨迹。规模继续扩大时，再比较 veRL、OpenRLHF、AReaL、Relax 等框架的数据流和硬件约束。多模态任务还要检查框架能否把图像、音频引用和相应训练输入贯穿整个轨迹。
 
 建议遵循渐进式架构演进原则：先验证流程可行性，再做性能优化，最后进行生产化改造。
 
 ## nanoRLHF — 从零实现一个 LLM RL 训练框架
 
-前面的框架分析都是站在使用者视角：每个组件做什么，数据怎么流，GPU 怎么调度。但要真正理解一个 RL 训练框架的内部结构，最好的办法是自己写一个。[hyunwoongko/nanoRLHF](https://github.com/hyunwoongko/nanoRLHF)（181 stars）正是这样一个项目——它用纯 PyTorch + Triton 从零实现了 LLM RLHF 训练所需的全部组件，包括训练引擎、推理引擎、分布式调度和 RL 编排。
+前面的分析从使用者视角观察组件、数据流和调度。继续阅读一个小型实现，可以把这些抽象映射到代码。[hyunwoongko/nanoRLHF](https://github.com/hyunwoongko/nanoRLHF) 用 PyTorch 与 Triton 实现训练引擎、推理引擎、分布式调度和 RL 编排，适合沿源码追踪一次 rollout 怎样进入 PPO 更新。
 
 nanoRLHF 的定位类似 nanoGPT：把一个生产系统剥离到只保留承重结构。它的目录结构直接对应了 A.2 讨论的系统层级：
 
@@ -295,6 +323,10 @@ pip install -e .
 nanoRLHF 的价值不在于生产使用，而在于它用可读的代码把 A.2 讨论的"rollout engine、training backend、weight sync、policy version"这些概念变成了具体实现。读完之后再看 veRL 或 OpenRLHF 的源码，会快得多。
 
 ## 参考文献
+
+[^docker_security]: Docker Docs, [Docker Engine security](https://docs.docker.com/engine/security/).
+
+[^firecracker]: Firecracker, [Secure and fast microVMs for serverless computing](https://firecracker-microvm.github.io/).
 
 [^relax_paper]: Zhang L, Ning B, Yang R, et al. "[Relax: An Asynchronous Reinforcement Learning Engine for Omni-Modal Post-Training at Scale](https://arxiv.org/abs/2604.11554)." arXiv:2604.11554, 2026. [GitHub](https://github.com/redai-infra/Relax)
 
