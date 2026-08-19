@@ -36,7 +36,7 @@ We will use Gymnasium (the current standard RL environment API) as the training 
 
 This chapter does not require calculus or linear algebra. We will go straight into code and train a CartPole agent.
 
-![The full PPO training loop on CartPole](../../chapter01_cartpole/images/rl-training-loop.svg)
+![The full PPO training loop on CartPole](./images/rl-training-loop.svg)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
   <em>Figure 1-2: a schematic of the PPO data flow, not an experimental result. Runtime depends on the CPU, Python, and dependency versions.</em>

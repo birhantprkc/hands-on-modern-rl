@@ -38,6 +38,7 @@ import torch
 
 print(f"PyTorch: {torch.__version__}")
 print(f"CUDA:    {torch.cuda.is_available()}")
+print(f"MPS:     {torch.backends.mps.is_available()}")
 
 env = gym.make("CartPole-v1", render_mode="human")
 obs, info = env.reset()
