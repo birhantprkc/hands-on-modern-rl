@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -145,26 +147,41 @@ def train_sb3(
 
         artifacts = root / "artifacts"
         artifacts.mkdir(parents=True, exist_ok=True)
-        model_path = artifacts / f"{getattr(task, 'key', task.get('key'))}-model"
+        task_key = str(getattr(task, "key", task.get("key")))
+        run_token = str(time.time_ns())
+        model_stem = f"{task_key}-model-{run_token}"
+        model_path = artifacts / model_stem
         model.save(str(model_path))
         record_env = make_record_env()
-        # The first replay deliberately uses the training seed.  That makes the
-        # default preview reproducible and lets the UI describe one unambiguous
-        # pair: saved model + rollout seed.  Further preview seeds are handled
-        # by space_runtime.render_preview without retraining.
-        preview = record_episode(model, record_env, artifacts, seed)
-        metadata = artifacts / f"{getattr(task, 'key', task.get('key'))}-model.json"
-        metadata.write_text(json.dumps({"algorithm": algorithm_name, "policy": policy, "budget": budget, "seed": seed, "default_preview_seed": seed}, indent=2), encoding="utf-8")
+        raw_preview = Path(record_episode(model, record_env, artifacts, seed))
+        preview_path = artifacts / f"{model_stem}-preview.gif"
+        if raw_preview.resolve() != preview_path.resolve():
+            raw_preview.replace(preview_path)
+        model_zip = model_path.with_suffix(".zip")
+        metadata = artifacts / f"{model_stem}.json"
+        metadata.write_text(json.dumps({
+            "model_id": model_zip.name,
+            "task_key": task_key,
+            "environment": getattr(task, "environment", task.get("environment")),
+            "title": getattr(task, "title", task.get("title")),
+            "algorithm": algorithm_name,
+            "policy": policy,
+            "budget": budget,
+            "seed": seed,
+            "score": y[-1] if y else None,
+            "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            "preview": str(preview_path),
+        }, indent=2), encoding="utf-8")
         yield {
             "phase": "complete",
             "step": completed,
             "score": y[-1] if y else None,
             "x": x,
             "y": y,
-            "preview": preview,
-            "model": str(model_path.with_suffix(".zip")),
-            "preview_seed": seed,
-            "log": f"Saved model and generated learned-policy replay: {Path(preview).name}",
+            "preview": str(preview_path),
+            "model": str(model_zip),
+            "model_id": model_zip.name,
+            "log": f"Saved {model_zip.name} and generated learned-policy replay: {preview_path.name}",
         }
     finally:
         for env in (train_env, eval_env):

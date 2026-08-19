@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import time
 
@@ -109,37 +110,111 @@ def _record(model, env, artifacts: Path, seed: int, task, output_path: Path | No
     return save_gif(frames, output_path or artifacts / f"{task['key']}-learned-policy.gif", fps=20)
 
 
-def render_preview(key: str, seed: int):
-    """Run the latest saved model for ``key`` with an independent rollout seed."""
-    task = next(item for item in TASKS if item["key"] == key)
+def _model_record(model_path: Path) -> dict:
+    metadata_path = model_path.with_suffix(".json")
+    metadata: dict = {}
+    if metadata_path.is_file():
+        try:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            metadata = {}
+
+    task_key = str(metadata.get("task_key") or "")
+    if not task_key:
+        for item in TASKS:
+            if model_path.name == f"{item['key']}-model.zip":
+                task_key = item["key"]
+                break
+    task = next((item for item in TASKS if item["key"] == task_key), None)
+    if task is None:
+        raise ValueError(f"Cannot identify the Atari task for {model_path.name}")
+
+    preview_value = metadata.get("preview")
+    preview_path = Path(str(preview_value)) if preview_value else None
+    if preview_path is not None and not preview_path.is_absolute():
+        preview_path = ROOT / preview_path
+    if preview_path is not None and not preview_path.is_file():
+        preview_path = None
+    if preview_path is None:
+        candidates = sorted(
+            (ROOT / "artifacts").glob(f"{model_path.stem}*-preview.gif"),
+            key=lambda path: path.stat().st_mtime_ns,
+            reverse=True,
+        )
+        legacy_preview = ROOT / "artifacts" / f"{task_key}-learned-policy.gif"
+        if not candidates and legacy_preview.is_file():
+            candidates = [legacy_preview]
+        preview_path = candidates[0] if candidates else None
+
+    return {
+        **metadata,
+        "model_id": model_path.name,
+        "model_path": str(model_path),
+        "task_key": task_key,
+        "title": task["title"],
+        "environment": task["environment"],
+        "algorithm": str(metadata.get("algorithm") or task["algorithm"]),
+        "budget": int(metadata.get("budget") or 0),
+        "score": metadata.get("score"),
+        "created_at": str(metadata.get("created_at") or ""),
+        "preview": str(preview_path) if preview_path is not None else None,
+        "modified_ns": model_path.stat().st_mtime_ns,
+    }
+
+
+def model_details(model_id: str) -> dict:
+    """Return validated metadata for one model saved by this Studio."""
     artifacts = ROOT / "artifacts"
-    model_path = artifacts / f"{key}-model.zip"
+    safe_name = Path(str(model_id)).name
+    if safe_name != str(model_id) or not safe_name.endswith(".zip") or "-model" not in safe_name:
+        raise ValueError("Invalid saved-model identifier")
+    model_path = artifacts / safe_name
     if not model_path.is_file():
-        raise FileNotFoundError(f"No trained model is saved for {task['title']['en']}. Start training first.")
+        raise FileNotFoundError(f"Saved model not found: {safe_name}")
+    return _model_record(model_path)
+
+
+def list_trained_models(key: str | None = None) -> list[dict]:
+    """List every completed training run, newest first."""
+    artifacts = ROOT / "artifacts"
+    records: list[dict] = []
+    for model_path in artifacts.glob("*-model*.zip"):
+        try:
+            record = _model_record(model_path)
+        except (OSError, ValueError):
+            continue
+        if key is None or record["task_key"] == key:
+            records.append(record)
+    return sorted(records, key=lambda record: int(record["modified_ns"]), reverse=True)
+
+
+def render_preview(model_id: str):
+    """Run the selected saved model with its original deterministic replay setup."""
+    record = model_details(model_id)
+    task = next(item for item in TASKS if item["key"] == record["task_key"])
+    model_path = Path(record["model_path"])
 
     from stable_baselines3 import DQN
 
-    rollout_seed = max(0, min(int(seed), 2**32 - 1))
+    rollout_seed = max(0, min(int(record.get("seed", 42)), 2**32 - 1))
     model = DQN.load(str(model_path), device="cpu")
     environment = _make_vec_env(task["environment"], rollout_seed)
-    # A new path forces Gradio/the browser to load the newly rendered GIF rather
-    # than reusing a cached file with the same name.
-    version = model_path.stat().st_mtime_ns
-    output = artifacts / f"{key}-rollout-m{version}-s{rollout_seed}-{time.time_ns()}.gif"
+    artifacts = ROOT / "artifacts"
+    output = artifacts / f"{model_path.stem}-rollout-{time.time_ns()}.gif"
     preview = _record(model, environment, artifacts, rollout_seed, task, output)
 
-    old_replays = sorted(artifacts.glob(f"{key}-rollout-m*-s*.gif"), key=lambda path: path.stat().st_mtime, reverse=True)
-    for stale in old_replays[12:]:
+    old_replays = sorted(artifacts.glob(f"{model_path.stem}-rollout-*.gif"), key=lambda path: path.stat().st_mtime, reverse=True)
+    for stale in old_replays[4:]:
         try:
             stale.unlink()
         except OSError:
             pass
     return {
         "preview": preview,
-        "seed": rollout_seed,
         "model": model_path.name,
-        "model_version": str(version),
-        "detail": f"{task['title']['en']} · {model_path.name} · deterministic rollout seed {rollout_seed}",
+        "model_id": model_path.name,
+        "task_key": task["key"],
+        "detail": f"{task['title']['en']} · {model_path.name} · selected saved policy",
     }
 
 

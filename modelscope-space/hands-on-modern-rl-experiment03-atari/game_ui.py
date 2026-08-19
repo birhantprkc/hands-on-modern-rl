@@ -61,11 +61,10 @@ TEXT = {
         "gamma": "Discount factor γ",
         "epsilon": "Exploration ε",
         "seed": "Random seed",
-        "preview_seed": "Preview seed",
-        "preview_seed_info": "Changes only this rollout; it does not retrain the model",
-        "refresh_preview": "Run rollout",
-        "refreshing_preview": "Rendering rollout…",
-        "preview_waiting": "Train the selected game first. Preview will then replay that game's latest saved model.",
+        "saved_model": "Trained model",
+        "saved_model_info": "Every completed training run appears here",
+        "saved_model_empty": "No trained models yet. Complete a run to add the first option.",
+        "preview_waiting": "No trained model is selected. Complete a run, then choose its saved model here.",
         "start": "Start training",
         "running_button": "Training…",
         "run_status": "Run status",
@@ -81,7 +80,7 @@ TEXT = {
         "log": "Live training log",
         "log_waiting": "Waiting for a training run…",
         "preview": "Task preview / learned policy",
-        "preview_copy": "Preview always identifies the selected game, saved model, and rollout seed. Change only Preview seed to test the same policy from another initial state.",
+        "preview_copy": "Each completed run saves a separate model. Choose one below to inspect the replay produced by that exact policy.",
         "download": "Download run summary",
         "wait_title": "Training is active",
         "wait_detail": "Preparing the environment, updating the policy, evaluating it, and rendering the learned result.",
@@ -124,11 +123,10 @@ TEXT = {
         "gamma": "折扣因子 γ",
         "epsilon": "探索率 ε",
         "seed": "随机种子",
-        "preview_seed": "回放种子",
-        "preview_seed_info": "只改变本次 rollout，不会重新训练模型",
-        "refresh_preview": "重新运行回放",
-        "refreshing_preview": "正在生成回放…",
-        "preview_waiting": "请先训练当前游戏。之后 Preview 会回放该游戏最后保存的模型。",
+        "saved_model": "已训练模型",
+        "saved_model_info": "每次完成训练都会在这里新增一个模型",
+        "saved_model_empty": "还没有已训练模型。完成一次训练后会出现第一个选项。",
+        "preview_waiting": "尚未选择已训练模型。完成训练后，在这里选择对应模型查看回放。",
         "start": "开始训练",
         "running_button": "训练中…",
         "run_status": "训练状态",
@@ -144,7 +142,7 @@ TEXT = {
         "log": "实时训练日志",
         "log_waiting": "等待训练任务…",
         "preview": "任务预览 / 学习后的策略",
-        "preview_copy": "Preview 会明确对应当前游戏、保存的模型和 rollout 种子。只修改回放种子，即可从另一初始状态测试同一策略。",
+        "preview_copy": "每次完成训练都会单独保存一个模型。请在下方选择模型，查看该策略对应的回放。",
         "download": "下载运行摘要",
         "wait_title": "训练正在运行",
         "wait_detail": "正在准备环境、更新策略、执行评估并渲染学习结果。",
@@ -320,15 +318,15 @@ def panel_html(title: str, text: str, cls: str = "panel-copy") -> str:
     return f'<h2 class="panel-title">{html.escape(title)}</h2><p class="{cls}">{html.escape(text)}</p>'
 
 
-def preview_provenance(task: Any, seed: int, language: str, model: str | None = None, detail: str | None = None) -> str:
+def preview_provenance(task: Any, language: str, model: str | None = None, detail: str | None = None) -> str:
     copy = copy_for(language)
     title = local_value(task_value(task, "title"), language)
     algorithm = str(task_value(task, "algorithm"))
     if model:
         message = detail or (
-            f"Current policy: {title} · {algorithm} · {model} · rollout seed {seed}"
+            f"Selected policy: {title} · {algorithm} · {model}"
             if language != "中文"
-            else f"当前策略：{title} · {algorithm} · {model} · rollout 种子 {seed}"
+            else f"已选策略：{title} · {algorithm} · {model}"
         )
         state = "ready"
     else:
@@ -338,6 +336,27 @@ def preview_provenance(task: Any, seed: int, language: str, model: str | None = 
         f'<div class="preview-provenance preview-provenance--{state}">'
         f'<span class="preview-provenance__dot"></span><span>{html.escape(message)}</span></div>'
     )
+
+
+def saved_model_choices(records: list[dict], language: str) -> list[tuple[str, str]]:
+    choices: list[tuple[str, str]] = []
+    total = len(records)
+    for index, record in enumerate(records):
+        ordinal = total - index
+        prefix = f"Model {ordinal}" if language != "中文" else f"模型 {ordinal}"
+        title = local_value(record.get("title", record.get("task_key", "Atari")), language)
+        details: list[str] = [title]
+        budget = int(record.get("budget") or 0)
+        if budget:
+            details.append(f"{budget:,} steps")
+        score = record.get("score")
+        if score is not None:
+            details.append(f"score {float(score):.2f}")
+        created = str(record.get("created_at") or "").replace("T", " ").replace("+00:00", " UTC")
+        if created:
+            details.append(created[:16] + (" UTC" if "UTC" in created else ""))
+        choices.append((f"{prefix} · " + " · ".join(details), str(record["model_id"])))
+    return choices
 
 
 def status_card(state: str, title: str, detail: str, language: str) -> str:
@@ -475,6 +494,29 @@ def build_demo(space_module: Any):
             for task in tasks
         ]
 
+    def model_state(key: str, language: str, preferred: str | None = None):
+        records = list(space_module.list_trained_models(key)) if hasattr(space_module, "list_trained_models") else []
+        choices = saved_model_choices(records, language)
+        available = {str(record["model_id"]): record for record in records}
+        selected_model = preferred if preferred in available else (str(records[0]["model_id"]) if records else None)
+        selected_record = available.get(str(selected_model)) if selected_model else None
+        return records, choices, selected_model, selected_record
+
+    def model_dropdown(key: str, language: str, preferred: str | None = None, interactive: bool = True):
+        _, choices, selected_model, selected_record = model_state(key, language, preferred)
+        copy = copy_for(language)
+        return (
+            gr.Dropdown(
+                choices=choices,
+                value=selected_model,
+                label=copy["saved_model"],
+                info=copy["saved_model_info"] if choices else copy["saved_model_empty"],
+                interactive=interactive and bool(choices),
+                elem_classes="model-selector",
+            ),
+            selected_record,
+        )
+
     def choose_task(language: str, seed: float, event: gr.SelectData):
         index = max(0, min(int(event.index), len(tasks) - 1))
         task = tasks[index]
@@ -483,6 +525,9 @@ def build_demo(space_module: Any):
         lr = slider_spec(task, "learning_rate", (1e-5, .1, 3e-4, 1e-5))
         gamma = slider_spec(task, "gamma", (0, 1, .99, .01))
         epsilon = slider_spec(task, "epsilon", (0, 1, .1, .01))
+        selector, selected_record = model_dropdown(str(task_value(task, "key")), language)
+        selected_preview = str(selected_record.get("preview")) if selected_record and selected_record.get("preview") else preview_path(root, task)
+        selected_model = str(selected_record["model_id"]) if selected_record else None
         return (
             task_value(task, "key"),
             hero_html(space, tasks, task, language, runtime_status),
@@ -494,15 +539,17 @@ def build_demo(space_module: Any):
             status_card("idle", copy["ready"], copy["ready_detail"], language),
             metric_card("—", copy["metric_waiting"], language),
             console_panel(copy["log_waiting"], language),
-            preview_path(root, task),
+            selected_preview,
             None,
-            int(seed),
-            preview_provenance(task, int(seed), language),
+            selector,
+            preview_provenance(task, language, selected_model),
         )
 
-    def switch_language(language: str, key: str, seed: float, preview_seed: float):
+    def switch_language(language: str, key: str, seed: float, selected_model: str | None):
         task = get_task(tasks, key)
         copy = copy_for(language)
+        selector, selected_record = model_dropdown(key, language, selected_model)
+        selected_model = str(selected_record["model_id"]) if selected_record else None
         return (
             hero_html(space, tasks, task, language, runtime_status),
             panel_html(copy["choose"], copy["choose_copy"]),
@@ -518,12 +565,11 @@ def build_demo(space_module: Any):
             console_panel(copy["log_waiting"], language),
             panel_html(copy["preview"], copy["preview_copy"], "artifact-note"),
             gr.File(label=copy["download"]),
-            gr.Number(value=preview_seed, label=copy["preview_seed"], info=copy["preview_seed_info"], precision=0),
-            gr.Button(value=copy["refresh_preview"]),
-            preview_provenance(task, int(preview_seed), language),
+            selector,
+            preview_provenance(task, language, selected_model),
         )
 
-    def train_with_ui(key: str, budget: float, learning_rate: float, gamma: float, epsilon: float, seed: float, preview_seed: float, language: str):
+    def train_with_ui(key: str, budget: float, learning_rate: float, gamma: float, epsilon: float, seed: float, selected_model: str | None, language: str):
         task = get_task(tasks, key)
         copy = copy_for(language)
         params = {
@@ -541,9 +587,10 @@ def build_demo(space_module: Any):
         last_y: list[float] = []
         last_score: float | None = None
         last_model: str | None = None
-        rendered_seed = int(seed)
         preview = preview_path(root, task)
         wait = waiting_panel(language)
+        selector, selected_record = model_dropdown(key, language, selected_model, interactive=False)
+        selected_model = str(selected_record["model_id"]) if selected_record else None
         yield (
             status_card("running", copy["running"], "Environment initialization", language),
             metric_card("—", "Preparing runtime", language),
@@ -553,7 +600,8 @@ def build_demo(space_module: Any):
             console_panel("\n".join(logs), language),
             gr.HTML(value=wait, visible=True),
             gr.Button(value=copy["running_button"], interactive=False),
-            preview_provenance(task, int(preview_seed), language, detail=("Training the selected policy…" if language != "中文" else "正在训练当前选择的策略……")),
+            selector,
+            preview_provenance(task, language, detail=("Training a new policy…" if language != "中文" else "正在训练一个新策略……")),
         )
         try:
             for event in space_module.run(key, **params):
@@ -578,9 +626,6 @@ def build_demo(space_module: Any):
                 event_model = event_value(event, "model")
                 if event_model:
                     last_model = Path(str(event_model)).name
-                event_preview_seed = event_value(event, "preview_seed")
-                if event_preview_seed is not None:
-                    rendered_seed = int(event_preview_seed)
                 phase = str(event_value(event, "phase", "training"))
                 detail = str(event_value(event, "detail", f"{int(event_value(event, 'step', 0)):,}/{params['budget']:,}"))
                 metric_detail = str(event_value(event, "metric_detail", "Mean evaluation score"))
@@ -594,21 +639,9 @@ def build_demo(space_module: Any):
                     console_panel("\n".join(logs), language),
                     gr.HTML(value=wait, visible=True),
                     gr.Button(value=copy["running_button"], interactive=False),
-                    preview_provenance(task, rendered_seed, language, last_model, "Training is still updating this policy…" if language != "中文" else "当前策略仍在训练中……"),
+                    selector,
+                    preview_provenance(task, language, detail=("Training a new policy…" if language != "中文" else "正在训练一个新策略……")),
                 )
-            requested_preview_seed = max(0, min(int(preview_seed), 2**32 - 1))
-            if last_model and requested_preview_seed != rendered_seed and hasattr(space_module, "render_preview"):
-                try:
-                    replay = space_module.render_preview(key, requested_preview_seed)
-                    preview = str(event_value(replay, "preview"))
-                    rendered_seed = int(event_value(replay, "seed", requested_preview_seed))
-                    last_model = str(event_value(replay, "model", last_model))
-                except Exception as replay_error:
-                    logs.append(
-                        f"{time.perf_counter() - started:7.1f}s  REPLAY  "
-                        f"requested seed {requested_preview_seed} unavailable: {type(replay_error).__name__}: {replay_error}; "
-                        f"keeping seed {rendered_seed}"
-                    )
             if preview == preview_path(root, task):
                 preview = result_image(root, task, "training complete", last_score, last_x, last_y, "The environment did not expose replay frames; this plot records the learned result.")
             summary = save_summary(root, task, {
@@ -617,13 +650,14 @@ def build_demo(space_module: Any):
                 "score": last_score,
                 "curve": {"x": last_x, "y": last_y},
                 "preview": preview,
-                "preview_seed": rendered_seed,
                 "model": last_model,
                 "logs": logs,
                 "elapsed_seconds": round(time.perf_counter() - started, 3),
             })
             logs.append(f"{time.perf_counter() - started:7.1f}s  DONE    training, evaluation, and visualization complete")
             curve = learning_figure(last_x, last_y, f"{task_value(task, 'environment')} · {task_value(task, 'algorithm')}") if last_x else None
+            selector, selected_record = model_dropdown(key, language, last_model)
+            selected_model = str(selected_record["model_id"]) if selected_record else last_model
             yield (
                 status_card("complete", copy["complete"], f"{time.perf_counter() - started:.1f}s elapsed", language),
                 metric_card("—" if last_score is None else f"{last_score:.2f}", "Final evaluation score", language),
@@ -633,7 +667,8 @@ def build_demo(space_module: Any):
                 console_panel("\n".join(logs), language),
                 gr.HTML(value="", visible=False),
                 gr.Button(value=copy["start"], interactive=True),
-                preview_provenance(task, rendered_seed, language, last_model),
+                selector,
+                preview_provenance(task, language, selected_model),
             )
         except Exception as exc:
             logs.append(f"{time.perf_counter() - started:7.1f}s  ERROR   {type(exc).__name__}: {exc}")
@@ -646,6 +681,8 @@ def build_demo(space_module: Any):
                 "traceback": traceback.format_exc(),
                 "logs": logs,
             })
+            selector, selected_record = model_dropdown(key, language, selected_model)
+            selected_model = str(selected_record["model_id"]) if selected_record else None
             yield (
                 status_card("error", copy["failed"], str(exc), language),
                 metric_card("—" if last_score is None else f"{last_score:.2f}", "Last valid evaluation", language),
@@ -655,46 +692,50 @@ def build_demo(space_module: Any):
                 console_panel("\n".join(logs), language),
                 gr.HTML(value="", visible=False),
                 gr.Button(value=copy["start"], interactive=True),
-                preview_provenance(task, int(preview_seed), language, detail=(f"Replay unavailable: {type(exc).__name__}: {exc}" if language != "中文" else f"回放不可用：{type(exc).__name__}: {exc}")),
+                selector,
+                preview_provenance(task, language, selected_model, detail=(f"Training stopped: {type(exc).__name__}: {exc}" if language != "中文" else f"训练停止：{type(exc).__name__}: {exc}")),
             )
 
-    def rerun_preview(key: str, preview_seed: float, language: str):
+    def select_saved_model(key: str, model_id: str | None, language: str):
         task = get_task(tasks, key)
-        copy = copy_for(language)
-        rollout_seed = max(0, min(int(preview_seed), 2**32 - 1))
-        yield (
-            gr.skip(),
-            preview_provenance(task, rollout_seed, language, detail=("Loading the selected model and running a deterministic rollout…" if language != "中文" else "正在加载当前模型并运行确定性 rollout……")),
-            gr.Button(value=copy["refreshing_preview"], interactive=False),
-        )
+        if not model_id:
+            return preview_path(root, task), preview_provenance(task, language)
         try:
-            if not hasattr(space_module, "render_preview"):
-                raise RuntimeError("This experiment does not expose seeded replay yet")
-            result = space_module.render_preview(key, rollout_seed)
-            model = str(event_value(result, "model", "saved model"))
-            detail = str(event_value(result, "detail", "")) or None
-            yield (
-                str(event_value(result, "preview")),
-                preview_provenance(task, int(event_value(result, "seed", rollout_seed)), language, model, detail),
-                gr.Button(value=copy["refresh_preview"], interactive=True),
+            record = space_module.model_details(str(model_id))
+            if str(record.get("task_key")) != key:
+                raise ValueError("The selected model belongs to a different Atari game")
+            selected_preview = record.get("preview")
+            if not selected_preview or not Path(str(selected_preview)).is_file():
+                result = space_module.render_preview(str(model_id))
+                selected_preview = event_value(result, "preview")
+            budget = int(record.get("budget") or 0)
+            score = record.get("score")
+            facts = [str(model_id)]
+            if budget:
+                facts.append(f"{budget:,} steps")
+            if score is not None:
+                facts.append(f"score {float(score):.2f}")
+            detail = (
+                "Selected saved policy: " + " · ".join(facts)
+                if language != "中文"
+                else "已选择保存的策略：" + " · ".join(facts)
             )
+            return str(selected_preview), preview_provenance(task, language, str(model_id), detail)
         except Exception as exc:
             message = (
-                f"Rollout unavailable: {exc}"
+                f"Saved-model preview unavailable: {exc}"
                 if language != "中文"
-                else f"暂时无法生成回放：{exc}"
+                else f"暂时无法显示该模型的回放：{exc}"
             )
-            yield (
-                gr.skip(),
-                preview_provenance(task, rollout_seed, language, detail=message),
-                gr.Button(value=copy["refresh_preview"], interactive=True),
-            )
+            return gr.skip(), preview_provenance(task, language, detail=message)
 
     copy = copy_for(default_language)
     initial_budget = slider_spec(default_task, "budget", (100, 10000, 1000, 100))
     initial_lr = slider_spec(default_task, "learning_rate", (1e-5, .1, 3e-4, 1e-5))
     initial_gamma = slider_spec(default_task, "gamma", (0, 1, .99, .01))
     initial_epsilon = slider_spec(default_task, "epsilon", (0, 1, .1, .01))
+    _, initial_model_choices, initial_model, initial_record = model_state(str(task_value(default_task, "key")), default_language)
+    initial_preview = str(initial_record.get("preview")) if initial_record and initial_record.get("preview") else preview_path(root, default_task)
 
     with gr.Blocks(title=f"Hands-On Modern RL · {local_value(space['title'], 'English')}") as demo:
         with gr.Column(elem_classes="hero-stack"):
@@ -729,21 +770,25 @@ def build_demo(space_module: Any):
         with gr.Row(elem_classes="output-card"):
             with gr.Column(scale=2):
                 preview_header = gr.HTML(panel_html(copy["preview"], copy["preview_copy"], "artifact-note"))
-                with gr.Row(elem_classes="preview-toolbar"):
-                    preview_seed = gr.Number(value=42, precision=0, label=copy["preview_seed"], info=copy["preview_seed_info"])
-                    refresh_preview = gr.Button(copy["refresh_preview"], elem_classes="preview-button")
-                preview_status = gr.HTML(preview_provenance(default_task, 42, default_language))
-                preview = gr.Image(value=preview_path(root, default_task), show_label=False, interactive=False, elem_classes="policy-preview")
+                model_selector = gr.Dropdown(
+                    choices=initial_model_choices,
+                    value=initial_model,
+                    label=copy["saved_model"],
+                    info=copy["saved_model_info"] if initial_model_choices else copy["saved_model_empty"],
+                    interactive=bool(initial_model_choices),
+                    elem_classes="model-selector",
+                )
+                preview_status = gr.HTML(preview_provenance(default_task, default_language, initial_model))
+                preview = gr.Image(value=initial_preview, show_label=False, interactive=False, elem_classes="policy-preview")
             with gr.Column(scale=1):
                 artifact = gr.File(label=copy["download"], interactive=False)
 
         gr.HTML(f'<div class="footer-note">{html.escape(local_value(space["title"], "English"))} · <a href="{COURSE_URL}" target="_blank">Hands-On Modern RL</a> · WalkingLab</div>')
 
-        gallery.select(choose_task, inputs=[language, seed], outputs=[selected, hero, task_info, budget, learning_rate, gamma, epsilon, status, metric, console, preview, artifact, preview_seed, preview_status], queue=False, show_progress="hidden")
-        language.change(switch_language, inputs=[language, selected, seed, preview_seed], outputs=[hero, catalog_header, gallery, task_info, settings_header, selected, seed, start, status, metric, chart_header, console, preview_header, artifact, preview_seed, refresh_preview, preview_status], queue=False, show_progress="hidden")
-        seed.change(lambda value: value, inputs=[seed], outputs=[preview_seed], queue=False, show_progress="hidden")
-        start.click(train_with_ui, inputs=[selected, budget, learning_rate, gamma, epsilon, seed, preview_seed, language], outputs=[status, metric, curve, preview, artifact, console, wait_state, start, preview_status], concurrency_limit=1)
-        refresh_preview.click(rerun_preview, inputs=[selected, preview_seed, language], outputs=[preview, preview_status, refresh_preview], concurrency_limit=1)
+        gallery.select(choose_task, inputs=[language, seed], outputs=[selected, hero, task_info, budget, learning_rate, gamma, epsilon, status, metric, console, preview, artifact, model_selector, preview_status], queue=False, show_progress="hidden")
+        language.change(switch_language, inputs=[language, selected, seed, model_selector], outputs=[hero, catalog_header, gallery, task_info, settings_header, selected, seed, start, status, metric, chart_header, console, preview_header, artifact, model_selector, preview_status], queue=False, show_progress="hidden")
+        start.click(train_with_ui, inputs=[selected, budget, learning_rate, gamma, epsilon, seed, model_selector, language], outputs=[status, metric, curve, preview, artifact, console, wait_state, start, model_selector, preview_status], concurrency_limit=1)
+        model_selector.change(select_saved_model, inputs=[selected, model_selector, language], outputs=[preview, preview_status], queue=False, show_progress="hidden")
 
     return demo
 
@@ -762,12 +807,12 @@ CSS = r"""
 .task-brief{display:grid;grid-template-columns:minmax(270px,.9fr) minmax(0,1.7fr);gap:26px;margin:18px 0!important;padding:13px!important;background:linear-gradient(135deg,#fff,#f7f9ff)!important}.task-brief__visual{overflow:hidden;border-radius:12px;background:#101532}.task-brief__visual img{display:block;width:100%;height:100%;min-height:205px;object-fit:cover}.task-brief__body{padding:12px 12px 8px 0}.task-kicker{display:block;margin-bottom:7px;color:#5b5ce2;font-size:10px;font-weight:900;letter-spacing:.13em}.task-brief h3{margin:0 0 5px;color:var(--ink);font-size:23px}.task-brief p{margin:0;color:var(--muted);font-size:13px;line-height:1.55}.task-facts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}.task-facts span{padding:9px 11px;border:1px solid #e1e6ef;border-radius:9px;background:rgba(255,255,255,.88);color:var(--ink);font-size:11px}.task-facts b{display:block;margin-bottom:3px;color:#7a879d;font-size:8px;letter-spacing:.12em;text-transform:uppercase}.task-hint{font-weight:650;color:#465166!important}
 .training-guide{display:grid;grid-template-columns:minmax(210px,.62fr) minmax(0,1.8fr);gap:22px;margin:-4px 0 18px;padding:20px 22px;border:1px solid #dfe4f4;border-radius:17px;background:linear-gradient(135deg,#f8f9ff,#fff);box-shadow:0 12px 28px rgba(31,42,77,.045)}.training-guide__intro{padding:5px 2px}.training-guide__intro h3{margin:0 0 5px;color:var(--ink);font-size:18px}.training-guide__intro p,.training-guide article p{margin:0;color:var(--muted);font-size:12px;line-height:1.55}.training-guide__grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.training-guide article{position:relative;padding:14px 14px 13px;border:1px solid #e0e5f0;border-radius:12px;background:#fff}.training-guide article>b{display:block;margin-bottom:8px;color:#5b5ce2;font-size:10px;letter-spacing:.12em}.training-guide article h4{margin:0 0 6px;color:var(--ink);font-size:13px}.training-guide article p{font-size:11px}
 .control-card,.chart-card{padding:25px!important}.primary-btn{min-height:46px!important;border:0!important;border-radius:10px!important;background:linear-gradient(135deg,#5b5ce2,#7c4dff)!important;font-weight:850!important}.run-state,.live-metric{display:flex;gap:11px;align-items:center;margin-top:10px;padding:14px 15px;border:1px solid #e3e7ef;border-radius:12px;background:#fafbfe}.run-state__dot{width:9px;height:9px;border-radius:50%;background:#8b95a8;box-shadow:0 0 0 5px rgba(139,149,168,.12)}.run-state--running .run-state__dot{background:#8b5cf6;animation:pulse 1.2s infinite}.run-state--complete .run-state__dot{background:#13a36f}.run-state--error .run-state__dot{background:#e05252}.summary-label{display:block;margin-bottom:2px;color:#7b879c;font-size:8px;font-weight:850;letter-spacing:.12em;text-transform:uppercase}.run-state strong,.live-metric strong{display:block;color:var(--ink);font-size:14px}.run-state small,.live-metric small{display:block;margin-top:2px;color:var(--muted);font-size:11px}.metric-reading{display:flex;gap:9px;align-items:baseline}.metric-reading strong{font-size:20px}
-.preview-toolbar{display:grid!important;grid-template-columns:minmax(180px,1fr) minmax(150px,.42fr)!important;gap:10px!important;align-items:end!important;margin:0 0 10px!important}.preview-toolbar>div{min-width:0!important}.preview-button{min-height:42px!important;margin-bottom:1px!important;border:1px solid #5b5ce2!important;border-radius:10px!important;color:#4142bd!important;background:#f5f5ff!important;font-weight:850!important}.preview-provenance{display:flex;gap:9px;align-items:flex-start;margin:0 0 12px;padding:10px 12px;border:1px solid #e0e5f0;border-radius:10px;color:#59657a;background:#f8f9fc;font-size:11px;line-height:1.5}.preview-provenance__dot{flex:0 0 auto;width:8px;height:8px;margin-top:4px;border-radius:50%;background:#9ba5b5}.preview-provenance--ready{color:#16664d;border-color:#cfeadf;background:#f2fbf7}.preview-provenance--ready .preview-provenance__dot{background:#13a36f}
+.model-selector{margin:0 0 10px!important}.model-selector input,.model-selector [role="combobox"]{min-height:46px!important;border-radius:10px!important;background:#fff!important}.preview-provenance{display:flex;gap:9px;align-items:flex-start;margin:0 0 12px;padding:10px 12px;border:1px solid #e0e5f0;border-radius:10px;color:#59657a;background:#f8f9fc;font-size:11px;line-height:1.5}.preview-provenance__dot{flex:0 0 auto;width:8px;height:8px;margin-top:4px;border-radius:50%;background:#9ba5b5}.preview-provenance--ready{color:#16664d;border-color:#cfeadf;background:#f2fbf7}.preview-provenance--ready .preview-provenance__dot{background:#13a36f}
 .console-panel{overflow:hidden;margin-top:14px;border:1px solid #29315e;border-radius:12px;background:#11162d}.console-head{padding:9px 13px;border-bottom:1px solid #28305b;color:#dbe1ff;font-size:11px;font-weight:800}.console-dot{display:inline-block;width:7px;height:7px;margin-right:8px;border-radius:50%;background:#31d39b}.console-text{height:300px!important;margin:0!important;padding:13px!important;overflow:auto!important;color:#d5dcf4!important;background:#11162d!important;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace!important;white-space:pre-wrap!important}.run-wait{display:flex;gap:12px;align-items:center;margin:0 0 13px;padding:13px 15px;border:1px solid #d6d8ff;border-radius:11px;background:#f8f7ff;color:#313774}.run-wait strong,.run-wait small,.run-wait em{display:block}.run-wait small{margin-top:2px;color:#68748a;font-size:11px}.run-wait em{margin-top:4px;color:#5b5ce2;font-size:10px;font-style:normal;font-weight:800}.run-wait__spinner{width:20px;height:20px;border:2px solid #d7d9ff;border-top-color:#5b5ce2;border-radius:50%;animation:spin .75s linear infinite}
 .output-card{margin-top:18px!important}.output-card>div{padding:24px!important}.policy-preview,.policy-preview .image-container,.policy-preview img{min-height:320px!important}.policy-preview img{max-height:520px!important;object-fit:contain!important;background:#0f1430}.footer-note{padding:27px 0 0;text-align:center;color:#8390a6;font-size:11px}.footer-note a{color:#5b5ce2!important;font-weight:750}
 @keyframes spin{to{transform:rotate(360deg)}}@keyframes pulse{50%{box-shadow:0 0 0 8px rgba(139,92,246,.08)}}
 @media(max-width:900px){.lab-strip{grid-template-columns:1fr 1fr}.experiment-gallery .grid-container{grid-template-columns:repeat(2,minmax(0,1fr))!important}.task-brief,.training-guide{grid-template-columns:1fr}.training-guide__grid{grid-template-columns:1fr}.task-brief__body{padding:7px}.language-bar{position:static!important;margin:-58px 12px 16px auto!important}.brand-lockup{max-width:calc(100% - 220px)}.hero{padding-top:24px}}
-@media(max-width:620px){.gradio-container{padding:10px!important}.hero{padding:22px 20px 24px;border-radius:18px 18px 0 0}.brand-lockup{max-width:100%;font-size:10px;letter-spacing:.045em}.experiment-gallery .grid-container{grid-template-columns:1fr!important}.task-facts{grid-template-columns:1fr}.lab-strip{grid-template-columns:1fr}.preview-toolbar{grid-template-columns:1fr!important}.language-switch{width:190px!important;min-width:190px!important}}
+@media(max-width:620px){.gradio-container{padding:10px!important}.hero{padding:22px 20px 24px;border-radius:18px 18px 0 0}.brand-lockup{max-width:100%;font-size:10px;letter-spacing:.045em}.experiment-gallery .grid-container{grid-template-columns:1fr!important}.task-facts{grid-template-columns:1fr}.lab-strip{grid-template-columns:1fr}.language-switch{width:190px!important;min-width:190px!important}}
 """
 
 

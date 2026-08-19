@@ -14,7 +14,7 @@ license: apache-2.0
 
 **WalkingLab** 与开源课程 **Hands-On Modern RL（《动手学现代强化学习》）** 的 Atari/ALE 配套实验。每次运行都会在 ModelScope CPU 容器中训练 DQN、评估 checkpoint，并从当前策略生成真实模拟器回放。
 
-Preview 与当前选择的游戏及其最后保存的 DQN 模型严格对应。默认回放种子与训练种子相同；修改 `Preview seed` 后点击 `Run rollout`，只会让同一模型从新的初始状态重新运行一次，不会重新训练。相同模型和相同种子会得到可复现的确定性动作序列。
+每次成功训练都会保存为一个独立的 DQN 模型，不再覆盖上一次结果。Preview 区域的“已训练模型”选择框会列出当前游戏的全部成功运行；选择某个模型后，页面显示该模型在训练完成时生成的策略回放。新启动且尚未训练的创空间会显示空选择框。
 
 课程项目：<https://github.com/walkinglabs/hands-on-modern-rl>
 
