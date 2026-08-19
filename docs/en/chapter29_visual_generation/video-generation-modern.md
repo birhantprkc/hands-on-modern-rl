@@ -1,10 +1,10 @@
 # 24.5 Video RLHF and Physical Perception Generation
 
-[Section 24.4 on Visual Generation with RL](./visual-generation-dancegrpo) discussed the foundations of diffusion RL — algorithms such as DDPO and DPOK. That section took a **algorithmic perspective**: how to model diffusion training as an MDP, and how to use policy gradient optimization.
+[Section 24.4 on Visual Generation with RL](./visual-generation-dancegrpo) discussed the foundations of diffusion RL — algorithms such as DDPO and DPOK. That section took an **algorithmic perspective**: how to model diffusion training as an MDP, and how to use policy gradient optimization.
 
-This section takes a different perspective — the **industrial level**: how video generation models such as Seedance, LongCat-Video, Hailuo, Wan, and Kling were trained using RL in 2025–2026? These works represent the current state-of-the-art in video generation with RL.
+This section takes a different perspective — the **industrial level**: how video generation models such as Seedance, LongCat-Video, Hailuo, Wan, and Kling were trained using RL in 2025–2026. These works represent the current state-of-the-art in video generation with RL.
 
-## 24.5.1 From Images to Video and New Challenges of RL
+## 24.5.1 From Images to Video: New Challenges for RL
 
 RL for image generation has matured ([DDPO](./visual-generation-dancegrpo), DPOK). However, video generation brings new challenges:
 
@@ -42,7 +42,7 @@ These challenges have slowed progress in video generation RL in 2024. The major 
 - **DanceGRPO**: Applying the GRPO idea to diffusion (image + video)
 - **Seedance / LongCat**: Using RLHF-style training + engineering optimization
 
-## 24.5.2 DanceGRPO and GRPO for Diffusion
+## 24.5.2 DanceGRPO: GRPO for Diffusion
 
 [DanceGRPO](https://arxiv.org/abs/2505.07818) (ByteDance Seed, 2025.05) is a significant breakthrough in diffusion RL. Its core contribution is: **applying the GRPO idea directly to diffusion training**.
 
@@ -87,9 +87,9 @@ This process is almost identical to GRPO for LLMs — the only difference is:
 
 Key advantages of DanceGRPO:
 
-1. **Group normalization makes the reward signal clearer** — By comparing multiple videos generated from the same prompt, it can identify "which video is truly better."
-2. **No need for a critic** — Saves the use of a value model, similar to GRPO.
-3. **Stable training** — Group normalization leads to more stable advantage estimation.
+1. **A clearer reward signal** — comparing multiple videos generated from the same prompt reveals "which video is truly better," not just the absolute score.
+2. **No critic needed** — it avoids a value model, consistent with GRPO for LLMs.
+3. **More stable training** — group normalization avoids update jitter from inconsistent reward scales across prompts.
 
 ### Experiments with DanceGRPO
 
@@ -100,7 +100,7 @@ Byte Seed trained multiple video generation models using DanceGRPO:
 
 DanceGRPO has already become the default choice in industry for diffusion reinforcement learning — this aligns with GRPO's status in the LLM field.
 
-## 24.5.3 Seedance and ByteDance's Video Generation Flagship
+## 24.5.3 Seedance: ByteDance's Video Generation Flagship
 
 [Seedance](https://seed.bytedance.com/) (ByteDance, released in March 2025, upgraded to 1.0 Pro in October 2025) is one of the leading video generation models in China. It has ranked first multiple times on VBench (video generation benchmark).
 
@@ -176,7 +176,7 @@ As an alternative to traditional diffusion, flow matching is used (which is more
 
 ### Performance of Seedance 1.0 Pro
 
-VBenche 2025.10 Ranking:
+VBench 2025.10 Ranking:
 
 | Model            | VBench Total |
 | ---------------- | ------------ |
@@ -189,7 +189,7 @@ VBenche 2025.10 Ranking:
 
 Seedance is the state-of-the-art video generation model in China, surpassing Sora 2 and Veo 3.
 
-## 24.5.4 LongCat-Video and Efficient Long-Video Generation
+## 24.5.4 LongCat-Video: Efficient Long-Video Generation
 
 [LongCat-Video](https://arxiv.org/abs/2510.22200) (Meituan, 2025.10) is another important work — focused on **long-video generation**.
 
@@ -249,7 +249,7 @@ LongCat-Video achieves state-of-the-art results in long video generation:
 | Wan 2.5 Long      | 70%                         | 68%             |
 | **LongCat-Video** | **78%**                     | **75%**         |
 
-## 24.5.5 Hailuo and MiniMax Video Generation
+## 24.5.5 Hailuo: MiniMax Video Generation
 
 [Hailuo](https://hailuoai.video/) (MiniMax, released in September 2024, upgraded in July 2025, version 02) is another Chinese video generation SOTA.
 
@@ -306,7 +306,7 @@ Observations:
 
 - **Chinese vendors lead video generation with reinforcement learning research** — the most open-source papers
 - **DanceGRPO is the mainstream algorithm** — an extension of GRPO
-- **Data + Engineering > Algorithm Innovation** — most improvements come from data quality and engineering optimization
+- **Data and engineering matter more than algorithmic innovation** — most improvements come from data quality and engineering optimization
 
 ## 24.5.8 Future Directions of Video Generation with Reinforcement Learning
 

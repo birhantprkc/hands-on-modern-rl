@@ -174,7 +174,7 @@ This reads: we want the average reward of the final image, sampled from the mode
 
 With the MDP translation above, DDPO is no longer mysterious. It essentially applies policy gradients on Diffusion sampling trajectories.
 
-Let's first give this derivation a paper coordinate. The table below maps what we are about to do to its classic reference:
+Let's first locate this derivation in the literature. The table below maps what we are about to do to its classic reference:
 
 | What We Do                                                                                                    | Paper Reference                        |
 | ------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
@@ -506,7 +506,7 @@ This formula can be understood in two parts:
 | Policy gradient term | Makes high-reward sampling trajectories more likely                                   |
 | KL term              | Prevents the model from straying too far from the original model in pursuit of reward |
 
-This is the same idea as in RLHF, DPO, and GRPO: make the model better, but don't let it fly off.
+This is the same idea as in RLHF, DPO, and GRPO: make the model improve without drifting too far from the reference model.
 
 ### DDPO's Minimal Training Flow
 
@@ -942,7 +942,7 @@ Visual generation RL may seem far from VLM QA, but it reuses several main thread
 | Chapter 19 Agentic RL     | Long-horizon credit assignment, multi-component rewards, and KL constraints reappear                    |
 | Sections 11.1-11.3 VLM RL | VLMs can in turn serve as judges, captioners, and reward models for generation models                   |
 
-The last point is especially important. Understanding models and generation models are not two completely separate threads. After VLMs learn to see images better, they can check whether generated images match prompts; generation models can synthesize richer data to train VLMs in turn. In the multimodal post-training stage, "seeing" and "generating" will increasingly form a closed loop.
+The last point is especially important. Understanding models and generation models are connected. After VLMs learn to see images better, they can check whether generated images match prompts; generation models can synthesize richer data to train VLMs in turn. In the multimodal post-training stage, "seeing" and "generating" will increasingly reinforce each other.
 
 ## Summary
 
