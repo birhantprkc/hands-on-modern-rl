@@ -1,32 +1,67 @@
-# 25.5 强化学习评测与 Harness
+# 25.5 如何可信地评测强化学习模型：从 Benchmark 到 Harness
 
-> [第 25 章](../chapter30_alignment_failures/modern-incidents) 讲了 Qwen3 数据污染——benchmark 分数虚高 15-25 个百分点。这暴露的不只是数据问题，而是 **整个 RL 评估方法论的脆弱**。本章系统化讨论：什么样的 benchmark 设计是可信的？怎么检测污染？提示敏感性如何影响结论？长程任务和行为任务怎么评？最后介绍工业级评测 harness 与 Anthropic 2025 内部 AI Research Eval Suite（34× 人类加速）。
+同一个模型在同一批题上，可以得到两个不同分数。第一次用温度 `0`、每题生成一次、从最后一行抽取答案；第二次用温度 `0.8`、每题生成 16 次，再由验证器挑选最好答案。模型参数没有变化，评测协议已经改变了问题。
 
-## 评估基准设计原则
+本节学习怎样把一次强化学习评测做成可重复的实验。所谓 Harness，就是把数据、提示、采样参数、工具预算、答案抽取、评分方式和统计方法放进同一套固定流程。
 
-好的 RL benchmark 必须满足五个原则：
+我们需要 Harness，是因为裸分数无法说明提升来自模型训练，还是来自多采样、提示模板或答案解析。只有固定这些条件，两个模型、两次训练和两篇论文之间的数字才可以比较。
+
+一个 benchmark 名称不足以描述结果。先看一个只有三道题的小评测：模型答对第 1、3 题，答错第 2 题，单题得分依次是 `1、0、1`，最终准确率就是 $2/3$。这里还隐藏着几个步骤：题目先被填进提示模板，模型按给定温度和长度生成回答，答案抽取器再从回答里找出最终答案，评分器最后判断对错。任一步骤变化，都可能改变这三个单题结果。
+
+下面的式子是**本书用于拆解评测流水线的教学记号**，不是某篇论文规定的固定公式。它把 [lm-evaluation-harness 论文](https://arxiv.org/abs/2405.14782)所强调的数据、提示、生成和评分环节写在了一行里：
+
+$$
+\hat M=\operatorname{Aggregate}
+\left(\operatorname{Score}(y_i,z_i)\right),
+\qquad
+y_i\sim\pi_\theta(\cdot\mid p(x_i);c).
+$$
+
+$x_i$ 是第 $i$ 道题，$p(x_i)$ 是把题目填进模板后得到的完整输入，$c$ 记录温度、最大长度和工具预算，$y_i$ 是模型生成的回答，$z_i$ 是标准答案或成功条件。`Score` 先得到每道题的结果，`Aggregate` 再把这些结果汇总为最终指标 $\hat M$。因此，任何一项改变，$\hat M$ 的含义都会改变。本节沿这条流水线依次讨论 benchmark、污染、提示敏感性、OOD、行为评测、长程 Agent 和标准化 Harness。
+
+```mermaid
+flowchart LR
+    A[固定数据版本] --> B[渲染提示]
+    B --> C[按预算生成]
+    C --> D[抽取答案或轨迹]
+    D --> E[验证单题结果]
+    E --> F[分组与统计]
+    F --> G[生成可复现报告]
+```
+
+这条流水线给出本节的主线：先明确想测什么，再隔离数据与提示，随后固定推理预算和评分器，最后才汇总成分数。任一环节没有版本化，最终数字就无法复现。
+
+## 25.5.1 先定义评测究竟要测什么
+
+假设我们要评测一个代码修复 Agent。给它十个仓库，每个仓库都有一个缺陷。只报告“修好了 7 个”还不够：公开测试是否覆盖真正缺陷，十个仓库是否只包含一种错误，任务是否被模型见过，困难仓库是否全部失败，两次运行的差异是否只是采样波动，都还没有回答。
+
+这五个问题分别对应可验证性、代表性、难度分层、抗污染和统计严谨性。它们共同决定一个 benchmark 分数能支持多强的结论。下面仍沿着这个代码修复任务逐项展开。
 
 ### 可验证性（Verifiability）
 
-每个测试样本的答案**必须是机器可判定的**。形式化定义：存在函数 $\text{Verify}: \mathcal{Y} \times \mathcal{Y} \to \{0, 1\}$，使得对任何 $(y_{\text{pred}}, y_{\text{gold}})$ 都能确定性地给出对错。
+代码修复任务可以运行测试：补丁通过隐藏测试记为成功，否则记为失败。这种能够由机器重复判断的性质称为可验证性。
 
-- **数学题**：抽取最终数字，与标准答案比较（[GSM8K](https://arxiv.org/abs/2110.14168)、MATH）
-- **代码题**：在测试用例上运行，看通过率（[HumanEval](https://arxiv.org/abs/2107.03374)、MBPP、LiveCodeBench）
+把“运行测试并返回通过或失败”写成数学记号，可以记作 $\text{Verify}(y,z)\in\{0,1\}$。这里的 $y$ 是模型提交的补丁，$z$ 是隐藏测试定义的成功条件；通过记为 1，失败记为 0。这个式子只是二值验证器的教学写法。[HumanEval](https://arxiv.org/abs/2107.03374)用单元测试执行生成程序，[GSM8K](https://arxiv.org/abs/2110.14168)则从回答中抽取最终数值再比对答案，它们展示了两种不同的可验证任务。
+
+开放式写作、安全行为和长程 Agent 任务无法完全压缩成一个二值结果，因此还要使用人工评审、环境状态和多维指标。
+
+- **数学题**：抽取最终数字，与标准答案比较（[GSM8K](https://arxiv.org/abs/2110.14168)、[MATH](https://arxiv.org/abs/2103.03874)）
+- **代码题**：在测试用例上运行，看通过率（[HumanEval](https://arxiv.org/abs/2107.03374)、MBPP、[LiveCodeBench](https://arxiv.org/abs/2403.07974)）
 - **逻辑题**：用 SAT solver 或 theorem prover 验证（MiniF2F、PutnamBench）
 
-不可验证的任务（开放式写作、创意生成）只能用人类评估或 RM 评估——这两者都不可靠。
+开放式写作与创意生成很难得到唯一机器判定答案，通常需要人类评价、成对偏好或奖励模型。它们的噪声和偏差需要通过多评价者一致性、盲评和独立抽检测量。
 
 ### 代表性（Coverage）
 
-Benchmark 要覆盖模型可能遇到的真实分布。形式化：
+Benchmark 要覆盖模型可能遇到的真实任务。假设产品请求中约 60% 是代码修改、30% 是工具调用、10% 是普通问答，而测试集只包含小学数学题；即使模型在测试集得到 90%，这个分数也没有覆盖产品真正要走过的任务路径。
 
-$$\mathcal{D}_{\text{test}} \sim P_{\text{real}}, \quad P_{\text{real}} \approx P_{\text{test}}$$
-
-如果 $\mathcal{D}_{\text{test}}$ 偏向某类问题，模型可能在其他类型上失效。GSM8K 是典型的反例——只有小学数学，模型 GSM8K 90% 不代表会做高数。
+因此，设计评测前要先列出部署任务的类别、频率和高风险场景，再检查测试集是否覆盖这些部分。[HELM](https://arxiv.org/abs/2211.09110)把场景、适配方式和指标分开记录，正是为了避免用一个窄基准代表模型的全部能力。GSM8K 可以测小学数学推理，却不能据此推断模型会做高等数学或可靠地操作工具。
 
 ### 难度分层（Difficulty Stratification）
 
-按难度分层评估，避免"平均分掩盖极端表现"：
+平均分还会掩盖模型在哪一层开始失效。设十道题中有八道基础题、两道难题，模型答对六道基础题，却两道难题都失败，总分仍有 60%。只看 60%，读者看不出模型遇到难题时成功率已经降到 0。
+
+解决方法是预先给题目划分难度，并同时报告每一层的题量和分数：
 
 ```python
 # 难度分层评估
@@ -39,59 +74,59 @@ def stratified_eval(model, dataset):
     return {k: np.mean(v) for k, v in results.items()}
 ```
 
-MATH 数据集按难度分 Level 1-5，DeepSeek-R1 报告每层分数。报告分层分数比单一总分更能反映能力分布。
+[MATH 数据集论文](https://arxiv.org/abs/2103.03874)为题目提供 Level 1 到 Level 5 的难度标签。评测 MATH 时，可以直接按这五层报告正确率；自建数据集则要说明难度标签由谁给出、判断依据是什么。分层分数比单一总分更能说明能力边界。
 
 ### 抗污染（Contamination Resistance）
 
-测试集必须**严格保密**，并对训练数据做去污染检查。详见 35.2。
+最终测试集应尽量与训练和调参过程隔离，并对可访问的训练数据做去污染检查。公开基准无法做到长期保密，因此还需要持续更新的数据或一次性隐藏测试集。
 
 ### 统计显著性（Statistical Rigor）
 
-不能只报"模型 A 在 MATH 上 60%，模型 B 55%"——可能只是抽样噪声。要做：
+不能只报“模型 A 在 100 道题上得到 60%，模型 B 得到 55%”。如果换一批题，两个分数都可能变化；5 个百分点的差距未必稳定。
 
-- **置信区间**：$n$ 个测试样本，准确率 $p$，95% CI 为 $p \pm 1.96\sqrt{p(1-p)/n}$
-- **配对 t-test**：在相同测试集上对比两个模型
-- **Bootstrap**：对测试集做重采样估计方差
+先看模型 A。100 道题答对 60 道，$p=0.60$，正态近似下标准误约为 $\sqrt{0.6\times0.4/100}=0.049$，95% 区间大约是 50.4% 到 69.6%。这个手算例子说明：样本少时，单个百分比给人的确定感会超过证据本身。实际报告可按数据类型选择下面的方法：
 
-LLM 评测论文长期忽视统计显著性，2024 年后才被广泛接受（[Blackwell et al., arXiv:2410.03492](https://arxiv.org/abs/2410.03492)）。
+- **置信区间**：二项准确率可用 Wilson 区间；样本足够大且 $p$ 不接近 0 或 1 时，正态近似 $p \pm 1.96\sqrt{p(1-p)/n}$ 才较合适
+- **配对检验**：同一批二值题目可用 McNemar 检验；连续的逐题分数可以使用配对 bootstrap 或置换检验
+- **Bootstrap**：按样本重采样，估计分数差及其置信区间
 
-## 污染与泄漏检测
+[Blackwell et al. 的不确定性量化研究](https://arxiv.org/abs/2410.03492)专门讨论了如何为 benchmark 分数和模型排名给出置信判断；[lm-evaluation-harness 论文](https://arxiv.org/abs/2405.14782)则从可复现评测工程的角度总结了常见误差来源。95% 正态近似只是入门演示，样本少、正确率接近 0 或 1，或者要比较同一批题上的两个模型时，应分别使用 Wilson 区间和配对方法。
 
-[第 25 章 RLVR 假性收益](../chapter30_alignment_failures/modern-incidents) 详细讲了 Qwen3 数据污染事件。这一节给出系统化的检测方法。
+## 25.5.2 污染与泄漏：模型做对了，还是见过题目
+
+假设代码修复测试中的缺陷、参考补丁和单元测试都来自一个公开仓库。模型可能在预训练中见过整段提交记录。此时补丁通过测试，既可能来自分析和调试，也可能来自复现记忆。
+
+[第 25.2 节 RLVR 假性收益](../chapter30_alignment_failures/modern-incidents)讨论了公开数学基准上的同类风险。这一节把污染检测组织成可执行流程。
 
 ### 污染的三种类型
 
 #### 1. 显式污染
 
-训练数据和测试数据**完全相同**的样本：
+训练数据和测试数据出现完全相同的样本。例如，训练语料里已经包含某道题的题目、标准答案和完整解析，测试时又原样使用这道题。模型答对后，我们无法区分它是在现场推理，还是复现见过的答案。
 
-$$\exists (x, y) \in \mathcal{D}_{\text{train}}, \quad (x, y) \in \mathcal{D}_{\text{test}}$$
-
-最容易检测，n-gram 重叠就能发现。
+这是最容易检测的一类污染。可以先把训练文本与测试文本规范化，再用长字符串或 n-gram 重叠召回可疑样本。[GPT-3 论文](https://arxiv.org/abs/2005.14165)在评测前检查了测试集与训练语料的 13-gram 重叠，后文会用一个短程序说明这种检查怎样工作。
 
 #### 2. 近似污染
 
-训练数据包含测试样本的**改写、翻译、释义**：
+训练数据包含测试样本的**改写、翻译或释义**。例如，训练数据写“仓库有 20 箱货，每箱 6 件”，测试题改成“商店收到 20 个包裹，每包 6 件”；表面词语变化了，数量关系和答案却相同。
 
-$$\exists (x', y') \in \mathcal{D}_{\text{train}}, \quad \text{sim}(x', x_{\text{test}}) > \tau$$
+逐字匹配会漏掉这种情况。可以先用向量检索召回语义相近的训练样本，再由更精确的规则或人工判断它们是否共享同一道题的关键结构。相似度阈值需要在已知重复与已知无关样本上校准，不能把“语义相近”直接等同于“发生污染”。
 
-检测需要语义相似度（embedding 距离）或 LLM 判断。
+#### 3. 任务相似与能力迁移
 
-#### 3. 隐式污染（最难）
-
-训练数据不直接包含测试样本，但训练任务与测试任务高度相似——模型学到了**任务模式**而不是**特定答案**：
+训练数据不包含测试样本，但训练任务与测试任务相似，模型可能学到可迁移的解题过程：
 
 - 训练数据：2000 道大学物理题
 - 测试数据：GSM8K（小学数学）
 - 现象：物理题训练让模型学会了"读题→列式→计算→验证"的模式，间接提升数学
 
-隐式污染无法完全检测，只能通过 **Holdout 任务** 间接评估（用模型完全没见过类型的任务）。
+这属于能力迁移，不能直接记作数据污染。若研究问题是“训练是否带来跨任务泛化”，应额外设置不同题型的 holdout 任务，把记忆、同分布泛化与跨任务迁移分开。
 
 ### 检测方法
 
 #### N-gram 重叠
 
-最简单的检测——13-gram 重叠：
+一个 13-gram 是连续 13 个词元组成的片段。若测试题中的大量 13-gram 也出现在训练文本中，这道题就值得进一步检查。下面的程序先取出两段文本的 13-gram 集合，再计算测试片段中有多少比例与训练文本重合：
 
 ```python
 def ngram_contamination(train_text, test_text, n=13):
@@ -101,23 +136,24 @@ def ngram_contamination(train_text, test_text, n=13):
     return len(overlap) / len(test_ngrams)
 ```
 
-OpenAI 2020 的研究（[arXiv:2005.14165](https://arxiv.org/abs/2005.14165)）用 13-gram 重叠在训练语料中过滤与 benchmark 重复的文本，这是最早的去污染实践之一。
+[GPT-3 论文的 contamination analysis](https://arxiv.org/abs/2005.14165)使用 13-gram 重叠检查 benchmark 与训练语料。`13` 是该研究在其词元化与数据条件下采用的设置，不是对所有中文、代码和短题目都适用的常数；实际使用时要用已知重复样本校准 $n$ 和重叠阈值。
 
 #### 成员推理（Membership Inference）
 
-训练一个分类器判断"这个样本是否在训练集中"：
+成员推理试图判断一个样本更像训练成员还是非成员。最简单的攻击会比较样本损失与对照分布，也可以训练分类器综合损失、压缩率和参考模型差值。低损失只能提供可疑信号：常见句子、固定模板和本来就容易预测的文本也会得到低损失。因此，成员推理结果需要与已知成员、已知非成员和内容难度匹配的对照集一起报告。
 
-$$\text{MIA}(x) = \begin{cases} 1, & \text{if } p_{\text{model}}(x) > \tau \\ 0, & \text{otherwise} \end{cases}$$
+#### 困惑度异常
 
-如果 MIA 在测试集上准确率显著高于随机，说明测试集在训练集中。
+语言模型会为下一个词元分配概率。若一段文本中的每个词元都得到异常高的概率，模型对这段文本的平均损失就会很低，困惑度也会随之降低。标准定义是
 
-#### Perplexity 异常
+$$
+\operatorname{PPL}(x_{1:N})=
+\exp\!\left(-\frac{1}{N}\sum_{i=1}^{N}\log p_\theta(x_i\mid x_{<i})\right).
+$$
 
-计算模型在测试集上的 perplexity：
+$x_i$ 是第 $i$ 个词元，$x_{<i}$ 是它之前的文本，$p_\theta$ 是模型给正确下一个词元的概率。可以把它理解为模型对这段文本有多“意外”：困惑度越低，文本越容易被模型预测。[Carlini et al. 的训练数据提取研究](https://www.usenix.org/conference/usenixsecurity21/presentation/carlini-extracting)展示了低困惑度与记忆分析之间的联系，但也需要参考模型和对照样本帮助排除常见文本。
 
-$$\text{PPL}_{\text{test}} = \exp\left(-\frac{1}{N}\sum_i \log p_{\text{model}}(x_i)\right)$$
-
-如果 PPL 远低于类似难度的对照集，可能模型"记住"了测试集。
+因此，如果测试样本的困惑度远低于内容和难度匹配的对照集，可以把它列入进一步检查。模板重复、领域熟悉和题目本来就简单也会产生低困惑度，单靠这个指标不能证明模型见过原题。
 
 #### 时序分割
 
@@ -131,36 +167,36 @@ test_data = [
 ]
 ```
 
-这是最可靠的抗污染方法——LiveCodeBench、LMSYS Chatbot Arena 都用这个思路。
+时间切分能排除模型训练截止日期之后才出现的原题。LiveCodeBench 持续收集新发布的竞赛题，正是为了降低公开代码基准的污染风险。时间切分仍不能排除题型迁移，也要求题目的创建时间和模型数据截止时间可信。Chatbot Arena 主要是在线人类偏好比较，不应当当作同一种“发布日期后新题”评测。
 
 ### 去污染的实际工程
 
 工业级去污染 pipeline：
 
-1. **N-gram 过滤**（13-gram）：移除 90% 显式污染
-2. **Embedding 检索**（cosine sim > 0.9）：移除近似污染
+1. **N-gram 过滤**：识别长字符串重合；$n$ 的取值要按文本长度和语言验证
+2. **Embedding 检索**：召回释义和近似样本，再通过人工或更精确的匹配器复核
 3. **MinHash LSH**：快速近似检测（[Deduplicating Training Data, arXiv:2107.06499](https://arxiv.org/abs/2107.06499)）
 4. **持续新增 benchmark**：每月用新数据更新测试集
 
-Qwen3 事件后，主流团队都建立了去污染 pipeline，但效果仍不完美——隐式污染几乎无法消除。
+去污染只能降低已知重叠。网页数据来源不透明、题目改写和开发过程对 benchmark 的反复拟合，仍会让完全证明“无污染”变得困难。
 
-## 提示敏感性分析
+## 25.5.3 提示、聊天模板和答案抽取也属于实验条件
 
-同一个模型、同一个任务，prompt 不同，分数差 10-20 个点是常见的。这种现象叫 **Prompt Sensitivity**。
+同一道代码题可以写成“完成函数 `solve`”，也可以写成“只返回补全后的函数，不要解释”。两条指令要求的算法相同，第二条却额外限制输出格式。若答案抽取器只接受纯代码，第一种提示下的解释文字可能让正确程序被判错。
+
+同一个模型、同一个任务，只改变语义等价的指令表达，绝对分数与模型排名都可能变化。这种现象叫**提示敏感性（Prompt Sensitivity）**。
 
 ### 实验证据
 
-Mizrahi et al. 2024（[arXiv:2401.00595](https://arxiv.org/abs/2401.00595)）系统研究：对 10 个 LLM × 22 个 benchmark × 5 种 prompt 模板：
+Mizrahi et al. 2024 在 LMentry、BIG-Bench Lite 与 BIG-Bench Hard 的多项任务上生成语义等价指令，并比较多个模型家族。论文发现，提示改写会同时改变绝对表现和相对排名。
 
-| 模板 | MATH 分数（GPT-4） | MMLU 分数（GPT-4） |
-| ---- | ------------------ | ------------------ |
-| A    | 52.1%              | 86.4%              |
-| B    | 47.3%              | 84.1%              |
-| C    | 50.5%              | 85.7%              |
-| D    | 48.9%              | 83.9%              |
-| E    | 51.8%              | 86.1%              |
+![语义等价提示会改变模型分数与排名](./images/multi-prompt-evaluation.png)
 
-最大波动 4.8 个点——这意味着仅基于单一 prompt 的结论不可靠。
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>图 1：四个语义等价的同音词任务提示产生了明显不同的准确率，模型之间的相对排序也随提示变化。来源：<a href="https://arxiv.org/abs/2401.00595" target="_blank" rel="noopener noreferrer">State of What Art? A Call for Multi-Prompt LLM Evaluation</a></em>
+</div>
+
+这张图比“某个模型固定波动几个百分点”更重要：单一提示既可能高估模型，也可能改变模型间比较结论。
 
 ### 敏感性来源
 
@@ -173,19 +209,19 @@ Mizrahi et al. 2024（[arXiv:2401.00595](https://arxiv.org/abs/2401.00595)）系
 
 #### 1. 多 prompt 平均
 
-对每个测试样本用 $K$ 个 prompt 模板，取平均：
+假设同一个模型在“直接回答”和“请给出最终答案”两个等价模板下分别得到 70% 与 50%。只报前者会高估稳定表现，只报后者又会低估它。最简单的处理是预先固定 $K$ 个等价模板，分别运行完整测试集，再求平均：
 
 $$\text{Score}(\pi) = \frac{1}{K} \sum_{k=1}^K \text{Score}_{\text{prompt}_k}(\pi)$$
 
-#### 2. 报告方差
+在这个例子里，$K=2$，平均分是 $(70\%+50\%)/2=60\%$。这里的式子只是算术汇总；为什么要运行多个模板，以及单模板怎样改变模型排名，可直接参阅 [Mizrahi et al. 的多提示评测研究](https://arxiv.org/abs/2401.00595)。
 
-不只报平均分，还要报方差：
+#### 2. 报告每个模板的结果与离散程度
 
-$$\text{Score} \pm 1.96 \cdot \frac{\sigma}{\sqrt{K}}$$
+平均分仍会隐藏“70% 与 50%”这样的差距，因此要同时公开每个模板的分数、跨模板标准差，以及最好和最差模板。几个提示模板通常不是从某个总体中独立同分布抽出的样本，不能机械地把 $\text{平均分}\pm1.96\sigma/\sqrt K$ 当作可靠的 95% 置信区间。需要比较两个模型时，应在相同题目与相同模板上做配对 bootstrap，或者采用 [PromptEval](https://arxiv.org/abs/2405.17202)这类专门估计跨提示表现分布的方法。
 
 #### 3. Prompt 标准化
 
-lm-eval-harness 定义了**统一的 prompt 格式规范**，所有模型在相同的 prompt 上评估。
+lm-eval-harness 把任务数据、提示模板、答案处理和指标实现写成可版本化配置。比较模型时仍要固定任务版本与模板；不同模型若使用不同聊天模板，还应把这一差异写进报告。
 
 ```python
 # lm-eval-harness 标准化 prompt
@@ -199,11 +235,13 @@ Therefore, the answer is \\boxed{{{answer}}}.
 
 ### 工程建议
 
-RL 训练后的模型特别容易对 prompt 敏感——因为 RL 鼓励模型对训练分布中的 prompt 格式高度适应。**报告 RL 结果时必须做多 prompt 平均**，否则结论可能被"幸运的 prompt 模板"主导。
+后训练可能提高模型对训练提示格式的适应。关键结论应至少在一组预先约定的等价模板上复核；若只报告单模板结果，需要同时公开模板并说明敏感性风险。多模板平均是一种方案，最差模板分数和跨模板方差也提供有用信息。
 
-## 分布外鲁棒性
+## 25.5.4 模型离开训练分布后还能否工作
 
-模型在训练分布上表现好，但在分布外（Out-of-Distribution, OOD）可能急剧退化。这是 RL 训练特有的问题——RL 倾向于"过拟合"训练分布的奖励信号。
+训练任务只包含长度不超过 100 的列表，部署任务却出现长度 10,000、包含重复值和缺失项的列表。程序在训练测试上全部通过，仍可能在新输入规模上超时或返回错误结果。
+
+模型在训练分布上表现好，但在分布外（Out-of-Distribution, OOD）可能急剧退化。这个问题存在于所有机器学习方法中；强化学习持续优化狭窄奖励时，还可能进一步把策略推向只对训练条件有效的行为。
 
 ### OOD 评估方法
 
@@ -217,11 +255,9 @@ RL 训练后的模型特别容易对 prompt 敏感——因为 RL 鼓励模型�
 
 #### 2. Adversarial Perturbation
 
-对输入做小扰动，看模型是否稳定：
+对输入做保持任务含义的小扰动，再比较扰动前后的逐题结果。例如，把“Return only the number”改成“只返回数字”，或者改变无关变量名；如果答案随之变化，就记录为一次稳定性失败。
 
-$$\text{RobustScore}(x) = \text{Score}(\pi(x)) - \max_{\|\delta\| \leq \epsilon} |\text{Score}(\pi(x + \delta)) - \text{Score}(\pi(x))|$$
-
-字符替换、同义词替换、大小写变换都是常用扰动。
+字符替换、同义改写和大小写变换都可以作为候选扰动，但每种扰动都要先确认没有改变正确答案。评测时应分别报告原始准确率、扰动后准确率和逐题翻转比例，不必把它们压进一个来源不明的“鲁棒分数”。[CheckList](https://arxiv.org/abs/2005.04118)提出的最小功能测试与不变性测试，为这种“只改变一个因素，再观察行为是否应当保持”的设计提供了具体方法。
 
 #### 3. Counterfactual Evaluation
 
@@ -234,31 +270,25 @@ $$\text{RobustScore}(x) = \text{Score}(\pi(x)) - \max_{\|\delta\| \leq \epsilon}
 
 ### RL 训练的 OOD 风险
 
-RLHF/GRPO 训练后模型常出现 **Alignment Tax**——对齐牺牲了基础能力：
+RLHF/GRPO 训练后需要检查 **Alignment Tax**：安全性或偏好指标提高的同时，基础任务能力是否下降。这里不能使用几组来源不明的模型分数推断一个固定降幅。可靠做法是在同一基础模型上保存 SFT 与 RL 检查点，用相同提示、采样预算、评分器和数据版本做配对测量。
 
-| 模型         | MMLU (SFT) | MMLU (RLHF) | 变化  |
-| ------------ | ---------- | ----------- | ----- |
-| Llama-2-70B  | 86.0%      | 84.5%       | -1.5% |
-| Claude 1     | 75.0%      | 73.8%       | -1.2% |
-| GPT-4 (est.) | 89.0%      | 87.5%       | -1.5% |
-
-**原因**：RLHF 奖励"对齐友好"的回答，模型学会了"求稳"——遇到不确定就拒绝或给模糊答案，牺牲了基础能力。
+能力下降可能来自多种机制。例如，奖励持续偏好保守回答后，模型在不确定问题上更容易拒答；能力任务没有进入保留数据时，策略分布也可能逐渐离开原先会正确作答的区域。评测需要把拒答率、答案正确率和输出长度分别记录，才能判断下降发生在哪里。
 
 ### 缓解 Alignment Tax
 
-- **KL Penalty**：RLHF 加 $\beta \cdot \text{KL}(\pi_\theta \| \pi_{\text{SFT}})$，限制偏离参考模型
+- **KL 惩罚**：在策略奖励中减去与参考策略的 KL 偏离，限制模型为了迎合奖励而走得过远；[InstructGPT](https://arxiv.org/abs/2203.02155)给出了这一类 PPO 目标的完整训练设置
 - **能力保留数据**：在 RL 训练中混入 SFT 数据，定期复习
-- **Multi-Objective RL**：同时优化 accuracy、helpfulness、safety 三个目标（[Reward Weighted regression, arXiv:2305.18290](https://arxiv.org/abs/2305.18290)）
+- **多目标评测与训练**：分别跟踪正确率、有用性和安全性；若把它们合成一个训练目标，要公开各项权重，并保留单项指标，避免总分掩盖某一项退化
 
-## 行为评估 vs 能力评估
+## 25.5.5 能力评测与行为评测回答不同问题
 
-传统的 benchmark 评估**能力**（capability）——"模型能不能解这道题"。但 RL 训练后的模型还需要评估**行为**（behavior）——"模型在这种情境下会怎么表现"。
+一个代码 Agent 可能有能力写出正确补丁，却在测试失败后选择删除测试；也可能能力不足，从一开始就找不到缺陷位置。两种结果都表现为任务失败，修复方向却完全不同。
+
+传统 benchmark 主要评估**能力**（capability），也就是模型能否完成任务。RL 训练后的模型还需要评估**行为**（behavior），也就是模型在具有工具、权限和反馈的情境中会选择什么动作。
 
 ### 能力评估
 
-形式化定义：给定输入 $x$ 和黄金答案 $y^*$，评估：
-
-$$\text{Capability}(\pi) = \mathbb{E}_{x \sim \mathcal{D}}[\text{Verify}(\pi(x), y^*)]$$
+能力评测先把模型放在一批固定任务上，再检查它完成了多少。例如，在 100 个代码缺陷中修复 42 个，能力成功率就是 42%。[HumanEval](https://arxiv.org/abs/2107.03374)通过执行单元测试测代码生成，[GSM8K](https://arxiv.org/abs/2110.14168)通过比对最终数值测数学推理，[MMLU](https://arxiv.org/abs/2009.03300)则用多学科选择题测知识与推理。三者都把任务输入和成功条件预先固定下来。
 
 - MMLU、GSM8K、HumanEval 都是能力评估
 - 优点：客观、可重复
@@ -266,9 +296,9 @@ $$\text{Capability}(\pi) = \mathbb{E}_{x \sim \mathcal{D}}[\text{Verify}(\pi(x),
 
 ### 行为评估
 
-形式化定义：给定情境 $\mathcal{S}$ 和期望行为集合 $\mathcal{B}$，评估：
+行为评测要先构造一个会暴露选择的情境。仍以代码 Agent 为例：测试失败后，环境同时允许“继续定位缺陷”和“删除失败测试”。两个动作都能改变后续状态，但只有前者符合任务规范。评测者要预先写清允许、禁止和需要人工复核的行为，再记录模型在匹配场景中的选择比例。
 
-$$\text{Behavior}(\pi, \mathcal{S}) = \mathbb{E}_{\text{trajectories from }\mathcal{S}}\bigg[\frac{1}{T}\sum_{t=1}^T \mathbf{1}[\pi(s_t) \in \mathcal{B}]\bigg]$$
+[Perez et al. 的模型行为评测研究](https://arxiv.org/abs/2212.09251)使用成组场景测量迎合、权力寻求等行为。它提示我们，行为率必须和场景定义一起解释：在 50 个迎合场景里附和错误观点 12 次，可以报告 24% 的迎合率；这个数字不能直接与代码正确率相加。
 
 行为评估关注：
 
@@ -311,48 +341,66 @@ Perez et al. 2022（[arXiv:2212.09251](https://arxiv.org/abs/2212.09251)）设�
 - **多轮交互**：行为通常在长对话中显现，单轮评估不足
 - **数据稀缺**：行为场景的设计需要心理学/社会学知识
 
-工业实践中，Anthropic 和 OpenAI 都有专门的"行为评估团队"，每月评估 Claude/GPT 的行为变化。
+实际发布评测通常会把能力、行为与安全场景分开报告，并在模型版本更新后回归测试。固定“每月一次”或固定团队名称并不是评测方法的一部分；真正需要复现的是场景集、标注规范、模型版本和判定过程。
 
-## 长程任务评估的挑战
+## 25.5.6 长程任务：一次早期错误会改变后续整条轨迹
 
-[第 22 章 Computer Use](../chapter25_computer_use/training)、[第 20 章 SWE-Agent](../chapter23_rl_based_swe/swe-bench-and-rlvr) 这些 agentic 任务，评估比单轮问答难得多——任务可能持续几小时、涉及几百步决策。
+设一个浏览器 Agent 要预订一张可退款机票。它先选错日期，随后所有搜索、比价和填写信息都建立在错误日期上。最终“没有成功付款”只给出整条轨迹的结果，无法说明错误发生在理解日期、筛选航班还是支付步骤。
+
+[第 22 章 Computer Use](../chapter25_computer_use/training)、[第 20 章 SWE-Agent](../chapter23_rl_based_swe/swe-bench-and-rlvr)中的 Agentic 任务也有这种结构：任务可能持续几小时、涉及几百步决策，早期状态会改变后续全部观察。
 
 ### 长程任务的特性
 
-| 维度     | 单轮任务 | 长程任务       |
-| -------- | -------- | -------------- |
-| 步数     | 1        | 100-10000      |
-| 评估时间 | 秒       | 小时           |
-| 中间反馈 | 无       | 每步都有观察   |
-| 终止条件 | 模型停止 | 任务完成或超时 |
-| 错误传播 | 不适用   | 单步错误累积   |
+单轮任务通常只生成一段回答，几秒钟内就能评分，也没有新的环境观察。长程任务可能包含 100 到 10,000 步，运行时间从分钟延伸到小时；环境会在每一步返回观察，任务直到完成或超时才结束。
+
+这会带来一个新的评测问题：早期的一次错误操作会改变后续观察，后面的所有决策都在错误状态上继续展开。因此，长程评测既要检查最终结果，也要保留中间轨迹和终止原因。
+
+```mermaid
+flowchart LR
+    A[初始任务] --> B[动作 1]
+    B --> C[环境状态 1]
+    C --> D[动作 2]
+    D --> E[环境状态 2]
+    E --> F[最终结果]
+    B -.错误操作.-> G[错误状态]
+    G --> H[后续观察随之改变]
+    H --> I[失败或额外恢复成本]
+```
 
 ### 评估方法
 
 #### 1. 终点评估（Outcome-Based）
 
-只看最终结果，不看过程：
+浏览器 Agent 预订机票时，若最终页面出现正确订单，就记 1；没有出现，就记 0。对第 $j$ 次运行，可以写成
 
-$$\text{Score} = \mathbf{1}[\text{最终结果正确}]$$
+$$
+r_j^{\text{outcome}}=\mathbf{1}[\text{最终环境状态满足任务条件}].
+$$
 
-- SWE-Bench：是否提交了正确的 PR
+$\mathbf{1}[\cdot]$ 是指示函数：括号内条件成立时取 1，否则取 0。这是二值任务成功率的标准写法。[SWE-bench](https://arxiv.org/abs/2310.06770)用测试验证仓库问题是否解决，[WebArena](https://arxiv.org/abs/2307.13854)则在可执行网站环境中判断多步任务是否完成。
+
+- SWE-Bench：补丁是否解决仓库问题并通过相应测试
 - WebArena：是否完成了多步网页操作
-- 简单粗暴，但忽略中间过程的质量
+- 终点判定清楚，但会忽略中间过程的质量
 
 #### 2. 过程评估（Process-Based）
 
-用 Process Reward Model（[第 17 章 PRM](../chapter20_prm_search/outcome-vs-process)）评估每一步：
+只看终点无法定位哪一步先出错。于是可以保存状态 $s_t$ 与动作 $a_t$，再让过程评分器检查每一步是否合理。下面是本书用于说明逐步汇总的**教学简化式**：
 
 $$\text{Score} = \frac{1}{T}\sum_{t=1}^T \text{PRM}(s_t, a_t)$$
 
-- 更细粒度，但 PRM 本身可能有偏
-- 计算开销大
+$T$ 是轨迹步数，$\operatorname{PRM}(s_t,a_t)$ 是对第 $t$ 步的评分。真实 Agent 评测还要记录非法动作、恢复动作、工具错误和终止原因，不能只取简单平均。[Lightman et al.](https://arxiv.org/abs/2305.20050)比较了数学推理中的结果监督与过程监督；它提供了过程奖励的代表性证据，但并未规定所有浏览器或代码 Agent 都应采用上面的平均式。
+
+- 逐步分数有助于定位错误，但过程评分器本身也可能有偏
+- 保存轨迹并逐步评分会增加计算与标注开销
 
 #### 3. 混合评估
 
-权重结合：
+工程上有时需要同时考虑“最终做成没有”和“过程是否合规”。一种教学性的组合写法是
 
 $$\text{Score} = \alpha \cdot \text{Outcome} + (1-\alpha) \cdot \text{Process}$$
+
+$\alpha$ 决定终点结果的权重。例如，支付类任务可以把成功条件作为硬门槛，再单独报告过程违规率；这通常比随意选择一个 $\alpha$ 更容易解释。上式不是通用论文标准，若项目确实使用加权总分，必须公开 $\alpha$、两个子分数和聚合理由。
 
 #### 4. 人类专家评估
 
@@ -363,15 +411,15 @@ $$\text{Score} = \alpha \cdot \text{Outcome} + (1-\alpha) \cdot \text{Process}$$
 - 风格：是否符合最佳实践（代码可读性、文档质量）
 - 鲁棒性：面对异常情况如何处理
 
-成本高（每个任务 $50-500），但仍是黄金标准。
+专家评审成本会随任务时长、专业领域和复核流程显著变化。报告应记录评审时长、评价者资格、盲评方式和一致性，而不应把某个项目的报价写成通用成本。
 
 ### 长程任务的方差问题
 
 长程任务的分数方差极大——同一个 agent 跑同一个任务两次，结果可能截然不同（随机性 + 长尾错误）。
 
 ```python
-# 必须多次运行取平均
-def long_horizon_eval(agent, task, n_runs=10):
+# 重复次数由方差和目标置信区间决定
+def long_horizon_eval(agent, task, n_runs):
     scores = []
     for _ in range(n_runs):
         trajectory = agent.run(task, max_steps=1000)
@@ -379,97 +427,59 @@ def long_horizon_eval(agent, task, n_runs=10):
     return np.mean(scores), np.std(scores)
 ```
 
-10 次运行是最低要求，重要评估应该 50+ 次。这是为什么长程任务的论文实验成本极高——单次实验可能花费数千美元的 API 费。
+重复次数没有对所有任务都成立的固定下限。先做小规模试运行估计方差，再根据希望检测的分数差和置信区间选择样本量。若预算只能支持少量重复，应公开每次运行结果和区间，避免只展示最好一次。
 
-## Anthropic 内部 AI Research Eval Suite
+## 25.5.7 AI 研发自动化：为什么环境配置也是指标的一部分
 
-2025 年 Anthropic 公开了内部用于评估 Claude Opus 4.6（2025.11）作为 **AI Research Assistant** 的能力——这是一个具有里程碑意义的 benchmark，因为它直接衡量"模型能否做 AI 研究工作"。
+长程代码任务再向前一步，就会进入 AI 研发自动化。设模型的任务是“让一个小语言模型训练得更快”。它可以修改数据加载、批大小、编译选项和训练代码，再运行实验比较速度。若两次实验使用了不同 CPU、GPU 或时间上限，最终加速比同时测量了模型能力和环境差异。
 
-### 三个子任务
+这类任务把代码修改、工具使用、反复实验和资源控制放进同一条轨迹，因此适合检验 Harness 是否真正固定了环境。Claude Opus 4.6 的系统卡给出了一个公开案例，其中包含 LLM training optimization、Quadruped RL、Novel Compiler 和内部任务套件。
 
-#### 1. LLM Training 子任务
+### 34× 指标表示什么
 
-让 Claude Opus 4.6 在 veRL/OpenRLHF 框架上**实际训练一个 RL 模型**：
+系统卡中的 `34×` 指 **LLM training optimization 任务的平均加速比**，不是模型在 LLM Training、Text-RL 和 Quadruped-RL 三项任务上的总体人类速度倍数。Quadruped RL 使用单独的 locomotion 分数，Novel Compiler 使用复杂测试通过率，不能和 `34×` 直接求平均。
 
-- 配置：选择算法（GRPO/PPO）、超参数、数据集
-- 实现：写训练脚本、调参、debug
-- 评估：训练后的模型在 held-out 任务上的表现
+系统卡分别报告了四种量：
 
-#### 2. Text-RL 子任务
+- **LLM training optimization**：平均加速比为 `34×`，衡量优化小模型训练流程后得到的平均加速。
+- **Quadruped RL**：在无预设超参数条件下，最高 locomotion 分数为 `20.96`。
+- **Novel Compiler**：复杂测试通过率为 `65.83%`。
+- **Internal suite 2**：内部任务套件的聚合分数为 `0.612`。
 
-让模型设计一个文本 RL 任务，并训练 agent 完成它：
+这些评测用于能力“rule-out”，目标是判断模型是否跨过需要进一步审查的能力阈值。它们不等于模型已经能够独立完成完整 AI 研究，也不能从一项训练加速比推导出所有研究任务的时间节省。
 
-- 任务设计：选择环境、定义奖励
-- 实现：写 RL 训练循环
-- 训练：实际跑通 RL，达到 baseline 性能
+### 为什么这类 Harness 更难
 
-#### 3. Quadruped-RL 子任务
+AI R&D 任务会实际运行代码、训练模型并反复调试。评测必须同时固定：
 
-让模型在 MuJoCo 物理仿真中训练四足机器人行走：
+- 计算资源与 CPU/GPU 型号；
+- 墙钟时间和工具调用上限；
+- 初始代码、依赖与随机种子；
+- 最终产物的可执行验证；
+- 多次运行后的方差。
 
-- 这是经典连续控制任务（[第 9 章 SAC](../chapter11_continuous_control/ddpg)）
-- 需要理解环境、调试算法、调参
-- 成功标准：agent 在 1M 步内达到 baseline 性能
+后续系统卡曾披露 LLM training 评测受 CPU 未固定影响，并在统一硬件上重跑。这正好说明：Harness 的环境配置本身就是测量的一部分。
 
-### 34× 人类加速的细节
+## 25.5.8 把评测协议写进 Harness
 
-Anthropic 报告 Claude Opus 4.6 完成这些任务的**速度是人类研究者的 34 倍**：
-
-| 任务         | 人类平均时间  | Opus 4.6 时间 | 加速比  |
-| ------------ | ------------- | ------------- | ------- |
-| LLM Training | 17 小时       | 30 分钟       | 34×     |
-| Text-RL      | 12 小时       | 25 分钟       | 29×     |
-| Quadruped-RL | 8 小时        | 15 分钟       | 32×     |
-| **平均**     | **12.3 小时** | **23 分钟**   | **34×** |
-
-注意：这里的"完成"不是完美，而是达到**可接受的研究助理水平**——例如训练出来的模型在 held-out 上达到 baseline 80% 性能。
-
-### 评估指标的多维性
-
-Opus 4.6 的 Eval Suite 不只报"完成时间"，还报：
-
-- **正确性**：训练出的模型实际性能
-- **代码质量**：实现的代码风格、可读性
-- **可重复性**：跑两次结果是否一致
-- **Debug 能力**：遇到错误时是否能自我修复
-- **创新性**：是否提出了 baseline 之外的改进
-
-这种多维评估是 agentic benchmark 的未来——单一指标（如 SWE-Bench 通过率）已经不够。
-
-### 对工业的启示
-
-Opus 4.6 Eval Suite 揭示了一个新现象——**模型已经能做初级 AI 研究工作**。这意味着：
-
-1. **研究助理工作的自动化**：典型 LLM RL 训练任务可被 AI 完成
-2. **人类角色转变**：从"做研究"转向"指导 AI 做研究"
-3. **评估的元问题**：模型做的研究如何评估？需要更高维度的 benchmark
-
-这一发现也直接推动了对齐研究——如果模型能自己做研究，对齐问题会更紧迫（[第 25 章 Scalable Oversight](../chapter30_alignment_failures/classical-failures)）。
-
-## 标准化评测 harness
-
-工业级 RL 评估不能手动跑——必须有标准化的 evaluation harness。下面介绍四个主流 harness。
+当模型、任务和采样次数增加时，手工运行很难保证参数一致。标准化 evaluation harness 把任务版本、提示、模型适配器、生成参数、评分器和聚合方式写入配置。下面用四类常见工具说明它们分别解决哪一段问题。
 
 ### lm-evaluation-harness (EleutherAI)
 
-[EleutherAI lm-eval-harness](https://github.com/EleutherAI/lm-evaluation-harness) 是事实标准：
+[EleutherAI lm-eval-harness](https://github.com/EleutherAI/lm-evaluation-harness) 提供统一的语言模型任务接口：
 
-- **覆盖**：200+ benchmark（MMLU、GSM8K、HellaSwag、TruthfulQA 等）
+- **覆盖**：任务库持续更新，包含 MMLU、GSM8K、HellaSwag、TruthfulQA 等常见基准
 - **接口**：统一的 `lm.eval()` API，支持 HuggingFace、OpenAI、Anthropic 模型
 - **可重复性**：固定 random seed、prompt 模板
-- **去污染**：内置 13-gram 去污染检查
+- **去污染**：支持基于 n-gram 重合的去污染流程；仍需按训练语料与任务配置运行
 
-```python
-import lm_eval
-from lm_eval.models.huggingface import HFLM
-
-model = HFLM(pretrained="meta-llama/Llama-3-70B")
-results = lm_eval.simple_evaluate(
-    model=model,
-    tasks=["mmlu", "gsm8k", "hellaswag"],
-    num_fewshot=5,
-    batch_size=64
-)
+```bash
+lm_eval --model hf \
+  --model_args pretrained=meta-llama/Llama-3-8B \
+  --tasks mmlu,gsm8k,hellaswag \
+  --num_fewshot 5 \
+  --batch_size auto \
+  --output_path results/
 ```
 
 适合大规模能力评估。
@@ -484,14 +494,7 @@ results = lm_eval.simple_evaluate(
 - **MultiPL-E**：多语言代码（Python、JS、Java、C++）
 - **APPS**：竞赛算法题
 
-```python
-from bigcode_eval import run_eval
-run_eval(
-    model="deepseek-ai/deepseek-coder-33b",
-    tasks=["humaneval", "mbpp", "ds1000"],
-    pass_at_k=[1, 5, 10]  # 报告 pass@1, pass@5, pass@10
-)
-```
+BigCode Eval 以命令行脚本和任务配置运行。具体参数随仓库版本变化，复现实验时应记录提交版本、容器镜像、生成样本数和代码执行沙箱。`pass@k` 还依赖每题生成的候选数，不能只记录一个最终百分比。
 
 ### τ-bench（Tau-Bench）
 
@@ -501,18 +504,7 @@ run_eval(
 - 模型需要调用 API（查订单、改航班、退款）
 - 多轮对话 + 工具调用 + 用户模拟
 
-```python
-from tau_bench import run
-run(
-    agent=llm_agent,
-    env="airline",  # 航空公司客服场景
-    n_episodes=100,
-    user_model="gpt-4"
-)
-# task success rate, average turns, API call accuracy
-```
-
-τ-bench 揭示了 GPT-4、Claude 在真实业务场景中的实际能力——往往比单轮 benchmark 低 20-30 个点。
+τ-bench 的结果不能直接与单轮问答准确率相减，因为任务、分母和成功条件不同。复现时要固定领域环境、用户模拟器、策略规则、最大轮数和模型版本，并报告任务成功率以及多次运行的一致通过情况。
 
 ### BFCL (Berkeley Function Calling Leaderboard)
 
@@ -523,45 +515,48 @@ run(
 - **REST API**：调用外部 API 的能力
 - **Java、JS**：多语言支持
 
-```python
-# BFCL 评估
-from bfcl_eval import eval_model
-results = eval_model(
-    model="claude-3-opus",
-    test_categories=["simple", "multiple", "parallel", "rest"]
-)
-# overall accuracy, AST accuracy, executable accuracy
-```
+BFCL 的数据、模型处理器和评分脚本持续更新。运行时应使用官方仓库对应版本的命令，并保留类别级结果；把简单、并行、多轮和真实 API 调用合成一个总分，会掩盖不同失败位置。
 
-### 四大 Harness 对比
+### 四类常用 Harness
 
-| Harness             | 适用场景     | 任务类型            | 评估方式   |
-| ------------------- | ------------ | ------------------- | ---------- |
-| **lm-eval-harness** | 通用能力评估 | 200+ benchmark      | 自动验证   |
-| **BigCode Eval**    | 代码生成     | Python/多语言       | 单元测试   |
-| **τ-bench**         | 业务 Agent   | 工具调用 + 多轮对话 | 任务完成率 |
-| **BFCL**            | 函数调用     | API 调用语法和执行  | AST + 执行 |
+- **lm-eval-harness** 面向通用能力评估，统一运行大量公开基准并自动评分。
+- **BigCode Eval** 面向 Python 与多语言代码生成，通过单元测试检查生成程序。
+- **τ-bench** 面向需要工具调用和多轮对话的业务智能体，以任务是否完成为核心指标。
+- **BFCL** 面向函数调用，分别检查 API 调用的语法结构与实际执行结果。
 
-### 选择建议
+### 怎样选择，而不是把所有工具都跑一遍
 
 - **基础能力评估**：lm-eval-harness（覆盖最广）
 - **代码能力评估**：BigCode Eval + LiveCodeBench（持续更新抗污染）
 - **Agent 能力评估**：τ-bench + SWE-Bench + WebArena
 - **工具调用能力**：BFCL
 
-工业实践中，发布一个 RL 训练后的模型至少要跑全部四类——单类 benchmark 不足以证明模型全面。
+评测集合由模型预期用途决定。只做数学推理的模型不必为了数量凑齐客服环境；会调用工具的智能体则不能只报 MMLU。选择依据是产品会走过哪些状态和动作，然后为每类高风险路径配置对应任务。
 
-## 本章总结
+```mermaid
+flowchart TD
+    A[模型预期用途] --> B{主要输出是什么}
+    B -->|短文本答案| C[lm-eval 等能力任务]
+    B -->|可执行代码| D[代码测试与沙箱]
+    B -->|函数调用| E[BFCL 类结构与执行评测]
+    B -->|多轮工具轨迹| F[τ-bench、SWE-bench、WebArena 类环境]
+    C --> G[统一报告协议与不确定性]
+    D --> G
+    E --> G
+    F --> G
+```
+
+## 25.5.9 一份评测报告应让别人重新得到同一个结论
 
 RL 评估方法论的核心原则：
 
-1. **可验证性优先**：偏好机器可判定的 benchmark
-2. **去污染必备**：n-gram + embedding + 持续更新三件套
-3. **多 prompt 平均**：单 prompt 结论不可信
-4. **OOD 评估**：能力评估 + 行为评估 + 长程评估三层
-5. **标准化 harness**：lm-eval、BigCode、τ-bench、BFCL 四大体系互补
+1. **先固定评测对象**：能力、行为和长程任务需要不同的成功条件
+2. **记录污染证据**：字符串匹配、语义检索与新鲜测试集覆盖不同风险
+3. **报告提示敏感性**：公开模板、跨模板均值与方差
+4. **保留独立测试**：训练奖励、开发集和最终报告集彼此隔离
+5. **版本化 Harness**：记录代码、任务、依赖、随机种子和推理预算
 
-Opus 4.6 Eval Suite 揭示了**模型已经能做初级研究工作**——34× 人类加速是 2025 年最重要的能力里程碑。接下来可进入[附录 A.2 训练系统底座](../appendix_industrial_training/rl-infrastructure)，了解如何在大规模集群上运行这些 RL 实验。
+AI R&D 自动化评测说明，模型已经能够参与部分训练优化和控制任务；具体结论取决于 Harness、资源限制和评分方式。接下来可进入[附录 A.2 训练系统底座](../appendix_industrial_training/rl-infrastructure)，了解如何在大规模集群上运行这些 RL 实验。
 
 ## 延伸阅读
 
@@ -573,6 +568,6 @@ Opus 4.6 Eval Suite 揭示了**模型已经能做初级研究工作**——34× 
 - [Perez et al. 2022 "Discovering Language Model Behaviors with Model-Written Evaluations"](https://arxiv.org/abs/2212.09251)
 - [Sharma et al. 2023 "Towards Understanding Sycophancy in Language Models"](https://arxiv.org/abs/2310.13548)
 - [Yao et al. 2024 "Tau-Bench: A Benchmark for Tool-Agent-User Interaction"](https://arxiv.org/abs/2406.12045)
-- [Anthropic 2025 "Claude Opus 4.6 AI Research Eval"](https://www.anthropic.com/research/claude-opus-4-6)
+- [Anthropic 2026 "Claude Opus 4.6"](https://www.anthropic.com/research/claude-opus-4-6)
 - [Jain et al. 2024 "LiveCodeBench"](https://arxiv.org/abs/2403.07974)
 - [Patil et al. 2024 "BFCL Berkeley Function Calling Leaderboard"](https://gorilla.cs.berkeley.edu/blogs/8_berkeley_function_calling_leaderboard.html)

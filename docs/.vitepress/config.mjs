@@ -1314,11 +1314,11 @@ const zhSidebar = {
               link: '/chapter28_vla/embodied-intelligence/'
             },
             {
-              text: '24.4 视觉生成与 DanceGRPO',
+              text: '24.4 图像生成怎样用强化学习对齐',
               link: '/chapter29_visual_generation/visual-generation-dancegrpo'
             },
             {
-              text: '24.5 视频 RLHF 与物理感知生成',
+              text: '24.5 视频为什么会前后矛盾',
               link: '/chapter29_visual_generation/video-generation-modern'
             }
           ]
@@ -1334,23 +1334,23 @@ const zhSidebar = {
           collapsed: false,
           items: [
             {
-              text: '25.1 经典对齐失败模式',
+              text: '25.1 奖励越高，任务为什么反而做坏',
               link: '/chapter30_alignment_failures/classical-failures'
             },
             {
-              text: '25.2 RLVR 假性收益',
+              text: '25.2 如何判断 RLVR 提升是真的',
               link: '/chapter30_alignment_failures/modern-incidents'
             },
             {
-              text: '25.3 潜伏智能体与对齐伪装',
+              text: '25.3 模型为什么会在特定条件下切换行为',
               link: '/chapter30_alignment_failures/sleeper-and-faking'
             },
             {
-              text: '25.4 防御机制',
+              text: '25.4 如何防止模型钻奖励漏洞',
               link: '/chapter30_alignment_failures/scaling-and-defenses'
             },
             {
-              text: '25.5 强化学习评测与 Harness',
+              text: '25.5 如何可信地评测强化学习模型',
               link: '/chapter30_alignment_failures/rl-evaluation'
             }
           ]
@@ -1360,19 +1360,19 @@ const zhSidebar = {
           collapsed: false,
           items: [
             {
-              text: '26.1 自博弈与 LLM 训练',
+              text: '26.1 模型怎样自己产生训练数据',
               link: '/chapter32_selfplay/self-play-outlook/'
             },
             {
-              text: '26.2 RL Scaling Laws 与 Foundation Model RL',
+              text: '26.2 新增算力应该花在哪里',
               link: '/chapter32_selfplay/rl-scaling-outlook'
             },
             {
-              text: '26.3 LLM 多智能体强化学习',
+              text: '26.3 多个 LLM 怎样共同学习',
               link: '/chapter32_selfplay/llm-multi-agent-rl/'
             },
             {
-              text: '26.4 进化搜索与科学发现',
+              text: '26.4 LLM 怎样搜索新算法',
               link: '/chapter32_selfplay/alphaevolve/'
             }
           ]

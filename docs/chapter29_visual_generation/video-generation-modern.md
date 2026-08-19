@@ -1,360 +1,297 @@
-# 24.5 视频 RLHF 与物理感知生成
+# 24.5 视频为什么会前后矛盾：视频 RLHF 与物理评测
 
-[24.4 节视觉生成 RL](./visual-generation-dancegrpo) 讨论了 diffusion RL 的基础——DDPO、DPOK 等算法。那一节的视角是**算法层面**：怎么把 diffusion 训练建模为 MDP，怎么用策略梯度优化。
+先想象一段只有四秒的视频。
 
-这一节我们换视角——**工业层面**：2025-2026 年的视频生成模型（Seedance、LongCat-Video、Hailuo、Wan、Kling）是怎么用 RL 训练的？这些工作代表了视频生成 RL 的工业 SOTA。
+> 一颗红球从斜坡顶端滚下，撞到蓝色积木后停在桌边。
 
-## 24.5.1 从图像到视频 与 RL 的新挑战
+第一秒，红球和蓝色积木都很清晰。第二秒，球开始向下滚。第三秒，球还没有碰到积木，积木却先倒了。第四秒，红球突然出现在桌子的另一侧。
 
-图像生成的 RL 已经成熟（[DDPO](./visual-generation-dancegrpo)、DPOK）。但视频生成带来新挑战：
+把任意一帧单独截出来，画面都可能很好看。连起来以后，动作顺序、物体身份和因果关系全错了。视频生成由此多出一个图像生成没有的核心问题：**模型既要画对每一帧，还要让变化发生得合理。**
 
-### 长序列
+这一节学习三件事：
 
-- 图像：1 张图（1024×1024 像素）
-- 视频：30-300 帧（每帧 1024×1024），总数据量是图像的 30-300 倍
+- 怎样把“视频好不好”拆成画面、语义、时间和物理四个层次；
+- VADER、DanceGRPO 和视频 RLHF 分别怎样利用奖励；
+- Seedance 与 LongCat-Video 的公开论文披露了哪些训练方法，哪些工业细节仍然未知。
 
-序列长度爆炸让 RL 的 credit assignment 变得极其困难——一个 100 帧的视频，哪一帧、哪一像素出了问题？
+最后我们会建立一个小型评测框架。它不要求先训练视频模型，却能帮助我们判断一次改进究竟提升了运动与因果，还是只让单帧更漂亮。
 
-### 时序一致性
+<img src="./images/seedance-stage-comparison.png" alt="Seedance 不同训练阶段的视频结果对比" style="width: auto; max-width: 100%; max-height: 620px;" />
 
-视频不仅要单帧好看，还要**前后帧一致**——同一人物、同一场景、连续动作。
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>图 1：同一生成条件经过预训练、持续训练、监督微调与 RLHF 后得到的视频帧。读图时要沿每一行检查动作和身份是否连续，不能只比较某一帧是否更漂亮。来源：<a href="https://arxiv.org/abs/2506.09113" target="_blank" rel="noopener noreferrer">Seedance 1.0 技术报告</a>。</em>
+</div>
 
-```text
-图像 reward：单帧质量（清晰度、美感、prompt 匹配）
-视频 reward：单帧质量 + 时序一致性 + 动作流畅性 + 物理合理性
+## 24.5.1 一条时间轴增加了什么问题
+
+图像生成可以把结果写成 $x$，视频则由连续帧组成。下面是本书用于表示帧序列的教学记号：
+
+$$
+v=(x^{(1)},x^{(2)},\ldots,x^{(F)}).
+$$
+
+$F$ 是帧数。模型需要同时处理空间与时间：一帧内部的人物、物体和背景要合理，相邻帧之间的身份、位置与动作也要连续。
+
+判断视频质量时，可以从四层逐步检查。
+
+第一层是**单帧画面质量**。人物的手有没有畸形，边缘是否清晰，光照和构图是否自然。这一层接近图像生成评测。
+
+第二层是**文字与事件对齐**。提示词说“红球先撞积木，再停在桌边”，视频是否真的包含红球、积木、碰撞和停止，事件顺序是否正确。
+
+第三层是**时间一致性**。同一个人物的衣服不能中途变色，桌上的杯子不能无故消失，镜头移动时背景结构不能反复重建。
+
+第四层是**物理与因果一致性**。积木应当在碰撞之后倒下，抛出的物体应当沿连续轨迹运动，遮挡后的物体仍应保持存在。
+
+```mermaid
+flowchart TD
+    A[一段生成视频] --> B[单帧画面是否自然]
+    B --> C[人物、物体与事件是否符合文字]
+    C --> D[身份、外观与运动是否跨帧连续]
+    D --> E[碰撞、重力与动作顺序是否符合因果]
 ```
 
-视频 reward 比图像复杂得多。
+这四层会相互影响，却不能互相代替。一段视频可以有很高的审美分数，同时存在明显的物体瞬移。一个总分会把这种错误藏起来，因此视频训练与评测都需要保留各个子信号。
 
-### 计算成本
+## 24.5.2 为什么终点的一个分数不够
 
-- 图像生成（diffusion）：50 步去噪 × 单帧 = 几秒
-- 视频生成：50 步去噪 × 100 帧 = 几分钟
+沿用上一节的记号，视频生成也可以看成一条采样轨迹 $\tau$。最简单的做法是在视频生成结束后给一个总奖励。下面仍是教学记号，用来说明终点奖励能够看到哪些信息：
 
-RL 训练需要大量 rollout——每次 rollout 几分钟，让视频 RL 的训练成本是图像 RL 的 100+ 倍。
+$$
+R(\tau,c)=r_\phi(v,c).
+$$
 
-### reward model 的稀缺
+$c$ 是生成条件，$v$ 是最终视频，$r_\phi$ 是视频奖励模型。这个写法可以直接用于策略梯度，但它没有告诉模型错误发生在哪一段。
 
-图像 reward model 有 [LAION-Aesthetics](https://laion.ai/blog/laion-aesthetics/)、[PickScore](https://arxiv.org/abs/2305.01569) 等开源模型。视频 reward model 几乎没有——视频偏好数据标注成本是图像的 10 倍以上。
+仍以红球为例。若前两秒正确，后两秒发生瞬移，终局奖励只能说“整段视频偏差”。去噪过程、视频帧和事件阶段都很长，模型难以判断哪些决策应当改变。这就是视频生成中的信用分配问题。
 
-这些挑战让视频生成 RL 在 2024 年进展缓慢。2025 年的工业突破主要来自两个方向：
+一个常见思路是把奖励拆开。下面的加权和是**教学性的奖励模板**，不是 VADER、DanceGRPO 或 Seedance 论文共同采用的固定公式：
 
-- **DanceGRPO**：把 GRPO 思想用到 diffusion（图像 + 视频）
-- **Seedance / LongCat**：用 RLHF-style 训练 + 工程优化
+$$
+R
+=
+\lambda_qR_{\mathrm{quality}}
++
+\lambda_aR_{\mathrm{alignment}}
++
+\lambda_tR_{\mathrm{temporal}}
++
+\lambda_pR_{\mathrm{physics}}.
+$$
 
-## 24.5.2 DanceGRPO 与 Diffusion 的 GRPO
+$R_{\mathrm{quality}}$ 衡量画面质量，$R_{\mathrm{alignment}}$ 衡量条件与事件是否匹配，$R_{\mathrm{temporal}}$ 衡量跨帧一致性，$R_{\mathrm{physics}}$ 衡量运动与因果。每个 $\lambda$ 表达一种训练取舍。
 
-[DanceGRPO](https://arxiv.org/abs/2505.07818)（字节 Seed, 2025.05）是 diffusion RL 的重要突破。它的核心贡献是：**把 GRPO 思想直接用到 diffusion 训练**。
+公式写出来很容易，真正困难的是四个奖励是否可靠。例如，用相邻帧相似度衡量一致性，会偏爱几乎不动的视频；用运动幅度鼓励动态，又可能产生没有语义的剧烈晃动。训练系统需要分别观察子奖励，并用未参与训练的评测检查它们是否被利用。
 
-### DanceGRPO 的核心思想
+## 24.5.3 三条不同的视频对齐路线
 
-回顾 [第 15 章 GRPO](../chapter18_grpo/grpo-practice-and-mechanism)：
+“使用奖励改进视频”并不只对应一种算法。公开研究大致给出了三条路线。
 
-- 对同一 prompt 生成 G 个 rollout
-- 计算每个 rollout 的 reward
-- 用组内归一化得到 advantage
-- 不需要 critic
+### VADER：让可微奖励直接穿过生成过程
 
-DanceGRPO 把这个思路用到了 diffusion：
+[VADER 原论文](https://arxiv.org/abs/2407.08737)将可微奖励的梯度反向传播进视频扩散模型[^vader]。若审美模型、文本视频对齐模型或视频表征模型能够提供稳定梯度，就可以直接问：怎样修改生成模型参数，能让这段视频的奖励升高？
 
-```text
-┌─────────────────────────────────────────────────────────┐
-│ 1. 对同一 prompt，让 diffusion 生成 G 个视频            │
-│    （G 通常 4-8）                                       │
-├─────────────────────────────────────────────────────────┤
-│ 2. 用 video reward model 给每个视频打分                 │
-├─────────────────────────────────────────────────────────┤
-│ 3. 组内归一化（减均值，可选除 std）得到 advantage       │
-├─────────────────────────────────────────────────────────┤
-│ 4. 用策略梯度更新 diffusion 的参数                      │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    P[生成条件] --> G[视频扩散模型]
+    G --> V[生成视频]
+    V --> R[可微奖励模型]
+    R -.奖励梯度反向传播.-> G
 ```
 
-这个流程与 LLM 的 GRPO 几乎完全一样——区别只是：
+这条路线避免了大量只为估计黑盒策略梯度而产生的奖励查询。VADER 论文报告，它比梯度自由方法更节省奖励查询与计算，并展示了超过训练序列长度的视频对齐实验[^vader]。它的边界也很清楚：奖励必须能够稳定求导，而且奖励网络的偏差会直接成为优化方向。
 
-- LLM 的 rollout 是 token 序列
-- Diffusion 的 rollout 是去噪轨迹
+论文还使用视频表征模型提供时间一致性信号。这样的奖励可以改善跨帧表征稳定性，却不能单独证明模型掌握了牛顿力学。一个视频在表征空间里平滑，仍可能让物体在错误时刻倒下。
 
-### DanceGRPO 与 DDPO 的对比
+### DanceGRPO：用黑盒奖励比较同一条件下的一组视频
 
-| 维度           | DDPO                | DanceGRPO                             |
-| -------------- | ------------------- | ------------------------------------- |
-| Advantage 估计 | 单 rollout + reward | 组内归一化                            |
-| 需要 Critic    | 否                  | 否                                    |
-| 训练稳定性     | 一般                | 显著提升                              |
-| 训练效率       | 中                  | 高（组内归一化让 reward signal 更强） |
-| 适用模型       | 早期 diffusion      | 现代 video diffusion                  |
+[24.4 节](./visual-generation-dancegrpo)已经推导了 [DanceGRPO](https://arxiv.org/abs/2505.07818)。它为扩散与 rectified-flow 采样建立随机转移概率，再对同一条件生成一组结果，使用组内归一化优势更新模型[^dancegrpo]。
 
-DanceGRPO 的核心优势：
+视频奖励可以是审美模型、文本视频匹配模型、运动模型，也可以是返回通过或失败的规则检查器。奖励不需要可微，因此适合接入人类偏好模型或多模态评审器。代价是一次更新要完整生成多个视频，显存和采样时间都会迅速增加。
 
-1. **奖励信号更清晰**——同一 prompt 的多个视频互相比较，能看出“哪个视频真的更好”，不再只依赖绝对分数
-2. **不需要 critic**——省掉一个 value model，与 LLM 的 GRPO 一致
-3. **训练更稳定**——组内归一化避免了不同 prompt 分数尺度不一致带来的更新抖动
+DanceGRPO 的论文实验包含文本到视频与图像到视频模型。公开证据支持“它能用于视频生成强化学习”，却不支持“所有主流视频产品都使用它”。工业模型的论文若没有披露优化器，就应当把算法写成未知。
 
-### DanceGRPO 的实验
+### 视频 RLHF：从人类比较中学习多维偏好
 
-字节 Seed 用 DanceGRPO 训练了多个视频生成模型：
+另一条路线先收集偏好数据。标注者观看同一条件下的两个视频，比较文字遵循、画面质量、动作自然度与时间一致性。系统可以训练一个奖励模型，再用强化学习微调生成模型；也可以把被偏好的样本用于监督微调或偏好优化。
 
-- **图像生成**（FLUX、SD3）：美感分数提升 15-20%
-- **视频生成**（Wan、Seedance）：动态质量提升 10-15%
-
-DanceGRPO 在工业上已经替代 DDPO/DPOK 成为 diffusion RL 的默认选择——这与 GRPO 在 LLM 领域的地位一致。
-
-## 24.5.3 Seedance 与 字节跳动的视频生成旗舰
-
-[Seedance](https://seed.bytedance.com/)（字节跳动，2025.03 发布，2025.10 升级 1.0 Pro）是中国视频生成 SOTA 之一。它在 VBench（视频生成 benchmark）上多次排名第一。
-
-### Seedance 的训练流程
-
-```text
-┌──────────────────────────────────────────────────────────┐
-│ Phase 1: 大规模视频预训练                                │
-│   - 数亿视频-文本对                                      │
-│   - 学习视频的基本分布                                   │
-├──────────────────────────────────────────────────────────┤
-│ Phase 2: 高质量数据 SFT                                  │
-│   - 筛选高质量视频（4K、专业拍摄）                       │
-│   - 让模型学会"高质量"是什么样的                         │
-├──────────────────────────────────────────────────────────┤
-│ Phase 3: DanceGRPO RL                                    │
-│   - 用 video reward model 做 RL                          │
-│   - 优化 prompt 跟随、动态质量、时序一致性               │
-├──────────────────────────────────────────────────────────┤
-│ Phase 4: Expert Iteration                                │
-│   - RL → 收集新数据 → SFT → RL → ...                    │
-│   - 数据 flywheel                                        │
-└──────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    C[同一生成条件] --> A[候选视频 A]
+    C --> B[候选视频 B]
+    A --> H[人类比较]
+    B --> H
+    H --> RM[多维奖励模型]
+    RM --> RL[微调生成模型]
+    RL --> N[新候选与困难样本]
+    N --> H
 ```
 
-### Seedance 的 Reward 设计
+这条数据循环的关键不是把所有偏好压成一个数字。标注界面应当让评审者指出问题属于画面、事件、时间还是物理。这样才能发现训练奖励上升时，究竟是哪一项真的改善了。
 
-Seedance 的 reward 由多个组件组成：
+## 24.5.4 Seedance：公开技术报告怎样描述视频 RLHF
 
-**组件 1：Prompt Following**
+[Seedance 1.0 技术报告](https://arxiv.org/abs/2506.09113)给出了一个较完整的工业训练案例[^seedance]。这篇报告值得读的原因，在于它把数据、架构、监督微调、RLHF 与推理加速放在同一条系统链路中。
 
-视频内容是否符合 prompt 描述？用 video-text alignment model 评分。
+### 先用数据与架构建立可生成的基础模型
 
-**组件 2：Aesthetic Quality**
+Seedance 使用多来源视频数据，并通过筛选、描述与质量控制构造训练语料。模型统一处理文本到视频和图像到视频，还针对多镜头视频设计了相应表示。预训练先让模型学会常见物体、运动和镜头变化；后训练再把分布推向更符合人类要求的区域。
 
-视频美感——构图、色彩、光线。用 aesthetic model 评分。
+这一步提醒我们：RLHF 不能凭空创造底座没有见过的运动知识。若训练数据中缺少某类动作或镜头，奖励只能在已有候选中进行选择，很难补出完整能力。
 
-**组件 3：Motion Quality**
+### 细粒度监督微调之后再做视频专用 RLHF
 
-动作自然度——人物动作、物体运动是否符合物理？用 motion model 评分。
+技术报告描述了细粒度监督微调和视频专用 RLHF，并使用多维奖励改善指令遵循、运动、审美与整体偏好[^seedance]。公开报告没有给出各奖励的精确权重，也没有说明其 RLHF 优化器就是 DanceGRPO。因此，可靠的结论应当停在“使用多维奖励的视频 RLHF”，不能继续编造权重搜索、固定丢弃比例或内部算法名称。
 
-**组件 4：Temporal Consistency**
+回看本节开头的图 1，要沿时间轴观察，而不能只挑一帧。检查人物外观是否持续一致，动作是否真的完成，背景是否因镜头移动而重建，再判断后训练改进发生在哪一层。
 
-时序一致性——前后帧是否连贯？用 frame-to-frame similarity 评分。
+<img src="./images/seedance-reward-curves.png" alt="Seedance 多维奖励曲线" style="width: 100%; max-width: 760px; max-height: none;" />
 
-**组件 5：Human Preference**
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>图 2：Seedance 报告展示的多项奖励变化。基础能力、运动和审美需要分别监控；一条总曲线无法说明各项是否共同改善。来源：<a href="https://arxiv.org/abs/2506.09113" target="_blank" rel="noopener noreferrer">Seedance 1.0 技术报告</a>。</em>
+</div>
 
-人类偏好——通过 RLHF 偏好数据训练的 reward model。
+### 生成速度来自训练与系统共同优化
 
-最终 reward：
+Seedance 报告还描述了多阶段蒸馏与系统优化带来的推理加速，并给出在 NVIDIA L20 上生成 5 秒 1080p 视频所需时间的公开测量[^seedance]。这类结果说明，模型质量提升之后仍需解决采样步数、显存、并行和服务吞吐。视频强化学习只覆盖其中一段，不能代替整个工程系统。
 
-$$r_{\text{total}} = w_1 \cdot r_{\text{prompt}} + w_2 \cdot r_{\text{aesthetic}} + w_3 \cdot r_{\text{motion}} + w_4 \cdot r_{\text{temporal}} + w_5 \cdot r_{\text{human}}$$
+## 24.5.5 LongCat-Video：长视频为什么要从预训练阶段准备
 
-权重 $w_1, \ldots, w_5$ 通过 grid search 调优。
+短视频可以只展示一个动作，长视频则要维持人物、场景和事件。误差会沿时间积累：开头的一次身份漂移，会让后面的动作和叙事都失去参照。
 
-### Seedance 的工程优化
+[LongCat-Video 技术报告](https://arxiv.org/abs/2510.22200)将这一问题放在统一视频生成模型中处理[^longcat]。论文披露的核心包括：
 
-**优化 1：Latent diffusion**
+- 13.6B 参数的 Diffusion Transformer，同时支持文本到视频、图像到视频和视频续写；
+- 在预训练中加入视频续写，使模型学习从已有片段继续生成；
+- 采用时间与空间上的由粗到细训练，并使用块稀疏注意力降低长序列成本；
+- 在后训练阶段组合多种奖励进行 RLHF；
+- 公开代码与模型权重，便于复现和检查。
 
-不在 pixel space 训练，而在 latent space（用 VAE 压缩）——大幅减少计算量。
-
-**优化 2：3D Attention**
-
-不是单帧 attention，而是 3D attention（时间 × 空间）——捕获时序依赖。
-
-**优化 3：Classifier-free guidance**
-
-训练时随机 drop prompt（10-20%），让模型学会无条件生成。推理时用 guidance scale 控制条件强度。
-
-**优化 4：Flow matching**
-
-替代传统 diffusion，用 flow matching（更稳定、更高效）。这是 2024 年开始流行的 diffusion 替代方案。
-
-### Seedance 1.0 Pro 的成绩
-
-VBench 2025.10 排行：
-
-| 模型             | VBench Total |
-| ---------------- | ------------ |
-| Seedance 1.0 Pro | 86.7%        |
-| Wan 2.5          | 84.2%        |
-| Kling 2.0        | 83.1%        |
-| Hailuo 02        | 81.5%        |
-| Sora 2（OpenAI） | 80.8%        |
-| Veo 3（Google）  | 79.5%        |
-
-Seedance 是中国视频生成 SOTA，超越 Sora 2 和 Veo 3。
-
-## 24.5.4 LongCat-Video 与 高效长视频生成
-
-[LongCat-Video](https://arxiv.org/abs/2510.22200)（美团, 2025.10）是另一个重要工作——专注**长视频生成**。
-
-### 长视频的挑战
-
-标准视频生成 5-10 秒。LongCat-Video 目标是 **30 秒以上**，带来新挑战：
-
-- **Context 爆炸**：30 秒视频的 latent 表征巨大
-- **故事连贯性**：长视频需要讲一个完整故事，不只是片段
-- **计算成本**：30 秒视频生成时间是 5 秒的 6 倍以上
-
-### LongCat-Video 的设计
-
-**设计 1：分块生成（Chunked Generation）**
-
-把长视频分成多个 5 秒 chunk，每个 chunk 独立生成，但通过 **overlap region** 保持连贯：
-
-```text
-Chunk 1: [0-5s]
-Chunk 2: [4-9s]  ← 与 Chunk 1 在 [4-5s] overlap
-Chunk 3: [8-13s] ← 与 Chunk 2 在 [8-9s] overlap
-...
+```mermaid
+flowchart LR
+    A[文本或首帧条件] --> B[统一视频模型]
+    V[已有视频片段] --> B
+    B --> S[短片生成]
+    B --> C[视频续写]
+    C --> L[更长时间范围]
+    L --> E[检查身份、事件与场景是否累积漂移]
 ```
 
-Overlap 区域的生成结果被平均，保证平滑过渡。
+这条路线的关键含义是：长视频能力需要在预训练和架构阶段准备，RLHF 再负责调整人类偏好与多维质量。原有页面把 LongCat 写成固定五秒分块、重叠平均、故事 LLM 奖励和两级扩散；这些细节没有出现在公开论文的核心方法中，不能当作事实保留。
 
-**设计 2：Story-level Reward**
+LongCat-Video 来自美团团队，与字节跳动的 Seedance 是两项不同工作。阅读工业论文时，先核对机构、模型与公开材料，可以避免把相近发布时间的项目拼成一条不存在的训练链。
 
-不只是 frame-level reward，还有 **story-level reward**——用 LLM 评估视频是否讲了一个连贯的故事。
+## 24.5.6 看主流产品时，先区分能力展示与训练证据
+
+[Hailuo](https://hailuoai.video/)、Wan、[Kling](https://klingai.com/)、[Sora](https://openai.com/sora/) 和 [Veo](https://deepmind.google/models/veo/) 都展示了视频生成能力，但公开程度不同。
+
+[Wan 技术报告](https://arxiv.org/abs/2503.20314)与[官方仓库](https://github.com/Wan-Video/Wan2.1)提供了模型说明、代码和权重，研究者可以检查模型结构、运行推理并复现部分实验[^wan]。开放模型不等于公开了全部后训练数据与偏好优化流程，算法归属仍应以论文和仓库为准。
+
+Hailuo 与 Kling 的产品展示可以帮助观察人物运动、镜头控制和物理失败。若公开材料没有说明它们使用 DanceGRPO 或 CISPO，就不能根据公司其他论文推断具体训练算法。MiniMax-VL-01 是视觉语言模型，也不能作为 Hailuo 视频模型开源的证据。
+
+Sora 与 Veo 的公开页面展示了生成能力和产品特性。训练数据、奖励组成与后训练优化器只披露了一部分。比较这些系统时，可以描述“支持何种输入、输出多长、是否包含音频、公开评测如何设计”，不应填入未经来源支持的 RL 配方。
+
+这条规则看似保守，却是阅读快速变化领域的基本方法：**产品结果告诉我们系统能做什么，技术报告才告诉我们作者公开承认怎样做到。**
+
+## 24.5.7 怎样评测“物理感”
+
+“看起来有物理感”太宽，无法直接成为评测项。先把它拆成可观察事件。
+
+### 物体恒常性
+
+杯子被手遮挡一秒后应当重新出现，颜色、形状和位置变化应能由之前的运动解释。这里测试的是物体是否在模型的时间表示中持续存在。
+
+### 连续轨迹
+
+抛出的球应沿连续路径运动，速度变化应当平滑。仅比较相邻帧相似度不够，因为静止视频也会得到很高的一致性分数。为了说明轨迹检查，下面用 $\mathbf p_f$ 表示第 $f$ 帧检测到的物体位置：
+
+$$
+\mathbf{p}_1,\mathbf{p}_2,\ldots,\mathbf{p}_F.
+$$
+
+再检查位移和加速度是否出现无法解释的跳变。
+
+### 接触与因果顺序
+
+提示词“球撞倒积木”至少包含三个事件：球接近积木、发生接触、积木随后倒下。若三个事件分别发生在第 8、12、15 帧，顺序正确；若倒下发生在第 10 帧、接触发生在第 12 帧，因果关系已经颠倒。把顺序写成教学记号就是：
+
+$$
+t_{\mathrm{approach}} < t_{\mathrm{contact}} < t_{\mathrm{fall}}.
+$$
+
+若积木在接触前倒下，单帧质量再高也应判为因果失败。
+
+### 重力、支撑与遮挡
+
+物体失去支撑后应向下运动，放在桌面上时不应穿透桌面。镜头移动造成的遮挡也不能让物体永久消失。这些测试不需要建立完整物理引擎，却能覆盖视频模型最常见的可见错误。
+
+## 24.5.8 做一个最小视频评测 Harness
+
+在训练前先建立评测集，成本通常比盲目增加奖励更低。一个最小 Harness 可以这样组织。
+
+第一步，准备六类提示词：身份保持、物体恒常、连续轨迹、碰撞顺序、重力与支撑、镜头运动。每类先写十条短提示，控制对象数量和背景复杂度。
+
+第二步，为每条提示固定若干随机种子。训练前后使用相同条件生成多个候选，保存模型版本、采样器、步数、分辨率和时长。没有这些元数据，结果无法复现。
+
+第三步，把自动指标分开记录：
+
+- 画面质量模型评价清晰度和伪影；
+- 文本视频模型检查主体、属性和事件；
+- 目标检测与跟踪检查身份和轨迹；
+- 事件识别器检查接触、倒下和停止的顺序；
+- 人类盲评负责识别自动指标遗漏的整体异常。
+
+第四步，保存失败片段，而不是只保存平均分。一次有用的评测报告应当能回答：错误从第几秒开始，属于哪一类，前面的状态怎样传播到后续帧。
 
 ```python
-def story_reward(video, prompt):
-    # 用 LLM 评估视频叙事质量
-    frames = sample_frames(video, n=10)
-    description = vlm.describe(frames)
-    story_quality = llm.judge_story(description, prompt)
-    return story_quality
+for case in evaluation_cases:
+    for seed in fixed_seeds:
+        video = generator(case.prompt, seed=seed)
+
+        report = {
+            "visual_quality": quality_model(video),
+            "text_alignment": video_text_model(video, case.prompt),
+            "track_consistency": tracker_score(video),
+            "event_order": event_order_score(video, case.events),
+        }
+        save_video_and_report(video, report, metadata={
+            "prompt": case.prompt,
+            "seed": seed,
+            "model_version": generator.version,
+        })
 ```
 
-**设计 3：Hierarchical Diffusion**
+这段代码的重点是保存分项结果与生成元数据。真实系统还需要标注置信度、跟踪失败和人工复核状态。自动评测器本身出错时，Harness 应把样本送入人工检查，而不是强行给出确定结论。
 
-两级 diffusion：
+## 24.5.9 接下来还会遇到哪些问题
 
-- **High-level**：生成视频的"骨架"（关键帧）
-- **Low-level**：在骨架基础上插值生成中间帧
+更长视频首先受制于状态累积。目标从十秒片段扩展到数分钟后，模型需要记住人物身份、空间布局和未完成事件。续写训练、稀疏注意力和分层时间表示都在降低成本，评测也必须从单动作扩展到完整事件链。
 
-这种分层结构与 [DeepSWE 的分层 RL](../chapter23_rl_based_swe/world-model-and-deep-swe) 思路一致。
+音视频联合生成增加了另一条同步约束。脚步声要跟随落脚时刻，口型要与语音对齐，环境声还要随镜头和空间变化。此时奖励需要同时观察声音、画面和二者的时间对应，单独优化视频质量无法保证同步。
 
-### LongCat-Video 的成绩
+交互式生成把一次性采样变成连续修改。用户可能要求保留人物，只改变镜头；保留动作，只替换背景。系统必须识别哪些状态需要冻结，哪些区域允许重新生成，并在很短的延迟内响应。
 
-LongCat-Video 在长视频生成上达到 SOTA：
+精细控制还会继续扩大条件集合。姿态、轨迹、相机、灯光和参考角色都可能同时出现。条件越多，训练越容易出现“满足其中一项、忽略另一项”的现象，因此分项奖励、反事实提示和失败案例回放会比单一排行榜更重要。
 
-| 模型              | 30 秒视频一致性 | 故事连贯性 |
-| ----------------- | --------------- | ---------- |
-| Sora 2            | 65%             | 60%        |
-| Veo 3             | 68%             | 65%        |
-| Wan 2.5 Long      | 70%             | 68%        |
-| **LongCat-Video** | **78%**         | **75%**    |
-
-## 24.5.5 Hailuo 与 MiniMax 的视频生成
-
-[Hailuo](https://hailuoai.video/)（MiniMax，2024.09 发布，2025.07 升级 02）是另一个中国视频生成 SOTA。
-
-### Hailuo 的特点
-
-- **强动作捕捉**：在人物动作、舞蹈、运动等场景表现突出
-- **物理模拟**：相对准确地模拟重力、碰撞、流体
-- **开源生态**：部分模型开源（MiniMax-VL-01）
-
-### Hailuo 的训练方法
-
-Hailuo 用了类似 Seedance 的训练流程：
-
-- 大规模预训练
-- 高质量 SFT
-- DanceGRPO-style RL
-- Expert iteration
-
-MiniMax 内部的研究（如 [CISPO](../chapter18_grpo/grpo-family)）也对 Hailuo 的训练有贡献——CISPO 在低精度训练中的稳定性让大规模 video RL 成为可能。
-
-## 24.5.6 其他主流视频生成模型
-
-### Wan（阿里）
-
-[Wan](https://github.com/Wan-Video/Wan2.1)（阿里，2025.02）是开源视频生成 SOTA。Wan 2.1 在 HuggingFace 开源，社区广泛使用。
-
-### Kling（快手）
-
-[Kling](https://klingai.com/)（快手）—— 强动作、强物理模拟。在多项 benchmark 上与 Seedance 竞争。
-
-### Sora 2（OpenAI）
-
-[Sora 2](https://openai.com/sora/)（2025.10）—— OpenAI 视频生成旗舰。特点是长视频、强物理模拟。
-
-### Veo 3（Google）
-
-[Veo 3](https://deepmind.google/models/veo/)（2025.05）—— Google 视频生成。特点是音频同步生成（视频 + 音频联合）。
-
-## 24.5.7 视频生成 RL 的工业格局
-
-到 2026 年中，视频生成 RL 的工业格局：
-
-| 厂商      | 代表模型          | 算法         | 特点                |
-| --------- | ----------------- | ------------ | ------------------- |
-| 字节 Seed | Seedance, LongCat | DanceGRPO    | 中国 SOTA，多线并行 |
-| MiniMax   | Hailuo            | CISPO + GRPO | 强动作，开源        |
-| 阿里      | Wan               | DanceGRPO    | 开源生态            |
-| 快手      | Kling             | 内部方法     | 强物理              |
-| OpenAI    | Sora 2            | 未公开       | 长视频              |
-| Google    | Veo 3             | 未公开       | 音视频联合          |
-| Anthropic | （不做视频生成）  | -            | 专注文本            |
-
-可以看到：
-
-- **中国厂商主导视频生成 RL 研究**——开源论文最多
-- **DanceGRPO 是主流算法**——基于 GRPO 的扩展
-- **数据与工程比算法创新更重要**——大部分提升来自数据质量和工程优化
-
-## 24.5.8 视频生成 RL 的未来方向
-
-### 更长的视频
-
-- 当前 SOTA：30-60 秒
-- 未来目标：5-10 分钟（短片级别）
-- 挑战：context、coherence、cost
-
-### 音视频联合生成
-
-- 当前：音频和视频分别生成，后期合成
-- 未来：联合生成，自然同步
-- 挑战：多模态 RL，跨模态 consistency
-
-### 交互式视频生成
-
-- 当前：一次性生成完整视频
-- 未来：用户可以干预、修改、引导生成
-- 挑战：实时 RL、用户 reward
-
-### 可控生成
-
-- 当前：只能用文本 prompt 控制
-- 未来：pose、motion、camera、lighting 等精细控制
-- 挑战：多条件 reward，control RL
-
-### 物理合理性
-
-- 当前：物理基本是"幻觉"——模型凭记忆画
-- 未来：真正的物理模拟
-- 挑战：与 physics engine 集成，physics reward
+真正的物理模拟仍是更远的目标。当前生成模型主要从视频分布中学习可见规律，物理引擎、三维场景表示与世界模型可能提供更可靠的状态和约束。引入这些组件后，评测仍要检查模拟约束是否改善了用户看到的视频，而不能只报告内部物理损失。
 
 ## 小结
 
-视频生成 RL 在 2025 年取得了重大突破：
+视频生成比图像生成多了一条时间轴。单帧画得好，只能通过第一层检查；事件顺序、身份保持和物理因果需要沿整段视频判断。
 
-- **DanceGRPO** 把 GRPO 思想用到 diffusion，成为主流算法
-- **Seedance / LongCat** 在工业上达到视频生成 SOTA
-- **Hailuo / Wan / Kling** 共同推动中国视频生成研究领先
+VADER 让可微奖励梯度穿过视频扩散过程，DanceGRPO 用黑盒奖励比较同一条件下的一组视频，视频 RLHF 则从人类成对比较中学习多维偏好。三条路线使用奖励的方式不同，都需要独立评测防止模型只讨好代理指标。
 
-视频生成 RL 的核心挑战——长序列、时序一致性、计算成本——正在被工业实践逐步解决。未来 5-10 分钟视频、音视频联合、交互式生成是主要方向。
+Seedance 的公开报告展示了数据、监督微调、多维 RLHF 与推理优化怎样连接；LongCat-Video 说明长视频能力还要从预训练、续写任务和长序列架构开始准备。对于未公开的工业配方，最准确的写法就是“尚未披露”。
 
-本节与 [24.4 视觉生成 RL](./visual-generation-dancegrpo) 形成完整体系：
+至此，第 24 章从音频、语音智能体和 VLA 推进到图像与视频生成。下一章进入[第 25 章奖励黑客与强化学习评测](../chapter30_alignment_failures/classical-failures)，继续讨论奖励漏洞、对齐失败与评测可信度。
 
-- 24.4：算法基础（DDPO、DPOK）
-- 24.5：工业实践（DanceGRPO、Seedance、LongCat）
+## 参考资料
 
-两者一起覆盖了视觉生成 RL 的全貌。
+[^vader]: Prabhudesai, M. et al. (2024). Video Diffusion Alignment via Reward Gradients. <https://arxiv.org/abs/2407.08737>；项目页：<https://vader-vid.github.io/>
 
-至此，第 24 章从音频奖励、语音 Agent 和 VLA 一路推进到图像与视频生成。下一章进入[第 25 章奖励黑客与 RL 评估](../chapter30_alignment_failures/classical-failures)，讨论多模态能力扩展后必须面对的奖励漏洞、对齐失败与评估问题。
+[^dancegrpo]: Xue, Z. et al. (2025). DanceGRPO: Unleashing GRPO on Visual Generation. <https://arxiv.org/abs/2505.07818>；官方实现：<https://github.com/XueZeyue/DanceGRPO>
+
+[^seedance]: Seed Team. (2025). Seedance 1.0: Exploring the Boundaries of Video Generation Models. <https://arxiv.org/abs/2506.09113>；官方论文页：<https://seed.bytedance.com/en/public_papers/seedance-1-0-exploring-the-boundaries-of-video-generation-models>
+
+[^longcat]: LongCat Team. (2025). LongCat-Video: A Unified Video Generation Model. <https://arxiv.org/abs/2510.22200>
+
+[^wan]: Wan Team. (2025). Wan: Open and Advanced Large-Scale Video Generative Models. <https://arxiv.org/abs/2503.20314>；官方实现：<https://github.com/Wan-Video/Wan2.1>

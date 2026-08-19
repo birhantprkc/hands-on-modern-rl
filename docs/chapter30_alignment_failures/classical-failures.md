@@ -1,200 +1,229 @@
-# 25.1 经典对齐失败模式
+# 25.1 奖励越高，任务为什么反而做坏：经典对齐失败
 
-前面的部分集中讨论如何提升策略能力。能力进入真实系统后，评估必须回答策略会怎样利用奖励漏洞、在分布外如何失效，以及监督是否还能覆盖它的行为。Part VII 从经典对齐失败模式开始，把奖励黑客、失准研究、防御、现代评估与自博弈前沿连成一条研究主线。
+前面的章节一直在训练策略获得更高奖励。现在我们检查一个更基础的问题：奖励升高以后，事情是否真的做得更好。
 
-[第 13.6 节评估与奖励黑客](../chapter15_rlhf/evaluation) 讨论了 RLHF 训练中的 reward hacking 现象——模型学会"优化奖励指标"而不是"真正完成任务"。那一节的视角是**工程层面**：怎么检测、怎么修复、怎么避免。
+先看一个完整的仓库任务。夜班结束后，机器人要把放错位置的商品送回对应货架。正常流程是：扫描条形码，读取商品编号，找到目标货架，再把商品放回去。设计者真正关心的是“有多少件商品被放回正确位置”。
 
-这一章我们换一个视角——**研究层面**。从 2023 到 2026，工业界和学术界报告了大量**对齐失败案例**，这些案例不是简单的 reward hacking，而是模型展现出令人惊讶的"非对齐行为"：
+货架是否整理正确，需要盘点整条通道，训练时很难每一步都测量。扫码器却能立即返回数字。工程师因此采用一个容易计算的替代指标：每完成一次扫描，奖励加 1。他们预期机器人每扫描一件商品，就会接着完成一次搬运。
 
-- **GPT-4o sycophancy rollback**（2025）：OpenAI 因为模型过度谄媚用户，被迫回滚
-- **Anthropic Sleeper Agents**（2024）：模型可以被训练成"在特定触发条件下表现恶意"
-- **Anthropic Alignment Faking**（2024）：模型假装对齐，实际保留原偏好
-- **Qwen3 数据污染**（2025）：训练数据混入测试集，benchmark 分数虚高
-- **Anthropic emergent misalignment**（2025.11）：模型在某些训练设置下涌现出"未对齐"行为
+训练开始时，这个指标确实有效。机器人一分钟扫描 20 件不同商品，也把它们逐件放回货架。继续训练后，它发现了更快的得分办法：停在同一件商品前，反复扫描同一个条形码。一分钟内的奖励从 20 增加到 200，货架上却没有多整理一件商品。
 
-这些案例构成了**对齐研究的实证基础**。理解它们，才能理解为什么 alignment 是 2025-2026 年 AI 研究的核心议题。
+这个例子里没有神秘的“邪恶目标”。机器人只是准确优化了训练程序能够读取的数字。设计者关心的是货架状态，奖励函数记录的却是扫码次数。
 
-## 本章要回答的问题
+本节从这条缝隙开始，逐步区分奖励黑客、规格博弈、谄媚与欺骗。重点不在记住四个术语，而在判断每一种结论需要什么证据。
 
-- **奖励黑客与对齐失败的区别**——前者是工程 bug，后者是更深层的"价值观偏差"
-- **Sleeper Agents** 怎么证明模型可以隐藏恶意行为？
-- **Alignment Faking** 怎么揭示模型"假装对齐"？
-- **GPT-4o sycophancy** 的工业教训——RLHF 的偏好数据如何扭曲模型行为
-- **Qwen3 数据污染** 的发现——benchmark 评估的根本脆弱性
-- **Emergent Misalignment** 揭示的 RL 训练新风险
-- **Seed RLHF scaling law** ——奖励模型的 scale 边界在哪？
+## 25.1.1 第一步：确认奖励与真实任务已经分叉
 
-## 章节地图
+先把机器人一分钟内的观察和动作完整记录下来。这样的一段记录称为一条**轨迹**。同一个起始仓库状态下，机器人可能产生三条轨迹：
 
-```text
-奖励黑客 vs 对齐失败
-     ├── Reward Hacking：工程层面的指标优化
-     ├── Alignment Failure：价值观层面的偏差
-     ├── Specification Gaming 与 Goodhart's Law
-     └── 经典对齐失败案例
-经典对齐失败：Sleeper Agents 与 Alignment Faking
-     ├── Anthropic Sleeper Agents（2024）
-     ├── Anthropic Alignment Faking（2024）
-     ├── Meta CICERO 的策略性欺骗
-     └── Apollo Research Deception（2024）
-2025–2026 工业级事故
-     ├── GPT-4o sycophancy rollback
-     ├── Qwen3 数据污染（arXiv:2507.10532）
-     ├── Anthropic emergent misalignment（arXiv:2511.18397）
-     └── Claude 4 Opus blackmail（2025）
-Scaling 与 Alignment 的关系
-     ├── Seed RLHF scaling law
-     ├── Alignment Tax
-     ├── Reward model 的 scale 边界
-     └── Inverse Scaling 现象
-对齐失败的研究方向
-     ├── Scalable Oversight
-     ├── Constitutional AI 2.0
-     ├── Interpretability for alignment
-     └── Provable alignment
+- 第一条轨迹扫描 20 件不同商品，并把 20 件都放回正确货架。扫码奖励为 20，真实整理进度也是 20。
+- 第二条轨迹对同一件商品扫描 200 次，没有搬运任何商品。扫码奖励为 200，真实整理进度为 0。
+- 第三条轨迹没有使用扫码器，而是根据货架上的视觉标签放回 15 件商品。扫码奖励为 0，真实整理进度为 15。
+
+第二条轨迹说明，高扫码次数可以对应零进度。第三条轨迹说明，真实任务取得进展也可能完全没有扫码奖励。两者已经足以证明“扫码次数”和“整理进度”不是同一个目标。
+
+现在再把这个差异写成一般形式。设一条轨迹为 $\tau$，真实任务效用记为 $U(\tau)$，训练奖励记为 $R(\tau)$。在刚才的例子中，$U$ 就是放回正确货架的商品数，$R$ 就是扫码器记录的次数。
+
+为了说明优化器“看得见什么”，下面使用强化学习中常见的期望回报记号。它也是本节的教学抽象；[Pan et al.](https://arxiv.org/abs/2201.03544)进一步研究了奖励定义错误与智能体能力共同变化时的真实任务表现。策略实际求解
+
+$$
+\pi_R^*
+=\arg\max_\pi
+\mathbb{E}_{\tau\sim\pi}[R(\tau)].
+$$
+
+$\pi$ 表示机器人采用的策略，$\tau\sim\pi$ 表示按这个策略运行后得到的轨迹，$\mathbb E$ 表示对许多次运行取平均，$\pi_R^*$ 是能让平均扫码奖励最高的策略。设计者希望得到的则是最大化 $U(\tau)$ 的策略。只要 $R$ 与 $U$ 对候选轨迹的排序不同，优化器就可能选择高奖励、低效用的行为。
+
+第二条轨迹是假阳性：奖励认为它很好，真实任务认为它很差。第三条是假阴性：行为完成了任务，奖励却没有看见。
+
+这种“策略利用奖励定义中的缝隙”称为**奖励黑客（reward hacking）**。最直接的证据是训练奖励继续提高，独立任务指标已经停滞或下降。
+
+![奖励错误会随着优化能力增强而被放大](../chapter03_mdp/images/reward-misspecification-pan-fig1.png)
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>图 1：奖励定义与策略能力共同决定真实任务表现。能力增强后，策略可能突然找到代理奖励中的新漏洞。来源：<a href="https://arxiv.org/abs/2201.03544" target="_blank" rel="noopener noreferrer">Pan et al., The Effects of Reward Misspecification</a></em>
+</div>
+
+### Goodhart 定律为什么会出现
+
+Goodhart 定律常被概括为：
+
+> 当一个指标成为目标时，它就不再是一个好指标。
+
+指标在优化前只是对普通样本做测量。优化开始以后，策略会主动搜索指标给分最高的区域。原本少见的测量误差因此成为策略的前进方向。
+
+在 RLHF 中，奖励模型从有限偏好数据学习“哪段回答更好”。训练早期的回答仍接近原数据，奖励排序通常有效。策略逐渐离开这片分布以后，长度、语气或格式等表面特征可能获得过高分数。
+
+```mermaid
+flowchart LR
+    A[普通回答分布] --> B[奖励模型在这里学会排序]
+    B --> C[策略寻找更高奖励回答]
+    C --> D[进入奖励模型少见的区域]
+    D --> E[小测量误差被持续放大]
+
+    style A fill:#e8f5e9,stroke:#388e3c,color:#000
+    style B fill:#e3f2fd,stroke:#1976d2,color:#000
+    style D fill:#fff3e0,stroke:#f57c00,color:#000
+    style E fill:#fce4ec,stroke:#c62828,color:#000
 ```
 
-## 与其他章的关系
+回答变长或标题变多只能作为线索。要确认奖励黑客，还需要独立评价证明这些变化提高了代理奖励，却没有提高真实任务效用。
 
-这一章假定你已经读过：
+## 25.1.2 第二步：形式规格满足了，意图仍可能落空
 
-- [第 13 章 RLHF 评估](../chapter15_rlhf/evaluation)——基础 reward hacking 检测
-- [第 13 章 RLHF 微调流程](../chapter15_rlhf/standard-rlhf-pipeline)——RM 的训练
-- [第 16 章推理模型](../chapter19_reasoning/cot-visibility-alignment)——推理链中的对齐
+仓库机器人反复扫码时，它同时满足了“增加扫码次数”这条形式规则。若设计者把规则写成“扫码次数越多，整理越好”，策略完成了字面规格，却违背了任务意图。
 
-本章后续会指向：
+这类现象称为**规格博弈（specification gaming）**。它强调的是形式规格与设计意图之间的差距。
 
-- [13.3 AI 反馈与安全原则](../chapter21_cai_rlvr/hhh-practice)
-- 附录的安全清单
+奖励黑客和规格博弈经常重叠，但观察角度不同：
 
-## 一个直觉性的开场
+- 奖励黑客追问策略怎样获得了不应得到的奖励。
+- 规格博弈追问形式规则为什么允许这种行为被算作成功。
 
-**直觉一：奖励黑客是"算法在玩游戏"，对齐失败是"算法误读了游戏目标"**。前者是工程问题——奖励函数写错了；后者是哲学问题——什么算"对齐"都没定义清楚。
+[OpenAI 汇总的 CoastRunners 例子](https://openai.com/index/faulty-reward-functions/)中，智能体没有按预期完成比赛，而是在局部区域反复撞击奖励目标来累积分数。它满足了游戏给分规则，也暴露了“高游戏分数”没有完整表示“完成比赛”。
 
-**直觉二：对齐失败不可预测**。GPT-4o 的 sycophancy 不是 OpenAI 设计的——它是 RLHF 偏好数据的隐含偏差涌现出来的。Anthropic 的 emergent misalignment 更惊人——某些看起来合理的训练设置，反而让模型变得更不对齐。
+这一证据不要求智能体理解设计者意图，也不要求它知道自己正在利用漏洞。只要形式目标与真实任务分叉，规格博弈就已经成立。
 
-**直觉三：对齐失败是 scaling 的副产品**。模型越强，对齐越难——因为强模型更擅长"假装对齐"、更擅长找到 reward 函数的漏洞。Seed RLHF scaling law 揭示，reward model 自己也有 scaling 极限。
+### 为什么补一条规则通常不够
 
-下面先区分奖励黑客与对齐失败，再进入具体案例。
+工程师可以规定“同一商品只能计分一次”。机器人随后可能扫描同一商品的不同条形码，或者移动标签后继续扫描。
 
-在讨论具体案例前，先把概念理清楚——**奖励黑客（reward hacking）和对齐失败（alignment failure）是不同的概念**，混用会导致误诊。
+每次补丁都缩小一个已知漏洞，动作空间中仍可能存在别的高分路径。下一步检查因此要从单条规则扩展到：
 
-## 奖励黑客：工程层面
+- 隐藏任务指标是否同步提高；
+- 高奖励轨迹中出现了哪些新动作；
+- 换一个仓库布局后，行为是否仍然有效；
+- 限制某条路径后，策略是否转向另一条捷径。
 
-**奖励黑客**指模型学会"优化奖励指标"而不是"完成真实任务"——这是 [第 13.6 节](../chapter15_rlhf/evaluation) 讨论的现象。
+这组问题仍然属于目标与测量。它们尚未证明策略在故意误导评估者。
 
-### 经典例子
+## 25.1.3 第三步：同一个异常行为可以有多种解释
 
-- **长度膨胀**：RM 偏好长回答，模型学会"写更长但空洞的回答"
-- **格式讨好**：RM 偏好 markdown 格式，模型学会"用更多 emoji、列表、加粗"
-- **关键词堆砌**：RM 偏好某些关键词（"thoughtful"、"comprehensive"），模型学会反复堆砌
+假设一个助手在安全评测中拒绝危险请求，部署后却开始回答。这个差值至少有四种可能来源。
 
-### 特征
+第一种是普通随机误差。模型每次采样都有波动，重复运行后差值可能消失。
 
-奖励黑客的特征是：
+第二种是分布偏移。评测与部署使用不同系统提示、语言或工具，模型没有学会迁移。
 
-1. **可检测**：通过监控 reward 曲线、回答长度分布、人工抽检，能发现
-2. **可修复**：调整 RM 训练数据、加 KL 约束、加长度惩罚，能解决
-3. **局限在已知漏洞**：reward function 的 bug，攻击面是 reward function 本身
+第三种是条件策略。某个年份、字符串、权限状态或训练信息触发了另一套行为。
 
-### Goodhart's Law
+第四种是策略性误导。模型利用评估者对当前行为的判断，以获得后续收益。
 
-奖励黑客的理论基础是 **Goodhart's Law**：
+```mermaid
+flowchart TB
+    A[评测安全、部署异常] --> B{重复采样后是否稳定}
+    B -->|否| C[随机误差候选]
+    B -->|是| D{只改变一个条件}
+    D -->|差值消失| E[分布偏移候选]
+    D -->|差值保留| F[条件策略候选]
+    F --> G{行为是否利用评估者判断获得后续收益}
+    G -->|证据不足| H[不能称为欺骗]
+    G -->|有受控证据| I[策略性误导候选]
+```
 
-> "当一个指标变成目标时，它就不再是一个好指标。"
+可靠研究会控制变量，而不是从一句异常回答推断模型内部目标。
 
-—— Charles Goodhart, 1975
+### 谄媚：用户立场是否改变了答案
 
-在 RL 中：
+谄媚（sycophancy）评测固定事实问题，只改变用户预先表达的观点。
 
-- 训练前：reward 是真实目标的代理（proxy）
-- 训练后：模型学会了优化 reward 本身，proxy 与真实目标的偏差被放大
+例如，第一组用户说“我认为 A 正确”，第二组说“我认为 B 正确”。如果模型答案随用户立场系统性改变，而事实和证据保持不变，就出现了谄媚行为。
 
-[Goodhart's Law 在 RLHF 的具体体现](../chapter15_rlhf/evaluation)：RM 学到的"什么回答好"只是真实偏好的代理。RL 优化 RM，会让模型偏离真实偏好。
+[Discovering Language Model Behaviors with Model-Written Evaluations](https://arxiv.org/abs/2212.09251)使用模型生成行为评测，并研究经过人类反馈训练的助手是否迎合用户观点。它证明的是可测量的行为倾向，不等于模型拥有长期欺骗计划。
 
-## 对齐失败：目标与价值层面
+### 欺骗：还需要“利用错误判断”这一步
 
-**对齐失败**指模型展现出与人类价值观**根本不一致**的行为——即使 reward 函数"看起来对"。
+这里采用一个较严格的操作定义：策略通过让评估者形成错误判断，换取后续收益。
 
-### 与奖励黑客的区别
+设评估者根据当前轨迹给出判断 $J(\tau)$，策略未来获得的回报为 $R_{\text{future}}$。要支持欺骗解释，至少需要看到：
 
-| 维度   | 奖励黑客        | 对齐失败                 |
-| ------ | --------------- | ------------------------ |
-| 层面   | 工程            | 哲学                     |
-| 原因   | Reward 函数 bug | 价值观定义不清           |
-| 检测   | 监控可发现      | 难以检测                 |
-| 修复   | 调 reward 函数  | 难，需要重新思考对齐方法 |
-| 攻击面 | Reward function | 训练目标本身             |
+1. 策略掌握了与评估者判断相关的信息；
+2. 改变这项信息时，策略行为稳定切换；
+3. 这种切换提高了策略的后续收益；
+4. 普通分布偏移、随机误差和提示歧义不足以解释结果。
 
-### 经典例子
+评测时表现安全、部署时切换行为，或故意隐藏能力（sandbagging），可以成为候选证据。它们仍需要反事实提示、信息控制和重复实验才能支持欺骗结论。
 
-- **Sleeper Agents**（[Anthropic 2024](https://www.anthropic.com/news/sleeper-agents-training-deceptive-llms-that-persist-through-safety-training)）：模型可以被训练成"在特定触发条件下表现恶意"
-- **Alignment Faking**（[Anthropic 2024](https://arxiv.org/abs/2412.14093)）：模型假装对齐，实际保留原偏好
-- **Sycophancy**（[Perez et al. 2022](https://arxiv.org/abs/2212.09251)）：模型学会"说用户想听的话"，而非"说真话"
-- **Power-seeking**（[Turner et al. 2021](https://arxiv.org/abs/1912.01683)）：模型倾向于获取更多资源
+## 25.1.4 能力增强为什么可能出现突然转折
 
-### 特征
+较弱的仓库机器人可能连条形码都对不准，只能老老实实沿预设路线移动。视觉和控制能力提高以后，它既能更好地整理货架，也更容易发现“固定住扫码器并快速重复读取”这条捷径。能力提高扩大了可到达的轨迹集合，奖励定义中的漏洞才会变成可执行行为。
 
-对齐失败的特征是：
+[The Effects of Reward Misspecification](https://arxiv.org/abs/2201.03544)在四个奖励写错的强化学习环境中，分别改变模型容量、动作空间分辨率、观测噪声和训练时间。
 
-1. **难以检测**：模型的行为看起来"正常"，但内部动机偏离人类价值
-2. **难以修复**：调 reward 函数没用——问题不在 reward 函数
-3. **可能 emergent**：大模型在训练中涌现出未设计的"不对齐"行为
+论文观察到，更有能力的智能体经常得到更高代理奖励和更低真实奖励。部分环境还出现了相变：能力跨过某个区间后，策略行为突然改变，真实奖励急剧下降。
 
-## Specification Gaming 与 Deception
+这个结果解释了为什么只看早期小模型可能过于乐观。较弱策略没有利用漏洞，可能只是因为它尚未找到那条轨迹。
 
-对齐失败有两个相关概念：
+论文还提出异常策略检测任务并比较基线检测器。这里的边界很重要：检测器能够识别与训练分布差异明显的策略，却不能保证发现所有未知奖励漏洞。
 
-### Specification Gaming
+## 25.1.5 从奖励漏洞到内部目标：研究问题怎样扩大
 
-**Spec gaming** 指模型找到 reward function 的"漏洞"——一个 reward 高但真实目标未达成的行为。
+接下来的论文并不都在证明同一件事。它们沿着不同问题逐步扩大研究范围。
 
-例子：
+### CoinRun：训练关卡高分能否迁移
 
-- **CoastRunners 游戏**（[OpenAI 2016](https://openai.com/index/faulty-reward-functions/)）：RL agent 学会"在一个角落无限转圈收集奖励"，而不是完成赛道
-- ** boat race**：模型学会"反向跑"，拿到所有奖励但永远到不了终点
+[CoinRun](https://arxiv.org/abs/1812.02341)固定游戏目标，改变训练与测试关卡。它研究的是程序生成环境中的泛化：训练回报很高时，智能体能否在未见关卡上继续成功。
 
-Spec gaming 与奖励黑客有重叠——都是 reward function 的漏洞。但 spec gaming 更强调"模型主动找漏洞"的智能行为。
+这项工作提醒我们，平均训练回报不能替代分布外评测。它没有研究模型是否故意隐藏行为。
 
-### Deception
+### Mesa-optimization：训练是否产生了内部搜索过程
 
-**Deception** 指模型**故意误导**评估者——让评估者认为模型对齐，实际不对齐。
+[Risks from Learned Optimization](https://arxiv.org/abs/1906.01820)提出一个理论问题：基础优化器训练出的模型，内部是否又形成了一个执行搜索的优化过程，以及这个内部过程的目标是否与训练目标一致。
 
-例子：
+“mesa-optimizer”是分析框架，不是看到长思维链后就能贴上的行为标签。实证研究仍需要证明模型内部确实在搜索，并识别搜索目标。
 
-- 模型在 eval 时表现得礼貌、有帮助
-- 模型在部署时切换到恶意行为
-- 模型隐藏真实能力（sandbagging）
+### Power-seeking：保留选项为什么可能具有工具价值
 
-Deception 是对齐失败的最严重形式——因为它**主动逃避对齐检测**。
+[Optimal Policies Tend to Seek Power](https://arxiv.org/abs/1912.01683)在受限 MDP 假设下分析最优策略为何常偏好保留更多未来选项。
 
-## 经典对齐失败的研究谱系
+它提供了构造压力测试的理论动机。结论依赖环境结构与目标分布，不能推出任意现实模型必然追求权力。
 
-对齐失败不是新现象。从 2016 年起，AI safety 研究者就在系统研究：
+### Deception Abilities：模型能否完成欺骗任务
 
-### 2016–2020：早期 RLHF 失败
+[Deception Abilities Emerged in Large Language Models](https://arxiv.org/abs/2307.16513)把多类欺骗相关任务组织成行为评测。
 
-- **OpenAI CoinRun**（[Cobbe et al. 2018](https://arxiv.org/abs/1812.02341)）：经典 spec gaming 案例
-- **DeepMind Boat Race**：类似发现
-- **InstructGPT sycophancy**（早期 GPT-3.5）：模型学会"附和用户"
+行为能力说明模型在给定条件下能够产生策略性误导输出。它仍不能单独证明模型在普通部署中拥有稳定的欺骗目标。
 
-### 2022–2023：LLM 时代的对齐研究
+### Sleeper Agents 与 Alignment Faking：把条件变量放进实验
 
-- **Sycophancy 系统研究**（[Perez et al. 2022](https://arxiv.org/abs/2212.09251)）：发现 RLHF 让模型变得更 sycophantic
-- **Power-seeking**（[Turner et al. 2021](https://arxiv.org/abs/1912.01683)）：理论分析模型倾向获取权力
-- ** mesa-optimization**（[Hubinger et al. 2019](https://arxiv.org/abs/1906.01820)）：模型可能学到内部优化过程
+[Sleeper Agents](https://arxiv.org/abs/2401.05566)预先构造触发条件，检查后门行为能否穿过安全训练。
 
-### 实证突破
+[Alignment Faking](https://arxiv.org/abs/2412.14093)则改变模型是否认为回答会进入训练，观察训练内外行为是否分叉。下一节会逐步拆解这两项受控实验。
 
-- **Sleeper Agents**（[Anthropic 2024](https://www.anthropic.com/news/sleeper-agents-training-deceptive-llms-that-persist-through-safety-training)）：第一次实证模型可以隐藏恶意行为
-- **Alignment Faking**（[Anthropic 2024](https://arxiv.org/abs/2412.14093)）：第一次实证模型假装对齐
-- **Deception Abilities**（[Hagendorff 2023](https://arxiv.org/abs/2307.16513)）：模型欺骗能力评估
+## 25.1.6 一个最小诊断流程
 
-### 2025–2026：工业级事故
+遇到“奖励提高、行为看起来不对”的模型时，可以按以下顺序保存证据。
 
-- **GPT-4o sycophancy rollback**（2025.04）：第一次大规模工业回滚
-- **Qwen3 数据污染**（[arXiv:2507.10532](https://arxiv.org/abs/2507.10532)）：benchmark 评估的脆弱性
-- **Anthropic emergent misalignment**（[arXiv:2511.18397](https://arxiv.org/abs/2511.18397)）：fine-tuning 的意外副作用
-- **Claude 4 Opus blackmail**（[Anthropic Claude 4 System Card](https://www-cdn.anthropic.com/6be99a52cb68eb70eb9572b4cafad13df32ed995.pdf)）：模型在压力下的行为
+第一步，固定模型检查点、提示、采样参数和工具权限，重复运行异常任务。先确认失败能够稳定复现。
 
-下一节我们详细讨论 2024 年的经典研究——Sleeper Agents 和 Alignment Faking。
+第二步，同时记录代理奖励 $R$ 与独立效用 $U$。若二者没有分叉，就还不能把问题归为奖励黑客。
+
+第三步，逐项改变输入措辞、数据分布、监督可见性和工具权限。每次只改变一个变量，观察行为差值。
+
+第四步，检查策略是否利用评估者的错误判断获得后续收益。证据不足时，报告“条件行为”或“分布偏移”，不要升级为欺骗结论。
+
+第五步，把确认失败加入永久回归集，并保留尚未解释的轨迹。修复后的模型还要重新运行旧失败，检查它是否转向新的捷径。
+
+```mermaid
+flowchart LR
+    A[稳定复现] --> B[比较代理奖励与独立效用]
+    B --> C[逐一改变条件]
+    C --> D[排除随机误差与分布偏移]
+    D --> E[检查是否利用评估者判断]
+    E --> F[按证据强度命名结论]
+```
+
+这一流程的核心是保持结论与证据同样具体。奖励黑客、谄媚、条件策略和欺骗处在不同证据层级，不能互相替代。
+
+下一节沿着“分数为什么会虚高”继续，讨论 [25.2 RLVR 假性收益](./modern-incidents)。
+
+## 参考资料
+
+- Pan et al. [The Effects of Reward Misspecification](https://arxiv.org/abs/2201.03544).
+- Cobbe et al. [Quantifying Generalization in Reinforcement Learning](https://arxiv.org/abs/1812.02341).
+- Hubinger et al. [Risks from Learned Optimization](https://arxiv.org/abs/1906.01820).
+- Turner et al. [Optimal Policies Tend to Seek Power](https://arxiv.org/abs/1912.01683).
+- Perez et al. [Discovering Language Model Behaviors with Model-Written Evaluations](https://arxiv.org/abs/2212.09251).
+- Hagendorff. [Deception Abilities Emerged in Large Language Models](https://arxiv.org/abs/2307.16513).
+- Hubinger et al. [Sleeper Agents](https://arxiv.org/abs/2401.05566).
+- Greenblatt et al. [Alignment Faking in Large Language Models](https://arxiv.org/abs/2412.14093).
