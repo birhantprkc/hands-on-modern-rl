@@ -1,8 +1,8 @@
 ---
-title: 'Supplement: Scaling RLHF'
+title: '13.5 Large-Scale Training Engineering'
 ---
 
-# Supplement: Scaling RLHF from Small to Large Models
+# 13.5 Large-Scale Training Engineering: Scaling the Same RLHF Pipeline
 
 ## Reading Guide
 

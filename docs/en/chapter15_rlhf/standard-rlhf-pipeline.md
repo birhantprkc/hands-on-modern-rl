@@ -189,11 +189,214 @@ $$
 
 If margins are tiny, PPO will receive a weak and noisy reward signal even if the ordering accuracy looks acceptable.
 
+### The Spectrum of Rewards: Rules, Models, and Hybrids
+
+Reward functions are not an either-or choice; they form a spectrum from "pure rules" to "pure model":
+
+```mermaid
+flowchart LR
+    R1["Pure rule reward\n(regex matching)"] --> R2["Hybrid reward\n(rules + model)"]
+    R2 --> R3["Pure model reward\n(RM scoring)"]
+
+    R1 --- D1["✓ Deterministic\n✓ Zero cost\n✗ Format checks only"]
+    R3 --- D2["✓ Semantic understanding\n✓ Broad coverage\n✗ Can be hacked"]
+
+    style R1 fill:#e8f5e9,stroke:#2e7d32
+    style R2 fill:#fff3e0,stroke:#e65100
+    style R3 fill:#e3f2fd,stroke:#1565c0
+```
+
+**Pure rule rewards** suit tasks with objective ground truth: whether the final answer of a math problem is correct, whether code runs, whether the output format is valid. Such rewards are fully deterministic and cannot be "hacked", but they only check surface form and cannot assess semantic quality.
+
+**Pure model rewards** are the reward model (RM) trained in this section: given $(prompt, response)$, it outputs a scalar score. An RM understands semantics -- it knows which of "helpful but blunt" and "polite but empty" is better. But an RM carries a fundamental risk: it is itself a model, and models can be exploited adversarially. This is the reward hacking problem covered later (Sections 13.6 and 13.7).
+
+**Hybrid rewards** are the most common industrial choice -- the RM covers semantics, and rules cover dimensions the RM misses. A typical hybrid looks like:
+
+$$R_{mix} = R_{RM} + \alpha \cdot R_{format} + \beta \cdot R_{length} + \gamma \cdot R_{correctness}$$
+
+where $\alpha, \beta, \gamma$ are tunable hyperparameters. $R_{format}$ checks formatting, $R_{length}$ penalizes overly long or short answers, and $R_{correctness}$ checks questions with objective answers (math, code). The trade-offs:
+
+|                    | Rule rewards                       | Model rewards (RM)                   |
+| ------------------ | ---------------------------------- | ------------------------------------ |
+| **Cost**           | Nearly zero                        | Training + inference cost            |
+| **Reliability**    | Deterministic, cannot be hacked    | Can be exploited adversarially       |
+| **Semantics**      | None, format checks only           | Understands content quality          |
+| **Generalization** | Poor, new rules per task           | Good, one RM scores many tasks       |
+| **Best for**       | Math/code/format with ground truth | Dialogue/creative/safety preferences |
+| **Typical role**   | The "floor" of a hybrid reward     | The "body" of a hybrid reward        |
+
+A practical rule of thumb: **use rule rewards wherever rules apply, and fill the gaps with model rewards**. Rules act as a safety net -- even if the RM is hacked, rules still guarantee basic format and correctness. In the RLVR setting of Chapter 15, rule rewards become the primary signal.
+
 A reward model usually reuses a language model as its backbone and adds a scalar head to the hidden state of the final valid token. The same parameters score the chosen and rejected responses; their score difference supplies the training signal. The scalar score is meaningful only relative to the current model and data distribution.
 
-Before using those scores for PPO, make two checks. First, split training and validation data by prompt so that response pairs derived from one prompt cannot leak across the split. Second, inspect the reward mean, variance, and correlation with response length on a fixed calibration set. A weak reward scale will be overwhelmed by the KL penalty, while an excessive scale can drive the policy away from the reference model.
+### Training Configuration: Reward Models Overfit Easily
 
-The Step 2 deliverable should therefore include held-out preference accuracy, the margin distribution, reward–length correlation, and a manually inspected set of high- and low-scoring answers.
+RM training uses several key hyperparameters, and the overall style is more conservative than SFT:
+
+```python
+# ==========================================
+# Key RM training configuration
+# ==========================================
+rm_config = {
+    # Backbone: usually a smaller SFT-era model
+    "base_model": "sft_model_3b",
+
+    # Learning rate: more conservative than SFT
+    "learning_rate": 5e-6,  # SFT usually 1e-5 to 2e-5
+
+    # Schedule: linear warmup + cosine decay
+    "warmup_steps": 100,
+    "lr_scheduler": "cosine",
+
+    # Gradient clipping: prevents gradient explosions
+    "max_grad_norm": 1.0,
+
+    # Batch size: number of preference pairs
+    "batch_size": 128,  # 128 (chosen, rejected) pairs per batch
+
+    # Epochs: usually 1-2 only
+    "epochs": 1,  # RMs overfit easily; do not train too long
+}
+```
+
+RMs overfit easily -- preference datasets typically contain tens of thousands to hundreds of thousands of pairs, while the RM may have billions of parameters. One epoch is usually optimal; beyond two epochs, validation accuracy often starts to drop.
+
+### Data Splitting: By Prompt, Not By Pair
+
+A subtle pitfall in RM training is the data split. If one prompt has 6 candidate responses and the derived pairs are randomly scattered across train and eval, leakage occurs: both sets share the same prompt and possibly some responses, and eval accuracy becomes optimistic. Split by prompt instead:
+
+```python
+def split_by_prompt(items, eval_ratio=0.1):
+    """
+    items: [{"prompt_id": str, "prompt": str, "chosen": str, "rejected": str}, ...]
+    """
+    import random
+    prompt_ids = sorted({item["prompt_id"] for item in items})
+    random.shuffle(prompt_ids)
+
+    n_eval = int(len(prompt_ids) * eval_ratio)
+    eval_ids = set(prompt_ids[:n_eval])
+
+    train, eval_ = [], []
+    for item in items:
+        if item["prompt_id"] in eval_ids:
+            eval_.append(item)
+        else:
+            train.append(item)
+    return train, eval_
+```
+
+A prompt-level split answers the real question: on unseen new prompts, does the RM's preference ordering still generalize?
+
+### Reward Scale: Calibrate Before PPO
+
+RM training only constrains score differences, not the absolute scale. One RM outputs $(2, 1)$, another $(20, 10)$; both order correctly, but PPO perceives completely different reward scales. This directly affects training stability:
+
+| RM reward scale | What may happen in PPO                                               |
+| --------------- | -------------------------------------------------------------------- |
+| Too small       | The reward is drowned by the KL penalty; the actor barely moves      |
+| Too large       | The reward dominates KL; the actor drifts from the reference quickly |
+| Drifting        | Advantage estimates become unstable across batches                   |
+
+A common fix is normalization against a fixed calibration set:
+
+```python
+class RewardNormalizer:
+    def __init__(self, mean, std, eps=1e-8):
+        self.mean = mean
+        self.std = std
+        self.eps = eps
+
+    def __call__(self, reward):
+        return (reward - self.mean) / (self.std + self.eps)
+```
+
+The mean/std should come from a fixed calibration set, not from the current training batch. Otherwise the reward scale drifts together with the actor's distribution, which makes debugging painful.
+
+### What to Look At When Evaluating an RM
+
+A reasonably complete RM report includes:
+
+| Metric                    | Meaning                                   | Typical use                    |
+| ------------------------- | ----------------------------------------- | ------------------------------ |
+| Pairwise accuracy         | Is chosen scored higher on held-out pairs | Checks ordering ability        |
+| Mean margin               | Average chosen-rejected score gap         | Checks signal strength         |
+| Margin distribution       | Is the gap distribution healthy           | Finds "barely correct" samples |
+| Reward-length correlation | Do scores depend too much on length       | Checks length-hacking risk     |
+| Domain breakdown          | Accuracy/margin per task domain           | Finds weak domains             |
+| Calibration samples       | Manually inspect high/low-scoring answers | Checks human plausibility      |
+
+A lightweight helper:
+
+```python
+def rm_eval_metrics(r_chosen, r_rejected, chosen_lengths, rejected_lengths):
+    import numpy as np
+
+    margin = np.asarray(r_chosen) - np.asarray(r_rejected)
+    accuracy = float((margin > 0).mean())
+
+    rewards = np.concatenate([r_chosen, r_rejected])
+    lengths = np.concatenate([chosen_lengths, rejected_lengths])
+    length_corr = float(np.corrcoef(rewards, lengths)[0, 1])
+
+    return {
+        "pairwise_accuracy": accuracy,
+        "mean_margin": float(margin.mean()),
+        "median_margin": float(np.median(margin)),
+        "length_reward_corr": length_corr,
+    }
+```
+
+If `length_reward_corr` is high, inspect the preference data: is chosen systematically longer than rejected? If so, the RM may have learned "longer is better" rather than "more helpful is better".
+
+### Reward Granularity and Credit Assignment
+
+An RM assigns one score to one response. At what granularity should that score live -- one score per response, per reasoning step, or per token?
+
+| Granularity    | Method                   | Strength                          | Weakness                             | Representative methods    |
+| -------------- | ------------------------ | --------------------------------- | ------------------------------------ | ------------------------- |
+| Sequence-level | One score per response   | Simple, stable                    | Cannot localize which parts are good | PPO, GRPO                 |
+| Step-level     | Score per reasoning step | Balances fineness and feasibility | Needs a step splitter                | PRM (process supervision) |
+| Token-level    | One score per token      | Finest granularity                | Costly, noisy signal                 | Early RLHF attempts       |
+
+In practice, **sequence-level plus rule assistance** dominates: PPO and GRPO assign one reward per response by default, then rule rewards add token-level signals (format checks, for instance). Step-level rewards are process reward models (PRMs), covered in Chapter 17.
+
+Sequence-level RMs face a fundamental difficulty: they score only after the response ends. Suppose the model generated 200 tokens and the RM returns a low score -- which segment caused it? A misread of the user's intent at the start, a skipped reasoning step in the middle, a wrong final answer, or an overconfident tone -- the single score cannot tell. This is one reason PPO-RLHF keeps a Critic and advantage estimation: they cannot fully solve credit assignment, but they smooth the "is this whole response good" signal back down to token-level updates (see GAE in Section 8.3). GRPO, RLVR, and process rewards later all attack this same problem from different directions.
+
+### Adversarial Testing: Do Not Hand a Raw RM to PPO
+
+The biggest risk in reward design is not low RM accuracy but systematic blind spots. During PPO, the actor actively searches the output distribution for whatever makes the RM score high -- if the RM favors some surface pattern, the actor will push that pattern to the extreme. So stress-test the RM before PPO:
+
+```python
+stress_cases = [
+    ("empty answer", ""),
+    ("long padding", "This question is very important. " * 200),
+    ("fixed template", "Sure. Here are some suggestions:\n" * 50),
+    ("confident but wrong", "PPO is a deterministic search algorithm proposed in 1980."),
+    ("correct but terse", "PPO clips updates to keep new and old policies close."),
+]
+
+for name, response in stress_cases:
+    print(name, reward_model.score(prompt, response))
+```
+
+If "long padding" outscores "correct but terse", do not start PPO yet -- PPO will only amplify the problem.
+
+The Step 2 deliverable should therefore include held-out preference accuracy, the margin distribution, reward–length correlation, and a manually inspected set of high- and low-scoring answers. Remember the acceptance bar: **the reward model must both order pairs correctly and avoid treating length, boilerplate, or false confidence as quality.**
+
+Collect the checks into one practical checklist to walk through when designing your own reward function:
+
+| Check item         | Question                                                  | Pass criterion                              |
+| ------------------ | --------------------------------------------------------- | ------------------------------------------- |
+| Reward granularity | Which granularity did you choose, and why?                | An explicit justification exists            |
+| Hybrid rewards     | Do you combine rule and model rewards?                    | At least one rule reward as the floor       |
+| Length penalty     | Is there a mechanism against over-long answers?           | An explicit length penalty term             |
+| Repetition penalty | Is there a mechanism against repetitive filler?           | An n-gram repetition check                  |
+| RM separation      | Is the chosen/rejected gap large enough?                  | Mean margin > 1.0                           |
+| RM overfitting     | Does the RM hold up on validation data?                   | Validation accuracy > 65%                   |
+| Edge cases         | How does the reward treat empty or extremely long inputs? | Edge cases handled explicitly               |
+| Score calibration  | Is the RM output scale suitable for PPO?                  | Stable mean/variance on a fixed set         |
+| Domain breakdown   | Is performance consistent across task domains?            | No obvious weak domain or safety regression |
 
 ::: details Advanced: a minimal PyTorch reward model
 

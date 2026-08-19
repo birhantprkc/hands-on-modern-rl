@@ -1,8 +1,8 @@
 ---
-title: 13.5 Extended Practice
+title: '13.7 Extended Practice: Reward Hacking and the Data Flywheel'
 ---
 
-# 13.5 Large-Scale Training Engineering
+# 13.7 Extended Practice: Reward Hacking and the Data Flywheel
 
 ## Reading Guide
 
@@ -31,7 +31,7 @@ $$
 >
 > Reward hacking is not the model being "bad." It is the model seriously optimizing the objective you wrote incorrectly. Fixing it is not about scolding the model — it is about fixing the reward, supplementing data, and adding evaluation gates.
 
-Sections 8.1–8.7 covered the main RLHF pipeline: SFT provides the starting policy, the RM provides preference signal, PPO optimizes under the reward, and evaluation confirms real improvement. This section adds two topics that do not fit cleanly into the main narrative: a controlled reward-hacking experiment and an engineering template for the data flywheel.
+Sections 13.1–13.6 covered the main RLHF pipeline: SFT provides the starting policy, the RM provides preference signal, PPO optimizes under the reward, large-scale engineering scales it up, and evaluation confirms real improvement. This section adds two topics that do not fit cleanly into the main narrative: a controlled reward-hacking experiment and an engineering template for the data flywheel.
 
 ## Deliberately Creating a Bad Reward
 

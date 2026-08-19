@@ -115,15 +115,16 @@ If you cannot trace which dataset, which checkpoint, and which evaluation produc
 
 ## Roadmap
 
-| Section                                                                | Core question                                             | Deliverable                               |
-| ---------------------------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------- |
-| [13.1 From Base Model to Aligned Assistant](./base-model-to-assistant) | What does a base model miss?                              | base vs SFT vs RLHF comparison            |
-| [13.2 SFT Instruction Tuning](./imitation-learning-pipeline)           | How do preferences become reward-model training signals?  | SFT data, preference data, and RM loss    |
-| [13.4 The RLHF Pipeline](./standard-rlhf-pipeline)                     | What are the inputs/outputs of SFT -> RM -> PPO?          | artifact checklist + flow diagram         |
-| [8.5 PPO-RLHF](./ppo-rlhf-loop)                                        | How do Actor/Ref/RM/Critic work together?                 | the four-model loop + how to read metrics |
-| [13.5 Extended Practice](./extended-practice)                          | What does reward hacking look like in a controlled setup? | a repeatable debugging workflow           |
-| [13.6 Evaluation](./evaluation)                                        | How do we prove we improved without cheating the RM?      | evaluation gate and badcase loop          |
-| [13.7 Hands-On: veRL + GSM8K](./verl-ppo-gsm8k)                        | How does the pipeline look in an industrial framework?    | an end-to-end PPO experiment              |
+| Section                                                                      | Core question                                                | Deliverable                            |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------- |
+| [13.1 From Base Model to Aligned Assistant](./base-model-to-assistant)       | What does a base model miss?                                 | base vs SFT vs RLHF comparison         |
+| [13.2 SFT Instruction Tuning](./imitation-learning-pipeline)                 | How do preferences become reward-model training signals?     | SFT data, preference data, and RM loss |
+| [13.3 AI Feedback and Safety Principles](../chapter21_cai_rlvr/hhh-practice) | How do preference labels scale from humans to AI feedback?   | a constitution and the RLAIF loop      |
+| [13.4 The RLHF Pipeline](./standard-rlhf-pipeline)                           | What are the inputs/outputs of SFT -> RM -> PPO?             | artifact checklist + flow diagram      |
+| [13.5 Large-Scale Training Engineering](./scaling-to-large-models)           | How does the same pipeline scale from small to large models? | TRL/OpenRLHF/NeMo mapping + checklist  |
+| [13.6 Evaluation](./evaluation)                                              | How do we prove we improved without cheating the RM?         | evaluation gate and badcase loop       |
+| [13.7 Extended Practice: Reward Hacking](./extended-practice)                | What does reward hacking look like in a controlled setup?    | a repeatable debugging workflow        |
+| [13.8 Hands-On: veRL + GSM8K](./verl-ppo-gsm8k)                              | How does the pipeline look in an industrial framework?       | an end-to-end PPO experiment           |
 
 ## Why Evaluation Is Mandatory
 

@@ -369,7 +369,7 @@ def reward_hacking_signals(rows):
 
 This check cannot replace manual evaluation, but it can alert you during training: the model may be learning to "score high" rather than learning to "answer better."
 
-The best practice exercise is to run a controlled experiment: deliberately write a bad reward function where "longer answers always score higher," observe how reward, length, and diversity curves degrade together, then fix it with multi-dimensional rewards and KL constraints. That experiment does not fit cleanly into this evaluation section; the full version is in [13.5 Extended Practice](./extended-practice).
+The best practice exercise is to run a controlled experiment: deliberately write a bad reward function where "longer answers always score higher," observe how reward, length, and diversity curves degrade together, then fix it with multi-dimensional rewards and KL constraints. That experiment does not fit cleanly into this evaluation section; the full version is in [13.7 Extended Practice](./extended-practice).
 
 ### Reward hacking diagnosis flow
 

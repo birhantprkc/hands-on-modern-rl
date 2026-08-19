@@ -342,7 +342,27 @@ $$
 \mathcal{L}_{RM} = - \mathbb{E}_{(x, y_w, y_l)}\left[\log \sigma(r_\phi(x, y_w) - r_\phi(x, y_l))\right]
 $$
 
-If the chosen score is already much higher, the probability is close to 1 and the loss is small. If the reward model reverses the order, the loss becomes large and the gradient pushes the chosen score upward and the rejected score downward. This is also why pairwise annotation is useful: annotators generally agree more consistently on which of two responses is better than on absolute numeric grades.
+If the chosen score is already much higher, the probability is close to 1 and the loss is small. If the reward model reverses the order, the loss becomes large and the gradient pushes the chosen score upward and the rejected score downward.
+
+It is worth computing the earlier numbers all the way through. Take $r_\phi(x,y_w)=2.0$ and $r_\phi(x,y_l)=0.5$, so $\Delta r=1.5$. The probability that chosen wins is:
+
+$$
+\sigma(1.5)=\frac{1}{1+e^{-1.5}}\approx 0.818
+\qquad\Rightarrow\qquad
+\mathcal{L}_{RM}=-\log 0.818\approx 0.201
+$$
+
+The reward model judged this pair correctly and with reasonable confidence. If it reversed the order -- $0.5$ for chosen and $2.0$ for rejected -- then $\Delta r=-1.5$, $\sigma(-1.5)\approx 0.182$, and the loss becomes $-\log 0.182\approx 1.704$. The gradient pushes the chosen score up and the rejected score down until the order is restored and the gap reopens.
+
+Pairwise annotation also matches how humans judge reliably: annotators generally agree more consistently on which of two responses is better than on absolute numeric grades -- one person's "7" is another person's "8". The three annotation styles trade off as follows:
+
+| Annotation style | Do annotators agree easily? | Training signal   | Main limitation                     |
+| ---------------- | --------------------------- | ----------------- | ----------------------------------- |
+| Absolute scoring | Hard                        | Regression score  | Annotator scale inconsistency       |
+| Pairwise choice  | Easy                        | Pairwise ranking  | Only compares same-prompt responses |
+| Ranking of many  | Medium                      | Splits into pairs | Higher annotation cost              |
+
+In practice, a common protocol samples 4 to 9 responses per prompt, asks annotators to rank them, and then splits the ranking into multiple chosen/rejected pairs.
 
 ### Four Sources of Preference Data
 
