@@ -195,6 +195,8 @@ PPO often fails on unfamiliar terrain hazards rather than because the low-level 
 
 SoccerTwos is 2v2 soccer, so it introduces **multi-agent learning**. PPO is usually paired with **self-play**: agents play against historical versions of themselves, and progress is tracked with ELO. Unity ML-Agents provides the most direct PPO implementation path.
 
+<OnlineTraining studios="unity" compact />
+
 The training process often shows strategy evolution. Early agents chase the ball chaotically. As ELO rises from **1200** toward **1600**, simple attacker-defender role separation can appear. SAC tends to perform much worse in this setting, which highlights PPO's stability in competitive multi-agent training.
 
 Curriculum learning matters. Gradually changing start positions and ball speed can reduce training time, but a poorly designed curriculum can hurt final performance. Multi-agent reward design is also delicate: rewarding only goals is sparse; over-rewarding distance to the ball makes every agent crowd the same location.
