@@ -4,7 +4,7 @@ title: '4.2 Data Sources: On-Policy, Off-Policy, Online, and Offline'
 
 # 4.2 Policy Sampling and Data Sources
 
-> **One-sentence summary**: this section introduces two pairs of concepts that are often confused: **on-policy vs. off-policy** (does the data come from the current policy?), and **online vs. offline** (can we still collect new data during training?). Think of them as two independent axes that jointly define what an RL algorithm's data looks like.
+> **One-sentence summary**: this section introduces two pairs of concepts that are often confused: **on-policy vs. off-policy** (does the data come from the current policy?), and **online vs. offline** (can we still collect new data during training?). They can be combined pairwise to define the four data regimes of an RL algorithm.
 
 ## What This Section Solves
 
@@ -20,7 +20,7 @@ In the previous sections, we derived Bellman equations and saw how TD errors upd
 
 To update $V(s)$ or $Q(s,a)$, we need tuples like $(s, a, r, s')$ as raw material.
 
-The key question is: **where does this raw material come from?**
+But there is an unavoidable question: **where exactly do these $(s, a, r, s')$ come from?**
 
 Consider learning to ride a bicycle:
 
@@ -28,7 +28,7 @@ Consider learning to ride a bicycle:
 2. You sit aside and watch others ride (or watch recordings of yourself), and try to infer a better strategy in your head.
 3. A coach gives you a thick book of "human crash records" and forbids touching a real bicycle until you finish studying.
 
-These correspond to very different data paradigms in RL. Often the biggest differences between algorithms are not the loss functions, but **how they collect and use data**.
+These correspond to very different data paradigms in RL. Often the biggest differences between algorithms lie in **how they collect and use data**. The same objective function, fed with different data sources, can yield very different policies.
 
 ::: info Core concepts
 
@@ -40,7 +40,7 @@ These correspond to very different data paradigms in RL. Often the biggest diffe
 
 ## Two Policy Roles: Who Acts, Who Learns?
 
-Before we define the axes, we must separate two policy roles that are often conflated.
+Before we pin down these concepts, we must separate two policy roles that are often conflated.
 
 In many introductory explanations, we pretend the agent has a single policy $\pi$: it both acts in the environment and is updated by learning. In modern RL systems, these roles are often separated.
 
@@ -52,9 +52,9 @@ In many introductory explanations, we pretend the agent has a single policy $\pi
    This answers: **"What policy do we ultimately want to learn?"**
    This is the optimization object. Regardless of where the data comes from, we want updates to $\theta$ to make the target policy better.
 
-Once we separate "who acts" from "who learns", the first axis becomes natural.
+Once we separate "who acts" from "who learns", the first pair of concepts emerges naturally.
 
-## Axis 1: On-Policy vs. Off-Policy
+## On-Policy vs. Off-Policy
 
 The core question is:
 
@@ -102,13 +102,13 @@ In deep RL, **DQN** makes off-policy practical via a replay buffer: it stores ol
 - **Pros**: much more sample-efficient. Old data can be reused; expert data can be leveraged.
 - **Cons**: distribution shift. If the target policy wants to take actions that never appear in the dataset, the algorithm must extrapolate, which can be wildly wrong. [^sutton-barto]
 
-## Axis 2: Online vs. Offline
+## Online vs. Offline
 
 On-policy/off-policy describes "who generated the data." Now zoom out and ask:
 
 **During training, can the agent keep interacting with the environment to collect new data?**
 
-This is the online vs. offline axis: **does the dataset keep growing, or is it fixed?**
+This is the difference between online and offline: **does the dataset keep growing, or is it fixed?**
 
 ### Online RL: Learn While Interacting
 
@@ -147,9 +147,9 @@ Suppose the autonomous driving logs contain only normal driving data. During off
 
 To address this problem, offline RL algorithms (such as CQL) typically introduce **conservatism**: for actions not seen in the dataset, give uniformly low scores, forcing the AI to stay within the safe zone of known data. [^cql2020]
 
-## Four Quadrants
+## Four Data Regimes
 
-Putting the two axes together gives a useful map:
+Combining the two pairs of concepts yields four data regimes. Knowing these four combinations keeps you from getting lost in the abbreviations:
 
 | Data regime              | Meaning                                                                     | Typical examples                                           | Main risk                                                     |
 | ------------------------ | --------------------------------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------- |
@@ -158,7 +158,7 @@ Putting the two axes together gives a useful map:
 | **Offline + Off-policy** | train only from a fixed historical dataset                                  | CQL, IQL, DPO-like fixed preference training               | extrapolation to unseen actions                               |
 | **Offline + On-policy**  | fixed data while requiring it to match the current policy                   | fixed-policy evaluation, very small-step imitation updates | the data becomes stale as soon as the policy changes          |
 
-The important point is that the axes are independent. DQN is off-policy because it reuses replay data, but it is still online because the agent keeps collecting new transitions. Offline RL is usually off-policy because the dataset was generated before the current policy existed.
+The important point is that the two pairs of concepts are independent. DQN is off-policy because it reuses replay data, but it is still online because the agent keeps collecting new transitions. Offline RL is usually off-policy because the dataset was generated before the current policy existed.
 
 ## Common Misunderstandings
 
@@ -176,7 +176,7 @@ No. DQN is the standard counterexample: it is off-policy because it learns from 
 
 **"DPO is just supervised learning, not RL."**
 
-Although DPO writes the loss function in the form of a classification problem and does not need to explicitly fit a reward model, it is still moving the policy distribution on fixed preference data. Its essence is solving a policy optimization problem in an offline setting, and if data coverage is not careful, it faces the same out-of-distribution deviation risks typical of offline RL.
+Although DPO writes the loss function in the form of a classification problem and does not need to explicitly fit a reward model, it is still adjusting the policy distribution on fixed preference data. Its essence remains solving a policy optimization problem in an offline setting, and if data coverage is not handled carefully, it faces the same out-of-distribution (OOD) risks typical of offline RL.
 
 ## Training-Inference Mismatch in Large-Model RL
 
@@ -248,7 +248,7 @@ This section answered where RL data comes from:
 2. The **target policy** $\pi_\theta$ is the policy being optimized.
 3. **On-policy vs. off-policy** asks whether those policies match.
 4. **Online vs. offline** asks whether new data can still be collected during training.
-5. The two axes form four regimes, and each regime has different stability and data-efficiency tradeoffs.
+5. The two pairs of concepts combine into four regimes, each with different stability and data-efficiency tradeoffs.
 
 At this point, we know how to define value, how to update value estimates, and how to classify data sources. The next issue is reward design: if the reward function is wrong, the agent may learn exactly what we asked for and still fail at what we meant.
 
@@ -277,7 +277,7 @@ The **"Off-Policy RL"** + **"Stale Data"** in the title precisely captures the c
 > **"On-Policy RL Meets Off-Policy Experts: Harmonizing Supervised Fine-Tuning and Reinforcement Learning via Dynamic Weighting"**
 > _(arXiv 2508.11408, 2025)_
 
-This title places **On-Policy** and **Off-Policy** in opposition and tries to fuse them. "On-Policy RL" refers to the RL phase where the model samples and learns from its own data; "Off-Policy Experts" refers to the SFT phase using human-annotated data (from "experts," clearly not produced by the current policy). The proposed CHORD framework dynamically weights between these two data sources -- a typical scenario of on/off-policy mixing in LLM training.
+This title puts **On-Policy** and **Off-Policy** in opposition and tries to reconcile them. "On-Policy RL" refers to the RL phase where the model samples and learns from its own data; "Off-Policy Experts" refers to the SFT phase using human-annotated data (from "experts," clearly not produced by the current policy). The proposed CHORD framework dynamically weights between these two data sources -- a typical scenario of on/off-policy mixing in LLM training.
 
 > **"Behaviour Policy Optimization: Provably Lower Variance Return Estimates for Off-Policy Reinforcement Learning"**
 > _(arXiv 2511.10843, AAAI 2026)_
@@ -288,7 +288,7 @@ The **"Behaviour Policy"** and **"Off-Policy"** appearing together in the title 
 
 ### Online and Offline: Can We Still Collect Data?
 
-These two words describe **whether the dataset is still growing during training**, and are orthogonal to the on/off-policy dimension.
+These two words describe **whether the dataset is still growing during training**, and are independent of the on/off-policy question.
 
 **Typical paper title breakdown:**
 
@@ -304,11 +304,11 @@ The **"Online and Offline Alignment"** in the title places these concepts in the
 
 **One-sentence summary:** When you see **Online** in a title, it means the agent is still interacting with the environment during training and the dataset is growing; when you see **Offline**, it means the dataset is sealed and the agent is not allowed to interact with the environment during training.
 
-### Two Axes Crossed: Paper Examples for the Four Quadrants
+### Paper Examples for the Four Combinations
 
-Crossing the on/off-policy and online/offline axes, each of the four quadrants in the main text has corresponding frontier papers:
+Combining on/off-policy and online/offline pairwise, each of the four data regimes in the main text has corresponding frontier papers:
 
-| Quadrant                 | Representative paper                                                                                                              | Title keyword interpretation                                                                                                                                                                                                                                            |
+| Data regime             | Representative paper                                                                                                              | Title keyword interpretation                                                                                                                                                                                                                                            |
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Online + On-policy**   | PPO (Schulman et al., 2017), GRPO (DeepSeek, 2024)                                                                                | Sample and learn simultaneously, use once and discard.                                                                                                                                                                                                                  |
 | **Online + Off-policy**  | _"TOP-ERL: Transformer-based Off-Policy Episodic Reinforcement Learning"_ (ICLR 2025 Spotlight)                                   | **Off-Policy** means using experience replay to reuse old data, but **Episodic** means it is still continuously starting new episodes and collecting new data (Online).                                                                                                 |
