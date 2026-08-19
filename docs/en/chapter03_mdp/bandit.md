@@ -655,6 +655,102 @@ Using the bandit as the simplest RL environment, this section established three 
 
 The bandit problem deliberately removes delayed reward and state dynamics, so we can see trial-and-error and exploration-vs-exploitation in their simplest form. Real RL problems (CartPole, LLM post-training, etc.) add state transitions: the situation changes as actions are taken, and the policy expands from "which action" to "which action in which state". Next we will formalize these ideas with the MDP framework: [MDP tuple, discounted return, and policies](./mdp).
 
+::: details What is Thompson sampling?
+Thompson sampling is a way to explore **according to uncertainty**. Instead of keeping only one estimated win rate for each machine, it keeps a range of plausible win rates.
+
+Imagine that machine A has won 6 of 10 pulls and machine B has won 1 of 2:
+
+- A's observed win rate is 60%, backed by ten observations.
+- B's observed win rate is 50%, backed by only two observations.
+
+A currently looks better, but B is much less certain. A greedy policy always chooses A and may stop learning about B. Uniform random exploration chooses B half the time, even after strong evidence shows that B is worse. Thompson sampling takes a middle path: **choose each machine in proportion to how likely it currently seems to be the best.**
+
+### The three-step idea
+
+For every round:
+
+1. Keep a probability distribution for each machine's unknown true win rate.
+2. Draw one possible win rate from each distribution.
+3. Pull the machine with the largest draw, then update its distribution using the result.
+
+The draw is not treated as the true win rate. It is one plausible answer to the question, "Given everything I have seen, what might this machine's win rate be?"
+
+Suppose one round produces:
+
+$$
+\tilde p_A = 0.58,\qquad \tilde p_B = 0.72
+$$
+
+Then Thompson sampling chooses B. On another round it might draw:
+
+$$
+\tilde p_A = 0.63,\qquad \tilde p_B = 0.41
+$$
+
+and choose A. B is explored because its uncertainty sometimes produces a high draw, not because the algorithm follows a fixed random-exploration schedule.
+
+### Representing uncertainty with a Beta distribution
+
+For a machine whose outcome is win ($1$) or loss ($0$), a convenient model is:
+
+$$
+p_a \sim \operatorname{Beta}(\alpha_a,\beta_a)
+$$
+
+You can read the parameters as accumulated evidence:
+
+- $\alpha_a = 1 +$ number of observed wins;
+- $\beta_a = 1 +$ number of observed losses.
+
+Starting with $\operatorname{Beta}(1,1)$ means every win rate between 0 and 1 is initially plausible. After observing a win, add 1 to $\alpha_a$. After a loss, add 1 to $\beta_a$:
+
+$$
+\text{win: }\alpha_a \leftarrow \alpha_a+1,
+\qquad
+\text{loss: }\beta_a \leftarrow \beta_a+1
+$$
+
+For example, six wins and four losses produce:
+
+$$
+p_A \sim \operatorname{Beta}(7,5)
+$$
+
+Its center is near the observed 60% win rate, but it still has some width because ten observations are limited. After 600 wins and 400 losses, the center remains near 60%, while the distribution becomes much narrower. The estimate has not changed much; our **confidence** has.
+
+### Why exploration happens automatically
+
+An arm tried only a few times has a wide distribution. Its samples sometimes land very high, so it continues to receive occasional trials. An arm tried many times has a narrow distribution. If its results are consistently poor, it rarely produces the largest sample and is selected less often.
+
+This gives Thompson sampling its useful behavior:
+
+- uncertain arms receive opportunities to prove themselves;
+- strong arms are exploited frequently;
+- clearly weak arms gradually stop consuming many trials.
+
+This behavior is called **probability matching**. If the current evidence says A has roughly an 80% chance of being the best arm, Thompson sampling will choose A roughly 80% of the time. It does not need a separate exploration probability such as $\epsilon$.
+
+### Minimal pseudocode
+
+```python
+alpha = [1, 1]
+beta = [1, 1]
+
+for _ in range(num_rounds):
+    samples = [
+        random.betavariate(alpha[a], beta[a])
+        for a in range(2)
+    ]
+    action = max(range(2), key=lambda a: samples[a])
+    reward = pull(action)  # 1 for win, 0 for loss
+
+    alpha[action] += reward
+    beta[action] += 1 - reward
+```
+
+The essential idea is simple: **sample one believable world, act optimally in that world, then revise what worlds remain believable.**
+:::
+
 ## Further Reading: Regret
 
 This part is optional. Feel free to skip it on a first pass.
