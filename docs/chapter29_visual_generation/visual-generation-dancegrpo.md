@@ -24,7 +24,7 @@
 
 这张图对应的算法主线来自 DDPO 论文；后文把 Diffusion 写成 MDP、再用策略梯度更新去噪轨迹，也以这篇论文为核心参照[^ddpo]。
 
-## 从 LLM 到 VLM 再到视觉生成：RL 迁移时到底变了什么？
+## 从 LLM 到 VLM，再到视觉生成 与 RL 迁移时到底变了什么？
 
 与其只问“VLM 能不能直接迁移到生成”，不如先看一条更长的路线：
 
@@ -772,7 +772,7 @@ for prompts in prompt_loader:
 
 > 对同一批 prompt，让模型自己生成一批样本；把生成结果按 reward 分出好坏；提高好样本去噪轨迹的概率，降低差样本去噪轨迹的概率，同时用 KL 和 clipping 防止模型偏移过猛。
 
-## Reward Model：生成 RL 的真正瓶颈
+## Reward Model 与 生成 RL 的真正瓶颈
 
 到这里，算法已经有了。但生成 RL 的困难往往不在“能不能写出策略梯度”，而在“reward 到底可信吗”。
 
@@ -861,7 +861,7 @@ $$
   <em>图 3：PickScore 用偏好模型重新排序候选生成结果。它说明视觉 reward 不只是离线评测数字，也可以直接改变采样或排序阶段展示给用户的结果。来源：<a href="https://stability.ai/research/pick-a-pic" target="_blank" rel="noopener noreferrer">Stability AI Research</a></em>
 </div>
 
-## 两种用 reward 的方式：训练时用，还是推理时用？
+## 两种用 reward 的方式 与 训练时用，还是推理时用？
 
 有了 reward model 以后，不一定马上做 RL 微调。它有两种常见用法。
 
@@ -916,7 +916,7 @@ $$
 
 直觉上，图像生成的错误常常是“某个地方画错了”；视频生成的错误常常是“前后关系断了”。这就是为什么视频 reward 更依赖片段级和整体级评估。
 
-## On-Policy 蒸馏：把 RL 得到的能力固化下来
+## On-Policy 蒸馏 与 把 RL 得到的能力固化下来
 
 RL 微调后的模型可能更符合偏好，但它也可能更慢、更贵，或者只适合某个特定采样设置。On-policy 蒸馏的目标，是把 RL 后模型在当前分布上产生的高质量样本，重新变成更便宜的监督学习信号。
 

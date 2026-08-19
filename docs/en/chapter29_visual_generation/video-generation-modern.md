@@ -4,7 +4,7 @@
 
 This section takes a different perspective — the **industrial level**: how video generation models such as Seedance, LongCat-Video, Hailuo, Wan, and Kling were trained using RL in 2025–2026. These works represent the current state-of-the-art in video generation with RL.
 
-## 24.5.1 From Images to Video: New Challenges for RL
+## 24.5.1 From Images to Video and New Challenges of RL
 
 RL for image generation has matured ([DDPO](./visual-generation-dancegrpo), DPOK). However, video generation brings new challenges:
 
@@ -42,7 +42,7 @@ These challenges have slowed progress in video generation RL in 2024. The major 
 - **DanceGRPO**: Applying the GRPO idea to diffusion (image + video)
 - **Seedance / LongCat**: Using RLHF-style training + engineering optimization
 
-## 24.5.2 DanceGRPO: GRPO for Diffusion
+## 24.5.2 DanceGRPO and GRPO for Diffusion
 
 [DanceGRPO](https://arxiv.org/abs/2505.07818) (ByteDance Seed, 2025.05) is a significant breakthrough in diffusion RL. Its core contribution is: **applying the GRPO idea directly to diffusion training**.
 
@@ -100,7 +100,7 @@ Byte Seed trained multiple video generation models using DanceGRPO:
 
 DanceGRPO has already become the default choice in industry for diffusion reinforcement learning — this aligns with GRPO's status in the LLM field.
 
-## 24.5.3 Seedance: ByteDance's Video Generation Flagship
+## 24.5.3 Seedance and ByteDance's Video Generation Flagship
 
 [Seedance](https://seed.bytedance.com/) (ByteDance, released in March 2025, upgraded to 1.0 Pro in October 2025) is one of the leading video generation models in China. It has ranked first multiple times on VBench (video generation benchmark).
 
@@ -189,7 +189,7 @@ VBench 2025.10 Ranking:
 
 Seedance is the state-of-the-art video generation model in China, surpassing Sora 2 and Veo 3.
 
-## 24.5.4 LongCat-Video: Efficient Long-Video Generation
+## 24.5.4 LongCat-Video and Efficient Long-Video Generation
 
 [LongCat-Video](https://arxiv.org/abs/2510.22200) (Meituan, 2025.10) is another important work — focused on **long-video generation**.
 
@@ -249,7 +249,7 @@ LongCat-Video achieves state-of-the-art results in long video generation:
 | Wan 2.5 Long      | 70%                         | 68%             |
 | **LongCat-Video** | **78%**                     | **75%**         |
 
-## 24.5.5 Hailuo: MiniMax Video Generation
+## 24.5.5 Hailuo and MiniMax Video Generation
 
 [Hailuo](https://hailuoai.video/) (MiniMax, released in September 2024, upgraded in July 2025, version 02) is another Chinese video generation SOTA.
 
