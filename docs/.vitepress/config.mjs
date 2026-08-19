@@ -1776,28 +1776,32 @@ const enSidebar = {
           ]
         },
         {
-          text: '8. TRPO and PPO Trust-Region Optimization',
+          text: '8. PPO: Stable Actor-Critic',
           collapsed: false,
           items: [
             {
-              text: '8.1 TRPO and Trust Regions',
-              link: '/en/chapter10_ppo/trust-region-clipping'
+              text: '8.1 Hands-on: PPO on BipedalWalker',
+              link: '/en/chapter10_ppo/ppo-bipedal-walker'
             },
             {
-              text: '8.2 PPO-Clip Objective',
-              link: '/en/chapter10_ppo/ppo-clip-objective'
+              text: '8.2 Trust Regions and PPO-Clip',
+              link: '/en/chapter10_ppo/trust-region-clipping'
             },
             {
               text: '8.3 GAE',
               link: '/en/chapter10_ppo/gae-reward-model'
             },
             {
-              text: '8.4 Long-Horizon Tasks and Planning',
-              link: '/en/chapter10_ppo/rl-long-horizon-planning'
+              text: '8.4 Hands-on: PPO Mathematical Derivation',
+              link: '/en/chapter10_ppo/ppo-math'
             },
             {
-              text: '8.5 Hands-on: PPO on BipedalWalker',
-              link: '/en/chapter10_ppo/ppo-bipedal-walker'
+              text: '8.5 Hands-on: PPO Game Projects',
+              link: '/en/chapter10_ppo/ppo-game-benchmark'
+            },
+            {
+              text: '8.6 Hands-on: Long-Horizon Tasks and Planning',
+              link: '/en/chapter10_ppo/rl-long-horizon-planning'
             }
           ]
         },
