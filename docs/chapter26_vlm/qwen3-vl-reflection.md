@@ -18,6 +18,12 @@
 
 这个概念来自认知科学的一个基本洞察：人类的复杂视觉任务不是"看一眼就答"，而是反复观察、计算、核验。读一张收据时，你会先定位小计和税额，读取两个数字，完成加法，再回到收据确认读数来自正确区域。视觉反思把这个过程模型化——让 AI 也通过"观察—推理—核验"来完成任务。
 
+![VLM-R1 IoU 可视化](./images/ref-vlm-r1-iou.png)
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>图 2：VLM-R1 的视觉定位可视化。模型在推理过程中显式输出边界框坐标，将视觉证据转化为可验证的轨迹。来源：<a href="https://github.com/River-Zhang/VLM-R1" target="_blank" rel="noopener noreferrer">VLM-R1 项目</a></em>
+</div>
+
 ## 视觉推理的三类对象
 
 给模型一张收据，问"含税总额是多少"。描述任务只要求识别"这是一张收据"；推理任务需要定位小计与税额，读取两个数字，再完成加法。只要其中一个数字来自错误区域，后面的计算即使完全正确，最终答案仍会失败。
@@ -39,6 +45,10 @@ flowchart LR
     V --> A["最终答案"]
     V -->|"证据不足"| O
 ```
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>图 3：视觉反思流程。模型先定位证据，再基于证据推理，然后回看核验，证据不足时重新观察。</em>
+</div>
 
 回到开头的柱状图：模型需要先定位 A 柱和 B 柱（视觉证据），读出 42 和 57（中间推理），计算差值（中间推理），再回到图像确认读数来自正确位置（核验），最后输出 15（最终答案）。任何一步出错，答案都会失败。
 
@@ -64,7 +74,7 @@ flowchart LR
 ![Qwen2.5-VL 架构](./images/qwen2.5-vl-architecture.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>图 2：Qwen2.5-VL 架构示意。视觉编码器提取特征，经过视觉语言合并层后送入语言模型。Qwen3-VL 在此基础上增加了 DeepStack 和多级位置编码。来源：<a href="https://arxiv.org/abs/2502.13923" target="_blank" rel="noopener noreferrer">Qwen2.5-VL 技术报告</a></em>
+  <em>图 4：Qwen2.5-VL 架构示意。视觉编码器提取特征，经过视觉语言合并层后送入语言模型。Qwen3-VL 在此基础上增加了 DeepStack 和多级位置编码。来源：<a href="https://arxiv.org/abs/2502.13923" target="_blank" rel="noopener noreferrer">Qwen2.5-VL 技术报告</a></em>
 </div>
 
 ### DeepStack：把不同深度的视觉特征送入语言模型
@@ -90,6 +100,18 @@ DeepStack 会从视觉编码器的多个层级取出特征，经独立的合并�
 Qwen3-VL 同时发布 Instruct 与 Thinking 版本。Instruct 版本更偏向直接回答；Thinking 版本会在复杂任务上生成较长的中间推理。二者共享多模态底座，但后训练目标不同。
 
 根据技术报告，Thinking 路线依次使用长思维链冷启动、强模型到弱模型蒸馏、推理强化学习和通用强化学习[^qwen3vl]。这条链可以从一道几何题理解。
+
+![GRPO 训练流程](./images/illustrated-grpo.png)
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>图 5：GRPO 训练流程示意。Thinking 版本的推理 RL 使用类似机制，在同一条件下的多个推理轨迹中比较相对优势。来源：<a href="https://github.com/ChallenAI/EasyR1" target="_blank" rel="noopener noreferrer">EasyR1 项目</a></em>
+</div>
+
+![EasyR1 GRPO  diagram](./images/easyr1-grpo-diagram.png)
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>图 6：EasyR1 的 GRPO 实现架构。模型在多个并行环境中采样轨迹，通过组内归一化计算相对优势。来源：<a href="https://github.com/ChallenAI/EasyR1" target="_blank" rel="noopener noreferrer">EasyR1 项目</a></em>
+</div>
 
 冷启动阶段先给模型少量结构完整的示范：读出图形关系，写出中间等式，再给答案。它解决的是输出格式与基本推理习惯。
 
@@ -117,6 +139,10 @@ sequenceDiagram
     M->>E: 提交答案与工具轨迹
     E-->>M: 答案、格式与工具有效性反馈
 ```
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>图 7：Thinking with Images 工具调用流程。模型判断证据不足时调用放大工具，获取高分辨率局部图后继续推理。</em>
+</div>
 
 为了理解这类训练，可以写一个教学化的复合奖励：
 
@@ -175,6 +201,12 @@ print(answer)
 ## 视觉反思仍然会怎样失败
 
 **反思可能建立在错误观察上。** 模型把 42 看成 47 后，可以写出一条完全自洽的减法过程。修复这类问题需要视觉定位、OCR 或工具验证，单纯延长思维链没有帮助。
+
+![EasyR1 训练曲线](./images/easyr1-geoqa-curves.png)
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>图 8：EasyR1 在 GeoQA 任务上的训练曲线。即使使用 GRPO，模型仍可能在某些子任务上出现奖励黑客或证据使用不充分的问题。来源：<a href="https://github.com/ChallenAI/EasyR1" target="_blank" rel="noopener noreferrer">EasyR1 项目</a></em>
+</div>
 
 **推理长度可能代替证据质量。** 奖励模型若偏爱详细回答，模型会学会增加步骤和措辞。评测应同时报告正确率、视觉证据命中率、输出 token 数和工具调用成本。
 
