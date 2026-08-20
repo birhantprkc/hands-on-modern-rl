@@ -1383,23 +1383,23 @@ const zhSidebar = {
       text: '附录',
       items: [
         {
-          text: 'A. 训练调试与工程实践',
+          text: 'A. 训练调试与工程',
           collapsed: false,
           items: [
             {
-              text: 'A.1 训练跑偏的症状',
+              text: 'A.1 识别训练跑偏',
               link: '/appendix_industrial_training/training-debugging'
             },
             {
-              text: 'A.2 从轨迹到策略更新',
+              text: 'A.2 轨迹生成与策略更新',
               link: '/appendix_industrial_training/rl-infrastructure'
             },
             {
-              text: 'A.3 沙箱与 Agent 训练',
+              text: 'A.3 沙箱环境',
               link: '/appendix_industrial_training/agentic-rl-infra'
             },
             {
-              text: 'A.4 模型改进的评测验证',
+              text: 'A.4 评估模型改进',
               link: '/appendix_industrial_training/evaluation-badcase'
             }
           ]
