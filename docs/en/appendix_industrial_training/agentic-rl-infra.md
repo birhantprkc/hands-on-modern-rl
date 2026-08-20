@@ -1,60 +1,51 @@
 ---
-title: A.3 Agentic RL Infrastructure
+title: A.3 Why Agents Must Be Trained in Sandboxes
 ---
 
-# A.3 Agent Sandbox
+# A.3 Why Agents Must Be Trained in Sandboxes: Isolation, Trajectories, and Scheduling
 
-> A.2 focuses on the RL training-system substrate: rollout, buffers, trainers, weight synchronization, and distributed parallelism. This page draws a different boundary: an agent's "action" is no longer just token generation. It may call tools, run code, read and write files, browse the web, or change external state over multiple turns.
+Consider a code-fixing Agent. It receives a repository and an issue description, first reads source code, then modifies files and runs tests. In one exploration, the Agent discovers that after deleting a local test file, the public tests still return success; in another exploration, it reads the `.env` file in the working directory and writes the information into its answer. Both trajectories may receive high reward, but neither has completed the real task.
 
-## Division of Labor with A.2
+Such problems come from the action boundary of Agents. Ordinary language model rollouts primarily produce tokens; an Agent's actions also change files, databases, browser pages, and network state. Reinforcement learning actively explores high-reward behaviors, so every trajectory must execute in an environment that is disposable, resettable, and permission-restricted. This environment is the **sandbox**.
 
-A.3 will not repeat how vLLM/SGLang achieve high-throughput generation, nor how FSDP, ZeRO, TP, PP, and EP split a model across multiple GPUs. Those are A.2 topics. A.3 only covers the additional engineering problems introduced by Agentic RL beyond ordinary LLM RL.
+This section answers three progressive questions: how to isolate actions from the host machine, how to completely save multi-turn trajectories, and how to continue utilizing the GPU while waiting for tools. [A.2](./rl-infrastructure) already covered rollout, buffer, trainer, and weight sync; this section continues from the moment "model actions leave the GPU."
 
-| Question                  | A.2 Training Infrastructure                                                               | A.3 Agentic RL Infrastructure                                                                                     |
-| ------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Meaning of rollout        | prompts enter the model, producing a completion or trajectory                             | the model acts across multiple turns; each step may call tools, execute code, or change the environment           |
-| Sample structure          | token, mask, logprob, reward, policy version, rollout batch                               | episode, tool call, tool result, environment snapshot, step-level reward, loss mask                               |
-| Main waiting time         | wait for a rollout batch before training, or wait for weights to flow back after training | tool execution, file I/O, network responses, and sandbox startup all create GPU idle time                         |
-| System focus              | buffer depth, async training, staleness, weight sync, model parallelism                   | sandbox isolation, multi-turn trajectory storage, intra-batch pipelining, environment interfaces, reproducibility |
-| Representative frameworks | OpenRLHF, veRL, slime                                                                     | Relax, AReaL, Agent-R1, NeMo Gym                                                                                  |
+```mermaid
+flowchart LR
+    M["Policy Model"] -->|"tool call"| G["Sandbox Gateway"]
+    G --> S["Disposable Sandbox<br/>Code / Browser / Database"]
+    S -->|"observation & exit status"| G
+    G --> M
+    S -.-> L["Trajectories & Environment Snapshots"]
+    H["Host secrets & training data"] -.->|"not visible by default"| S
+```
 
-One-sentence distinction: A.2 answers "how does the system feed samples into the model for training"; A.3 answers "when an agent's actions actually happen in the external world, how do we collect them safely, reproducibly, and with high throughput."
+## Step One: Understand What Multi-Turn Action Adds
 
-## From Single-Turn Generation to Multi-Turn Action
+GRPO rollout for math problems can be simplified as "generate an answer, then score with a verifier." A code-fixing task goes through "read file — modify — run tests — read errors — modify again." Each step depends on the environment state left by the previous step, and tool execution introduces disk, network, and process waiting.
 
-Consider GRPO training (Chapter 15) on math tasks: given a question, the model generates a full solution in one shot, and a verifier checks correctness. The entire process is single-turn. The model's only operation is text generation, and the computation is GPU-bound.
+Thus, an Agent trajectory adds three types of information beyond a single-turn response: tool calls and return values, environment changes after each step, and versions/snapshots that can reconstruct the world as it was at that time. The system also gains three responsibilities: isolating actions, saving trajectories, and concurrently scheduling waiting tasks. The following follows this causal line.
 
-By contrast, training an agent that can fix bugs requires a different interaction pattern. Given buggy code, the model must read files, locate the issue, edit code, run tests, and iterate if tests fail. A single task may require five or six turns. Between turns, there is waiting: reading files depends on disk I/O, running tests depends on sandbox execution, and searching depends on network latency. These operations are not on the GPU, and their latency ranges from tens of milliseconds to seconds.
+## Step Two: Lock Actions into a Resettable Environment
 
-This creates a chain of coupled engineering problems. If the agent executes code, how do we ensure safety? That requires **sandbox isolation**. Once interaction becomes multi-turn, how do we store training data that is far more complex than a rollout batch? That requires **multi-turn trajectory storage**. When each turn introduces hundreds of milliseconds of waiting, how do we avoid wasting GPU compute? That requires **GPU scheduling optimization**. These are not problems you solve by simply adding more GPUs; they come from the environment-execution nature of agent actions. We will follow this chain step by step.
+A sandbox needs to simultaneously restrict four classes of resources: visible files, network destinations, CPU/memory/runtime, and callable system capabilities. Setting only a timeout cannot prevent a process from reading host files; only closing the network cannot prevent it from overwriting a shared working directory. A complete boundary is usually composed of filesystem, network, process identity, and resource quotas together.
 
-## Sandbox Isolation
+### How to Choose Among Four Isolation Schemes
 
-One core capability of an agent is executing code, and that is also the largest safety risk. During training, the model will try many strategies to get higher reward. Without constraints, it might generate `os.system("rm -rf /")` and delete files on the training server, or read API keys from environment variables. These are not "malicious intent" in a human sense; they are the model exploring the action space. The outcome, however, is catastrophic: a running training job can be destroyed, files wiped, and data lost.
+Startup time is affected by image size, caching, host machine, and runtime configuration; you should not treat a particular experiment number as a universal conclusion. When selecting, first look at the trust boundary, then measure cold start, warm start, reset time, and concurrency density on the target machine.
 
-Therefore, agent code execution must happen inside an isolated environment (a sandbox). The isolation design must balance security, startup overhead, and resource utilization.
+- `subprocess` with `rlimit` only provides process-level resource limits and still shares the kernel and visible files with the host. It is suitable for running trusted teaching code or minimal prototypes, and should not host arbitrary model-generated code.
+- Docker isolates process views and resources through Linux namespaces and cgroups, and is a common reproducible execution unit in code evaluation. Docker's official security documentation also reminds: containers still share the host kernel; images, permissions, mounts, and daemon configuration are all part of the security boundary[^docker_security].
+- Firecracker uses KVM to run lightweight microVMs, with each instance having an independent guest kernel, suitable for multi-tenant and higher-risk code execution. Its official materials state "application code can start in about 125 ms at fastest" as a specific implementation target; deployments should still measure locally[^firecracker].
+- WebAssembly only allows programs to call capabilities explicitly exposed by the host, suitable for compute tasks with few dependencies that can compile to Wasm. Python scientific ecosystems or full OS toolchains are usually better suited to containers or microVMs.
 
-### Comparing Isolation Options
-
-In practice, there are four mainstream sandbox options, suited to different scenarios:
-
-| Option                       | Isolation Granularity            | Startup Latency | When It Fits                                     |
-| ---------------------------- | -------------------------------- | --------------- | ------------------------------------------------ |
-| subprocess + resource limits | process-level                    | ~10 ms          | prototyping, trusted environments                |
-| Docker containers            | filesystem + network + resources | ~100 ms         | general training, full isolation                 |
-| MicroVM (Firecracker)        | kernel-level                     | ~125 ms         | security-sensitive scenarios, stronger isolation |
-| WebAssembly (Wasm)           | instruction-set level            | ~1 ms           | pure compute tasks, ultra-low latency            |
-
-**subprocess + resource limits** is the lightest option. You can restrict CPU time and memory with `rlimit`, restrict filesystem access with `chroot`, and restrict network namespaces with `unshare`. Isolation strength is limited (processes still share the host kernel), but startup overhead is extremely low, making it suitable for early prototyping:
+The `subprocess` code below only demonstrates how to limit CPU time and address space. It does not isolate the filesystem or network, so it is a **resource-limiting example** and should not be treated as an untrusted-code sandbox:
 
 ```python
-import resource
-import subprocess
-
+import subprocess, resource
 
 def run_in_subprocess(code, timeout=10, max_memory=256 * 1024 * 1024):
-    """Lightweight isolation: subprocess + resource limits."""
-
+    """The lightest isolation: subprocess + resource limits"""
     def set_limits():
         resource.setrlimit(resource.RLIMIT_AS, (max_memory, max_memory))
         resource.setrlimit(resource.RLIMIT_CPU, (timeout, timeout))
@@ -63,228 +54,257 @@ def run_in_subprocess(code, timeout=10, max_memory=256 * 1024 * 1024):
         ["python", "-c", code],
         timeout=timeout,
         preexec_fn=set_limits,
-        capture_output=True,
-        text=True,
+        capture_output=True, text=True,
     )
     return result
 ```
 
-**Docker containers** are the most common option for industrial training. Linux cgroups and namespaces provide a triple isolation layer (filesystem, network, and resources), and the image ecosystem is mature (you can directly use base images like `python:3.11-slim` or `node:20`). The main cost is container startup (~100 ms), which can be mitigated with a warm container pool:
+Container solutions also need to avoid interpolating model output into shell strings. A safer approach is to first place the file to be executed into a working directory belonging exclusively to the current task, then launch a fixed entrypoint using an argument array:
 
 ```python
 container = client.containers.run(
     "python:3.11-slim",
-    command=f"python -c '{code}'",
+    command=["python", "/workspace/submission.py"],
     detach=True,
-    mem_limit="512m",  # memory limit
-    cpu_quota=50000,  # CPU limit
-    network_mode="none",  # block networking
+    mem_limit="512m",
+    cpu_quota=50000,
+    network_mode="none",
+    read_only=True,
+    volumes={task_dir: {"bind": "/workspace", "mode": "ro"}},
     remove=True,
 )
 ```
 
-**MicroVMs (for example, Firecracker)** provide kernel-level isolation: each VM runs its own minimal Linux kernel, so even if one VM is compromised it cannot affect the host or other VMs. AWS Lambda and Fly.io sandboxes are built on similar ideas. Startup latency is roughly ~125 ms (similar to Docker), but the security boundary is stronger. This is a good fit when untrusted code execution is part of training.
-
-**WebAssembly (Wasm)** provides an instruction-set-level sandbox via WASI (WebAssembly System Interface). After compiling code into Wasm bytecode, it can only call host functions that are explicitly exported; it cannot access the filesystem or network by default. Startup latency can be ~1 ms, but the ecosystem is still maturing and not all Python packages are supported.
-
 ### Network Policy
 
-No matter which isolation option you choose, network access must be tightly controlled. Agents in training should not directly access the public internet. It is unsafe, and it breaks reproducibility: if the same agent re-runs the same task later, a search engine might return different results, making trajectories irreproducible. For scenarios that genuinely require networking (for example, web agents), use a proxy layer for request filtering and caching, rather than simply enabling full outbound access.
+The default policy should deny external network access. Web Agents that need networking can access allowlisted targets through a proxy, recording requests, response summaries, cache versions, and timestamps. This both limits data exfiltration and explains why the same task may yield different observations on different dates.
 
 ### Warm Container Pools
 
-If you use Docker, container startup cost is non-trivial. If you run 1000 episodes and each creates a fresh container, startup alone can take about a minute. The industrial approach is to maintain a **warm container pool**: pre-create N containers, recycle and reset them after use rather than destroying them. Startup overhead can drop to about ~5 ms.
+When every episode requires a cold-start environment, startup time enters the training critical path. A warm pool prepares a set of clean instances in advance; after a task ends, snapshots are restored or instances are recreated. Pooling reduces waiting, but before reuse you must confirm that files, processes, network connections, and environment variables are all cleaned up; otherwise one trajectory will contaminate the next. Cold start, warm start, and full reset times should all be measured separately on the target cluster.
 
-Sandboxes solve the problem of "agents can execute actions safely." Next, multi-turn interaction produces large amounts of structured training data, and that data must be stored and managed properly.
+The sandbox solves the problem of "the Agent can safely execute actions." Next, the Agent's multi-turn interaction produces large amounts of structured training data that must be properly stored and managed.
 
-## Multi-Turn Trajectory Storage
+## Step Three: Save a Replayable Trajectory
 
-### Data Structure Differences: LLM RL vs Agentic RL
+### Data Structure Differences Between LLM RL and Agentic RL
 
-In A.2, an LLM RL sample is not just raw text. Real systems record token ids, attention masks, response masks, old logprobs, policy version, reward, and more. But structurally, it is still close to a linear sequence:
+LLM RL samples in A.2 are not just raw text. Real systems record token ids, attention masks, response masks, old logprobs, policy versions, rewards, and other fields. But structurally, they still resemble a linear sequence: `prompt -> completion -> reward`.
 
-`prompt -> completion -> reward`
+Agentic RL training data looks more like a dialog tree with state. An episode may contain seven or eight rounds of interaction; each round includes model output, tool call parameters, tool returns, environment state changes, and step-level rewards. Taking a "fix a Python bug" task as an example: the model first reads code, then modifies it, runs tests and discovers failure, continues modifying, then runs tests again and they pass — this entire interaction process must be completely recorded.
 
-Agentic RL data looks more like a stateful conversation tree. An episode may contain 7-8 turns. Each turn includes model outputs, tool-call arguments, tool results, environment state changes, and step-level rewards. In a "fix a Python bug" task, for example, the model reads code, edits it, runs tests and sees failures, edits again, and runs tests until they pass. All of those interactions need to be recorded faithfully.
+```mermaid
+sequenceDiagram
+    participant P as Policy Model
+    participant S as Sandbox
+    participant T as Trajectory Store
+    P->>S: Read file
+    S-->>P: File contents
+    P->>S: Write patch and run tests
+    S-->>P: Test failure and error logs
+    P->>S: Fix patch and test again
+    S-->>P: Tests pass
+    S->>T: Actions, observations, file diffs, image versions, rewards
+```
 
 ### Storage Requirements
 
-Compared with a linear rollout batch, an Agentic RL storage system typically needs three additional capabilities:
+Compared to A.2's linear rollout batches, Agentic RL storage systems also need to support three additional capabilities:
 
-- **Index by task type**: for example, analyzing the pattern "good at math but bad at code"
-- **Slice by step**: pinpoint exactly which decision step failed
-- **Deduplication and expiration**: avoid repeatedly training the same task; old trajectories may become invalid as environments change
+- **Retrieval by task type**: for example, analyzing patterns of "good at math but bad at code"
+- **Slicing by step**: locating which specific step's decision went wrong
+- **Deduplication and expiration handling**: the same task is not trained on repeatedly; old trajectories may become invalid due to environment changes
 
-At small scale (under 10k trajectories), JSON files plus SQLite can work. At medium scale (10k to 1M), Redis can be used for indexing and S3 for data storage. Beyond 1M, you will likely need a distributed database (MongoDB or DynamoDB). For multimodal agents, trajectories may also include images and audio. In that case, store references (URLs) rather than raw blobs, and download on demand during training, keeping the trajectory index at the KB level.
+Small-scale experiments can save events in JSONL and build indexes with SQLite; as concurrency and data volume grow, then split indexes, object storage, and queues apart. Choosing Redis, S3, MongoDB, or other services should be driven by access patterns: the training side reads trajectories sequentially, the analysis side retrieves by task and step, and the replay side also needs to fetch environment snapshots. Multimodal trajectories can save object references and content hashes in events, with raw images and audio placed in object storage.
 
-Once storage is handled, the next bottleneck appears in training: multi-turn interaction introduces large amounts of waiting time, which can make GPUs sit idle.
+Once storage is resolved, the next bottleneck during training appears: large amounts of waiting time during multi-turn interaction cause severe GPU idle time.
 
-## GPU Idle Time and Asynchronous Scheduling
+## Step Four: Continue Generating While Waiting for Tools
 
 ### Quantifying the Problem
 
-A.2 discussed GPU idling in LLM RL: generation and training run serially, and training GPUs spend large fractions of time waiting for rollout to finish. Agentic RL makes the problem worse, and the waiting moves inside the trajectory.
+A.2 discussed the GPU idle problem in LLM RL: generation and training execute serially, and the training GPU spends a lot of time waiting for generation to complete. Agentic RL further exacerbates this problem, and the location of waiting changes.
 
-Consider a single agentic trajectory timeline: generating an action on the GPU might take ~3 ms, but executing a tool on CPU might take ~500 ms. During those 500 ms, the GPU is idle. The next turn is similar: GPU ~3 ms, CPU ~300 ms. After multiple turns, the GPU may be doing useful work less than 1% of the time. In LLM RL, idling is primarily between rollout and training; in Agentic RL, idling happens within each turn.
+Take a single trajectory's timeline: the model quickly generates a tool call, and the test process then runs for several seconds. Before the test returns, this trajectory has no new tokens to generate. If the scheduler processes only one trajectory, the inference GPU waits for extended periods; Agentic RL idle time therefore occurs within each round of interaction.
 
-### A Simple Fix: Pipeline Multiple Trajectories Within a Batch
+### Intra-Batch Concurrency and Pipeline Scheduling
 
-A practical approach is to run multiple trajectories concurrently. While trajectory A waits for a tool result, the GPU generates an action for trajectory B; while trajectory B waits, the GPU generates for trajectory C. With pipelined scheduling, the GPU stays busy. This can raise GPU utilization from around ~1% to 70-80%, and increase throughput by 50-100×.
+The solution follows the same idea as async training in A.2: run multiple trajectories concurrently. While trajectory A waits for a tool to return, the GPU generates actions for trajectory B; while trajectory B waits for a tool, it schedules trajectory C. Actual gains depend on action generation length, tool latency distribution, concurrency limits, and batch processing efficiency, and should be measured through end-to-end throughput and GPU utilization.
 
 ### Two-Level Asynchrony
 
-The approach above fixes concurrency _within a batch_. But across batches, you still have the A.2 problem: rollout and training can be serialized. A complete solution uses two levels of asynchrony: intra-batch concurrency across trajectories (GPU and tools alternate), and inter-batch decoupling of rollout and training via a data queue (rollout continuously produces, training continuously consumes). The first level is specific to Agentic RL; the second level reuses the training-system substrate discussed in A.2.
+The above solution addresses the "intra-batch" concurrency problem. Between batches, the Rollout/Training serialization problem discussed in A.2 still exists. The complete solution uses two-level asynchrony: multiple trajectories within a batch run concurrently (GPU and tools alternate work), and between batches Rollout and Training are decoupled through a data queue (Rollout continuously generates, Training continuously trains). The first level of asynchrony is unique to Agentic RL; the second level reuses the training system substrate from A.2.
 
-At this point, we have covered the three core engineering problems for Agentic RL: safe execution, data storage, and GPU scheduling. How are these solutions organized in real industrial systems? The Relax case study below provides a concrete reference implementation.
+At this point, the three fundamental engineering problems of Agentic RL — safe execution, data storage, and GPU scheduling — have been discussed one by one. How are these solutions organized in real industrial systems? The Relax case study below provides a complete reference implementation.
 
-## An Industrial-Grade Implementation: Relax
+## Step Five: Seeing How a Complete System Is Assembled from Relax
 
-Relax is an open-source omni-modal Agentic RL post-training framework released by the Xiaohongshu AI Infra team. It is one of the few engines that supports omni-modal (text, image, and audio) Agentic RL training. We analyze it from four angles: architecture, data flow, execution modes, and engineering details.
+Relax is an open-source multimodal Agentic RL post-training framework from the Xiaohongshu AI Infra team, and is currently one of the few engines supporting full-modal (text, image, audio) Agentic RL training. The following analyzes it from four perspectives: architecture, data flow, execution modes, and engineering details.
 
-### Disaggregated Architecture
+### Decoupled Architecture
 
-Relax's central design choice is to deploy each role in the training pipeline as an independent Ray Serve service: Actor, Rollout, Critic, Reference, Advantages, and GenRM run independently. This reflects the heterogeneity of Agentic RL components: inference needs GPUs, tool execution needs CPUs, and orchestration needs CPU and memory. Independent services allow each component to scale elastically and recover independently, avoiding resource contention.
+Relax's core design choice is deploying every role in the training pipeline as an independent Ray Serve service: Actor, Rollout, Critic, Reference, Advantages, and GenRM each run independently. This design stems from the heterogeneity of Agentic RL components — inference needs GPUs, tool execution needs CPUs, and orchestration needs CPUs and memory. Independent deployment allows each component to scale on demand, tolerate faults independently, and avoid resource contention.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
 │  Entrypoints:  train.py                                        │
 ├───────────────────────────────────────────────────────────────┤
-│  Orchestration:  Controller (training loop) │ Service │ Registry│
+│  Orchestration:  Controller (training loop) │ Service │ Registry    │
 ├───────────────────────────────────────────────────────────────┤
-│  Components:  Actor │ Rollout │ Critic │ ActorFwd │ GenRM      │
+│  Components:  Actor │ Rollout │ Critic │ ActorFwd │ GenRM     │
 ├───────────────────────────────────────────────────────────────┤
-│  Engine:  SGLang inference │ reward library │ routing │ filters │
+│  Engine:  SGLang inference │ reward function library │ router │ filters             │
 ├───────────────────────────────────────────────────────────────┤
-│  Backends:  Megatron-LM (training) │ SGLang (inference)         │
+│  Backends:  Megatron-LM (training) │ SGLang (inference)                 │
 ├───────────────────────────────────────────────────────────────┤
-│  Distributed:  Ray Actor Groups │ DCS (weight synchronization)  │
+│  Distributed:  Ray Actor Groups │ DCS (weight sync)               │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-The training backend is Megatron-LM, supporting the full set of parallelism strategies introduced in A.2 (TP/PP/CP/EP). The inference backend is SGLang. A Megatron Bridge handles weight-format conversion between the two.
+The training backend uses Megatron-LM, supporting the full set of TP/PP/CP/EP parallelism strategies introduced in A.2. The inference backend uses SGLang, and weight format conversion between the two is automatically handled through the Megatron Bridge.
 
-### TransferQueue: A Streaming Data Channel
+### TransferQueue and Streaming Data Channels
 
-Recall the asynchronous mechanism in A.2: rollout writes data into a buffer; training reads from the buffer to update parameters. Traditional buffers are batch-based: rollout writes after generating an entire batch; training reads only when the batch is available. This creates waiting: if rollout writes too fast the buffer overflows; if training reads too fast the buffer runs empty and GPUs idle. In Agentic RL, this is compounded by tool-execution waits, so it is better to support finer-grained streaming.
+Recall the async training mechanism from A.2: Rollout generates data and writes it to Buffer, Training reads data from Buffer for training. Traditional buffers are batch-level — Rollout finishes generating an entire batch before writing, and Training waits until data is available before reading. This causes one side to always be waiting: if Rollout writes too fast the buffer overflows; if Training reads too fast the buffer is empty leading to idle GPUs. In Agentic RL this problem is compounded by tool execution waiting, so queues should be able to carry finer-grained sample streams.
 
-TransferQueue makes the pipeline streaming: rollout pushes each sample as soon as it is produced, and the training side begins processing as soon as it receives a sample, without waiting for a full batch. In Agentic RL, a "sample" may be a multi-turn episode including tool results, not just a completion. Weight synchronization is handled by DCS (Distributed Checkpoint Service): after each training step, DCS broadcasts weights (via NCCL) to rollout and other components, overlapping with subsequent computation so it does not add extra wall time.
+TransferQueue changes this interaction to streaming: Rollout writes each sample to the queue as soon as it is generated, and the Training side begins processing as soon as it gets a sample, without waiting for the entire batch to finish generating. For Agentic RL, a sample is not just a completion — it may be an entire episode containing multiple rounds of tool results. This works with DCS (Distributed Checkpoint Service) for weight sync — every time Training updates parameters by one step, DCS broadcasts via NCCL to Rollout and other components, overlapping with the next training computation and taking no extra time.
 
-This design shrinks waiting from batch-level to sample-level, reducing idle time by roughly an order of magnitude.
+This design reduces batch-level waiting in async training to sample-level waiting, lowering wait time by an order of magnitude.
 
 ### Two Execution Modes
 
-Relax provides two modes to match different hardware constraints.
+Relax provides two modes to accommodate different hardware conditions.
 
-In **Collocate mode**, Actor and Rollout share the same GPU group and alternate. After Rollout finishes a batch, it yields GPUs to Training. This is suitable when GPU capacity is limited, and it can achieve strict on-policy behavior: there is no parameter lag, and training always consumes data generated by the latest policy.
+In _Collocate mode_, Actor and Rollout share the same set of GPUs and take turns using them. After Rollout finishes generating a batch, it yields the GPUs to Training. This is suitable when GPU count is limited, and can achieve strict on-policy — model parameters have no delay, and Training always uses data generated by the latest model version.
 
-In **Fully Async mode**, each role runs on an independent GPU cluster. Data is exchanged via TransferQueue, and weights are synchronized asynchronously via DCS. The parameter `--max-staleness` controls how much "old" data is allowed to participate in training: `0` means strict on-policy, and higher values allow more asynchrony for higher throughput. This is the same underlying issue as A.2's "how to handle old data," but in Agentic RL, "staleness" can also come from environment state changes, tool-version changes, or external data changes. That makes environment snapshots and reproducibility metadata even more important.
+In _Fully Async mode_, each role runs on independent GPU clusters, exchanging data through TransferQueue and syncing weights asynchronously through DCS. The parameter `--max-staleness` controls how "old" data is allowed to be when participating in training — setting it to 0 means strict on-policy; setting it larger allows more asynchrony in exchange for throughput. This is the same underlying problem as "how to handle old data" discussed in A.2; the difference is that "old" in Agentic RL can also come from environment state changes, tool version changes, or external data changes, making it even more important to record environment snapshots and reproducibility information.
 
 ### Engineering Details
 
-**Loss masks.** A common implementation mistake in Agentic RL is to include _all tokens_ from multi-turn trajectories in the loss. Tool outputs are not produced by the model; the model should not be trained to "predict tool outputs." What the model needs to learn is _when to call which tool and how to interpret tool results_. Relax uses a **loss mask**: tokens generated by the model have mask=1 (included in training), while tool-return tokens have mask=0 (excluded).
+**Loss mask.** When training Agentic RL, there is a common implementation pitfall: including all tokens in multi-turn trajectories in loss computation. In reality, tool return results are not generated by the model, and the model should not be held responsible for them. The model needs to learn "when to call which tool, how to interpret tool results," not "how to output tool results." Relax handles this through a _loss mask_: tokens generated by the model are marked mask=1 and participate in training; tokens returned by tools are marked mask=0 and do not participate in training.
 
-**Decoupled environment interfaces.** `BaseInteractionEnv` only exposes `reset`, `step`, and `format_observation`. Environment implementations are fully separated from rollout logic, so swapping a tool environment does not require touching training code. This sounds obvious, but in real projects coupling between environment and training logic is common and painful.
+**Environment interface decoupling.** `BaseInteractionEnv` provides only three methods: `reset` / `step` / `format_observation`, completely separating environment implementation from Rollout logic. Swapping tool environments does not require modifying training code. While this design may seem self-evident, coupling between environments and training logic is a very common problem in real projects.
 
-**Multimodal context continuity.** In multi-turn dialogs, an image provided by the user in turn 1 must still be visible to the model at turn 3. Relax maintains `image_data` on the rollout side and `multimodal_train_inputs` on the training side, and merges them automatically each round.
+**Multimodal context maintenance.** In multi-turn dialog, an image sent by the user in the first round must still be visible to the model in the third round. Relax maintains `image_data` on the Rollout side and `multimodal_train_inputs` on the Training side, automatically merging each round.
 
-**Elastic scaling.** In RL post-training, 60-70% of wall time is often spent on rollout. When rollout becomes the bottleneck, Relax can add inference engines dynamically without stopping training:
+**Elastic scaling.** When monitoring shows Rollout has become the bottleneck, Relax supports dynamically adding inference engines. The interface below demonstrates the "controller adjusts engine count" design; specific parameters should follow the project version documentation:
 
 ```bash
 # Add engines in the current cluster
 curl -X POST http://controller:8000/scale \
   -d '{"target_engine_count": 4, "mode": "ray_native"}'
 
-# Or register engines from another cluster (federated inference)
+# Or register existing engines from other clusters (cross-cluster federated inference)
 curl -X POST http://controller:8000/scale \
   -d '{"engine_urls": ["gpu-cluster-2:8000"], "mode": "external"}'
 ```
 
-The `external` mode is worth highlighting: it can use idle capacity or preemptible instances from other GPU clusters to accelerate rollout, without migrating those resources into the current cluster.
+The `external` mode is noteworthy — it can leverage idle resources or preemptible instances on other GPU clusters to accelerate Rollout, without needing to migrate them to the current cluster.
 
 ### Algorithms, Models, and Operations
 
-**Algorithm support.** Relax includes four algorithms: GRPO (see [Sections 15.1–15.2](/chapter18_grpo/grpo-practice-and-mechanism)), GSPO, SAPO, and OPD (see [Section 15.7](/chapter18_grpo/on-policy-distillation)). Adding a new algorithm requires implementing a Service class and registering it in the `ALGOS` dictionary.
+**Algorithm support.** Relax has four built-in algorithms: GRPO (see [Sections 15.1–15.2](../chapter18_grpo/grpo-practice-and-mechanism)), GSPO, SAPO, and OPD (see [Section 15.7](../chapter18_grpo/on-policy-distillation)). Adding a new algorithm only requires implementing a Service class and registering it in the `ALGOS` dictionary.
 
-**Model support.** The Qwen3 family (4B, 30B-A3B MoE), Qwen3-VL (vision-language), Qwen3-Omni (omni-modal), and Qwen3.5.
+**Model support.** The full Qwen3 series (4B, 30B-A3B MoE), Qwen3-VL (vision-language), Qwen3-Omni (full-modal), and Qwen3.5.
 
-**Operational system.** HealthManager monitors heartbeats and provides two-level auto-recovery (restart in place, then global restart). Metrics Service ships training metrics to TensorBoard / WandB / ClearML. Apprise pushes alerts to Slack, email, and other channels. The real challenge in large-scale RL training is not launching a job, but keeping it running for days or weeks. GPU failures, network jitter, and OOMs are normal. Without auto-recovery, operators must intervene frequently, which severely reduces throughput.
+**Operations system.** HealthManager handles heartbeat monitoring and recovery; Metrics Service distributes training metrics to TensorBoard, Weights & Biases, or ClearML; Apprise handles alert sending. Long-running training also needs to save component state, queue positions, policy versions, and environment versions so that after recovery it can determine whether old trajectories are still usable.
 
 ### Comparison with Other Frameworks
 
-| Framework | Organization           | Key Features                                        | Multimodal | Async                 |
-| --------- | ---------------------- | --------------------------------------------------- | ---------- | --------------------- |
-| AReaL     | Tsinghua & Ant         | fully async, 2.77× speedup                          | no         | fully async           |
-| Seer      | Moonshot AI (Kimi)     | extreme synchronous; +74-97% rollout throughput     | no         | synchronous           |
-| Agent-R1  | USTC                   | MDP extension; separates process vs outcome rewards | no         | partially async       |
-| NeMo Gym  | NVIDIA                 | scientific agent environments                       | no         | mostly synchronous    |
-| slime     | THUDM / Z.ai ecosystem | Megatron + SGLang; MoE-native optimizations         | no         | supports async        |
-| Relax     | Xiaohongshu            | TransferQueue + elastic scaling + omni-modal        | yes        | fully async streaming |
+- **Framework — AReaL**
+  - Producer: Ant Group and Tsinghua
+  - Features: fully async, 2.77x speedup
+  - Multimodal: no
+  - Async: fully async
+- **Framework — Seer**
+  - Producer: Moonshot AI (Kimi)
+  - Features: extreme synchrony, rollout throughput +74–97%
+  - Multimodal: no
+  - Async: synchronous
+- **Framework — Agent-R1**
+  - Producer: USTC
+  - Features: MDP extension, process/outcome reward separation
+  - Multimodal: no
+  - Async: partially async
+- **Framework — NeMo Gym**
+  - Producer: NVIDIA
+  - Features: scientific Agent environments
+  - Multimodal: no
+  - Async: primarily synchronous
+- **Framework — slime**
+  - Producer: THUDM / Zhipu ecosystem
+  - Features: Megatron + SGLang, native MoE optimization
+  - Multimodal: no
+  - Async: supports async
+- **Framework — Relax**
+  - Producer: Xiaohongshu
+  - Features: TransferQueue + elastic scaling + full-modal
+  - Multimodal: yes
+  - Async: fully async streaming
 
-Relax is currently one of the few Agentic RL engines that supports both omni-modal training and fully async elastic scaling. Seer represents another direction: it does not move toward async, but removes rollout tail latency within a synchronous framework via online context learning (divided rollout, context-aware scheduling, adaptive grouped speculative decoding), improving throughput by 74-97% while preserving strict on-policy guarantees (see [arXiv:2511.14617](https://arxiv.org/abs/2511.14617)). slime uses SGLang as the native inference layer and Megatron as the training backend, with dedicated optimizations for MoE post-training (fp8 rollout, DeepEP communication), making it a strong choice for large-scale MoE post-training (see [THUDM/slime](https://github.com/THUDM/slime)). The Relax paper is [arXiv:2604.11554](https://arxiv.org/abs/2604.11554), and the code is [redai-infra/Relax](https://github.com/redai-infra/Relax).
+These frameworks emphasize different bottlenecks. AReaL and Relax focus on async data flows; Seer studies rollout long tails in synchronous training and reports throughput improvements in its paper experiments ([paper](https://arxiv.org/abs/2511.14617)); slime uses SGLang as its inference layer and Megatron as its training backend, providing corresponding engineering support for MoE models ([code](https://github.com/THUDM/slime)). Relax's design and experiments are in its [paper](https://arxiv.org/abs/2604.11554) and [code repository](https://github.com/redai-infra/Relax). These results come from their respective models, hardware, and workloads; before selecting, you should still retest on your target tasks.
 
-## Selection Guidance
+## Selection Recommendations
 
-Below is a practical set of choices. In the prototyping stage, TRL plus subprocess isolation is usually enough: first verify the training workflow and reward signal correctness. If you want an out-of-the-box full pipeline (SFT → DPO/GRPO → deployment), [ms-swift](https://github.com/modelscope/ms-swift) provides an integrated ModelScope ecosystem solution that is convenient for Chinese model adaptation. For medium scale (hundreds of concurrent trajectories), veRL or OpenRLHF plus Docker sandboxes and asyncio-based concurrency can work. For large-scale Agentic training, you generally need fully async systems like Relax or AReaL. For multimodal agents, Relax is currently one of the most direct options.
+In the prototyping phase, first use trusted tasks to validate reward, trajectory fields, and replay flows. After you start running model-generated code, add containers or microVMs, and use mechanisms like asyncio to concurrently advance multiple trajectories. As scale continues to grow, then compare data flows and hardware constraints of frameworks like veRL, OpenRLHF, AReaL, and Relax. Multimodal tasks also need to check whether the framework can thread image and audio references and corresponding training inputs through entire trajectories.
 
-A good principle is progressive architecture evolution: validate feasibility first, optimize performance second, and productionize last.
+It is recommended to follow the principle of progressive architecture evolution: first validate flow feasibility, then do performance optimization, and finally do production hardening.
 
-## Hands-On: nanoRLHF, A From-Scratch LLM RL Training Framework
+## nanoRLHF — Implementing an LLM RL Training Framework from Scratch
 
-The framework analysis above is from a user's perspective: what each component does, how data flows, and how GPUs are scheduled. To truly understand the internal structure of an RL training framework, the fastest way is to build one. [hyunwoongko/nanoRLHF](https://github.com/hyunwoongko/nanoRLHF) is exactly such a project: it implements all essential LLM RLHF components from scratch using pure PyTorch and Triton, including a training engine, an inference engine, distributed scheduling, and RL orchestration.
+The preceding analysis observed components, data flows, and scheduling from a user perspective. Continuing to read a small implementation can map these abstractions into code. [hyunwoongko/nanoRLHF](https://github.com/hyunwoongko/nanoRLHF) implements a training engine, inference engine, distributed scheduling, and RL orchestration using PyTorch and Triton, suitable for tracing through source code how a rollout enters a PPO update.
 
-nanoRLHF plays a role similar to nanoGPT: it strips a production system down to its load-bearing structure. Its directory structure maps directly onto the system layers discussed in A.2:
+nanoRLHF is positioned similarly to nanoGPT: stripping a production system down to only its load-bearing structure. Its directory structure directly corresponds to the system layers discussed in A.2:
 
 ```
 nanorlhf/
-├── nanotron/     # training engine (3D parallelism, grad accumulation, checkpointing)
-├── nanovllm/     # inference engine (PagedAttention, KV cache, continuous batching)
-├── nanoverl/     # RL orchestration (PPO trainer, reward, dataset, configs)
-├── nanoray/      # distributed scheduling (process mgmt, resource allocation)
-├── nanosets/     # dataset utilities
-├── kernels/      # Triton kernels (fusion, optimized ops)
-└── eval/         # evaluation tools
+├── nanotron/     # Training engine (3D parallelism, gradient accumulation, checkpoint)
+├── nanovllm/     # Inference engine (PagedAttention, KV cache, continuous batching)
+├── nanoverl/     # RL orchestration layer (PPO trainer, reward, dataset, configs)
+├── nanoray/      # Distributed scheduling (process management, resource allocation)
+├── nanosets/     # Dataset utilities
+├── kernels/      # Triton kernels (fusion, optimized operators)
+└── eval/         # Evaluation tools
 ```
 
-### Training Engine: nanotron
+### nanotron
 
-nanotron corresponds to the lower layer under A.2's "training/orchestration layer": it is responsible for training large models across multiple GPUs. It implements 3D parallelism (data + pipeline + tensor), gradient accumulation, mixed-precision training, and checkpoint management.
+nanotron corresponds to the bottom layer of the "training/orchestration layer" in A.2 — it is responsible for splitting large models across multiple GPUs for training. It core-implements 3D parallelism (data parallelism + pipeline parallelism + tensor parallelism), gradient accumulation, mixed precision training, and checkpoint management.
 
-Entry point: the `nanotron/` directory. Focus on:
+Reading entry point: the `nanotron/` directory. Focus on:
 
-- how tensor parallelism splits a linear layer across GPUs (`nanotron/parallel`)
-- how pipeline parallelism places layers across devices (`nanotron/pipeline`)
-- how gradient accumulation and gradient synchronization are coordinated in distributed training
+- How tensor parallelism splits a linear layer across multiple cards (`nanotron/parallel`)
+- How pipeline parallelism distributes different model layers to different devices (`nanotron/pipeline`)
+- How gradient accumulation and gradient sync are coordinated in distributed settings
 
-### Inference Engine: nanovllm
+### nanovllm
 
-nanovllm corresponds to the "inference/rollout layer" in A.2: it generates tokens with high throughput. It implements PagedAttention (vLLM's key technique), KV cache management, and continuous batching.
+nanovllm corresponds to the "inference/rollout layer" in A.2 — it is responsible for high-throughput token generation. It core-implements PagedAttention (vLLM's key technique), KV cache management, and continuous batching.
 
-Entry point: the `nanovllm/` directory. Focus on:
+Reading entry point: the `nanovllm/` directory. Focus on:
 
-- how PagedAttention avoids KV cache memory waste
-- how continuous batching allows variable-length requests to share a GPU efficiently
-- how weights are bridged between the inference engine and the training engine
+- How PagedAttention avoids KV cache memory waste
+- How continuous batching lets requests of different lengths share the GPU
+- How weights connect between the inference engine and training engine here
 
-### RL Orchestration: nanoverl
+### RL Orchestration and nanoverl
 
-nanoverl is the orchestration layer that connects the two engines, analogous to the role OpenRLHF/veRL play in A.2. It implements a PPO training loop:
+nanoverl is the orchestration layer that wires together the preceding two engines, corresponding to the role of OpenRLHF/veRL in A.2. It implements the PPO training loop: rollout (generated with nanovllm) → reward computation → advantage estimation → PPO clipped loss → gradient update (trained with nanotron).
 
-rollout (via nanovllm) → reward computation → advantage estimation → PPO clipped loss → gradient updates (via nanotron)
+Reading entry point: the `nanoverl/trainer/` directory. Focus on:
 
-Entry point: the `nanoverl/trainer/` directory. Focus on:
+- How PPO's fit() loop orchestrates the three roles of actor, reference, and rollout
+- How the KL divergence penalty is implemented (reference model as anchor)
+- How reward functions are plugged in (math verification scenarios)
 
-- how the PPO `fit()` loop orchestrates the actor, reference, and rollout roles
-- how KL penalties are implemented (with the reference model as an anchor)
-- how reward functions are integrated (for example, a math-verification scenario)
+### Recommended Reading Route
 
-### Suggested Reading Order
+The entire project can be read in the following order, from bottom layer to top:
 
-Read the project bottom-up:
-
-1. `nanotron/`: understand distributed training first (the foundation)
-2. `nanovllm/`: then study high-throughput generation and rollout-side constraints
-3. `nanoverl/`: finally see how RL orchestration turns them into a PPO loop
-4. `nanoray/`: if you care about scheduling, study process management and resource allocation
+1. **`nanotron/`** — first understand how the training engine does distributed training, as it is the foundation of the framework
+2. **`nanovllm/`** — then see how the inference engine does high-throughput generation, understanding rollout-side engineering problems
+3. **`nanoverl/`** — finally see how RL orchestration wires both into a PPO loop, understanding the "producer-consumer" data flow
+4. **`nanoray/`** — if interested in distributed scheduling, look at process management and resource allocation
 
 ### Hands-On Exercises
 
@@ -293,20 +313,24 @@ Read the project bottom-up:
 git clone https://github.com/hyunwoongko/nanoRLHF.git
 cd nanoRLHF
 
-# Install deps (requires a CUDA GPU)
+# Install dependencies (requires CUDA GPU)
 pip install -e .
 ```
 
 Recommended exercises:
 
-1. Run SFT training: `bash ./scripts/train_sft.sh`, and inspect loss/lr/throughput metrics.
-2. Read the PPO trainer: open `nanoverl/trainer/` and draw the dataflow graph: rollout → reward → advantage → train.
-3. Compare against the A.2 framework table: map nanoRLHF modules to equivalent components in OpenRLHF / veRL / slime.
-4. Modify the reward function: replace logic under `nanoverl/reward/` (for example, string matching or regex extraction), and run a custom-reward RL loop end-to-end.
+1. **Run SFT training**: `bash ./scripts/train_sft.sh`, observe loss, lr, and throughput metrics in training logs
+2. **Read the PPO trainer**: open `nanoverl/trainer/`, draw a data flow diagram of rollout → reward → advantage → train
+3. **Compare with A.2's framework table**: map each module of nanoRLHF to equivalent components in OpenRLHF / veRL / slime, understanding similarities and differences in abstraction boundaries
+4. **Modify the reward function**: in `nanoverl/reward/`, replace with your own reward logic (e.g., string matching, regex extraction), and run a custom-reward RL training loop
 
-nanoRLHF is not meant for production use. Its value is that it turns concepts like "rollout engine," "training backend," "weight sync," and "policy version" into readable code. After reading it, the source code of veRL or OpenRLHF becomes much easier to navigate.
+The value of nanoRLHF is not production use, but that it uses readable code to turn the concepts of "rollout engine, training backend, weight sync, policy version" discussed in A.2 into concrete implementations. After reading it, looking at the source code of veRL or OpenRLHF will be much faster.
 
 ## References
+
+[^docker_security]: Docker Docs, [Docker Engine security](https://docs.docker.com/engine/security/).
+
+[^firecracker]: Firecracker, [Secure and fast microVMs for serverless computing](https://firecracker-microvm.github.io/).
 
 [^relax_paper]: Zhang L, Ning B, Yang R, et al. "[Relax: An Asynchronous Reinforcement Learning Engine for Omni-Modal Post-Training at Scale](https://arxiv.org/abs/2604.11554)." arXiv:2604.11554, 2026. [GitHub](https://github.com/redai-infra/Relax)
 
