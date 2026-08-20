@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import json
+import time
+from functools import reduce
+from math import gcd
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -62,6 +65,7 @@ def train_sb3(
     gamma: float,
     epsilon: float,
     seed: int,
+    checkpoints: int | None = None,
     record_episode: Callable[[Any, Any, Path, int], str],
 ) -> Iterator[dict[str, Any]]:
     algorithms, BaseCallback, evaluate_policy = stable_baselines_runtime()
@@ -69,6 +73,22 @@ def train_sb3(
     algorithm_cls = algorithms.get(algorithm_name)
     if algorithm_cls is None:
         raise RuntimeError(f"Unsupported Stable-Baselines3 algorithm: {algorithm_name}")
+
+    checkpoint_count = int(
+        checkpoints
+        if checkpoints is not None
+        else getattr(task, "checkpoints", task.get("checkpoints", 6) if isinstance(task, dict) else 6)
+    )
+    checkpoint_count = max(1, min(12, int(budget), checkpoint_count))
+    checkpoint_targets = [
+        max(1, round(int(budget) * index / checkpoint_count))
+        for index in range(1, checkpoint_count + 1)
+    ]
+    checkpoint_targets[-1] = int(budget)
+    checkpoint_deltas = [
+        target - (checkpoint_targets[index - 1] if index else 0)
+        for index, target in enumerate(checkpoint_targets)
+    ]
 
     class MetricsCallback(BaseCallback):
         def __init__(self):
@@ -86,7 +106,7 @@ def train_sb3(
         "gamma": gamma,
         "seed": seed,
         "verbose": 0,
-        "device": str(getattr(task, "device", task.get("device", "auto") if isinstance(task, dict) else "auto")),
+        "device": "cpu",
     }
     policy = getattr(task, "policy", task.get("policy", "MlpPolicy") if isinstance(task, dict) else "MlpPolicy")
     if algorithm_name == "DQN":
@@ -100,7 +120,15 @@ def train_sb3(
             target_update_interval=max(250, min(2_000, budget // 8)),
         )
     elif algorithm_name in {"PPO", "A2C"}:
-        rollout_steps = max(64, min(512, budget // 8))
+        # The UI promises one fixed interaction block per epoch.  Choose a
+        # rollout length that divides every block, so SB3 does not silently
+        # round an epoch upward while the page reports the requested step.
+        common_delta = reduce(gcd, checkpoint_deltas)
+        upper = min(512, common_delta)
+        rollout_steps = next(
+            (candidate for candidate in range(upper, 1, -1) if common_delta % candidate == 0),
+            2,
+        )
         kwargs.update(n_steps=rollout_steps, ent_coef=max(0.0, epsilon * .01))
         if algorithm_name == "PPO":
             # Choose a true divisor of the rollout buffer. This avoids a short
@@ -114,24 +142,49 @@ def train_sb3(
 
     callback = MetricsCallback()
     model = algorithm_cls(policy, train_env, **kwargs)
-    checkpoints = int(getattr(task, "checkpoints", task.get("checkpoints", 6) if isinstance(task, dict) else 6))
-    checkpoints = max(2, min(12, checkpoints))
-    chunk = max(1, budget // checkpoints)
+    task_key = str(getattr(task, "key", task.get("key") if isinstance(task, dict) else "policy"))
+    run_token = f"{int(time.time())}-{seed}"
+    artifacts = root / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
     x: list[float] = []
     y: list[float] = []
     yield {"phase": "training", "step": 0, "x": x, "y": y, "log": f"Initialized {algorithm_name} with {policy} on CPU"}
     completed = 0
     try:
-        while completed < budget:
-            current = min(chunk, budget - completed)
+        for checkpoint_index, target in enumerate(checkpoint_targets, start=1):
+            current = target - completed
             model.learn(total_timesteps=current, reset_num_timesteps=False, callback=callback, progress_bar=False)
-            completed += current
+            completed = target
             rewards, lengths = evaluate_policy(model, eval_env, n_eval_episodes=3, deterministic=True, return_episode_rewards=True, warn=False)
             score = float(np.mean(rewards))
             spread = float(np.std(rewards))
             x.append(float(completed)); y.append(score)
             details = format_metrics(callback.latest, completed)
             details += f"\nEVAL step={completed:,} mean_reward={score:.2f} std={spread:.2f} mean_length={np.mean(lengths):.1f}"
+            checkpoint_dir = artifacts / f"{task_key}-{run_token}-epoch-{checkpoint_index:02d}"
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            model_path = checkpoint_dir / "policy"
+            model.save(str(model_path))
+            model_file = str(model_path.with_suffix(".zip"))
+            record_env = make_record_env()
+            preview = record_episode(model, record_env, checkpoint_dir, seed + 10_000 + checkpoint_index)
+            metadata = checkpoint_dir / "policy.json"
+            metadata.write_text(
+                json.dumps(
+                    {
+                        "algorithm": algorithm_name,
+                        "policy": policy,
+                        "training_step": completed,
+                        "total_budget": budget,
+                        "seed": seed,
+                        "checkpoint_index": checkpoint_index,
+                        "checkpoint_count": checkpoint_count,
+                        "score": score,
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
             yield {
                 "phase": "training",
                 "step": completed,
@@ -140,25 +193,20 @@ def train_sb3(
                 "y": y,
                 "detail": f"{completed:,}/{budget:,} environment steps",
                 "metric_detail": f"mean reward ± {spread:.2f}",
-                "log": details,
+                "log": details + f"\nSAVE epoch={checkpoint_index}/{checkpoint_count} model={Path(model_file).name} replay={Path(preview).name}",
+                "model": model_file,
+                "preview": preview,
+                "checkpoint_index": checkpoint_index,
+                "checkpoint_count": checkpoint_count,
             }
 
-        artifacts = root / "artifacts"
-        artifacts.mkdir(parents=True, exist_ok=True)
-        model_path = artifacts / f"{getattr(task, 'key', task.get('key'))}-model"
-        model.save(str(model_path))
-        record_env = make_record_env()
-        preview = record_episode(model, record_env, artifacts, seed + 10_000)
-        metadata = artifacts / f"{getattr(task, 'key', task.get('key'))}-model.json"
-        metadata.write_text(json.dumps({"algorithm": algorithm_name, "policy": policy, "budget": budget, "seed": seed}, indent=2), encoding="utf-8")
         yield {
             "phase": "complete",
             "step": completed,
             "score": y[-1] if y else None,
             "x": x,
             "y": y,
-            "preview": preview,
-            "log": f"Saved model and generated learned-policy replay: {Path(preview).name}",
+            "log": f"Saved {checkpoint_index} independently selectable epoch policies and learned-policy replays",
         }
     finally:
         for env in (train_env, eval_env):

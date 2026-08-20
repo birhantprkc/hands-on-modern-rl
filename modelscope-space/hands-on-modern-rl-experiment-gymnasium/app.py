@@ -17,6 +17,7 @@ import time
 from pathlib import Path
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/hands-on-modern-rl-matplotlib")
 if sys.platform.startswith("linux") and ctypes.util.find_library("OSMesa"):
     # Prefer Mesa's CPU renderer when the Studio image provides it. Guarding
     # the setting preserves Gymnasium-Robotics registration on base images
@@ -852,14 +853,19 @@ TEXT = {
         "previous": "← Previous",
         "next": "Next →",
         "settings": "Experiment setup",
-        "settings_copy": "Search the full registry or choose a curated recipe. Auto entries inspect the action space and select DQN, PPO, or SAC.",
+        "settings_copy": "Choose steps per epoch and epoch count. Every epoch evaluates and saves one independently selectable policy.",
         "experiment": "Experiment",
         "budget": "Training budget",
         "budget_info": "Episodes for tabular tasks; environment steps for DQN, PPO, and SAC",
+        "steps_per_epoch": "Episodes / steps per epoch",
+        "steps_per_epoch_info": "One fixed training block before evaluation, model saving, and replay generation",
+        "epochs": "Training epochs / saved models",
+        "epochs_info": "Every epoch produces one independently selectable policy",
         "alpha": "Learning rate",
         "gamma": "Discount factor γ",
         "epsilon": "Exploration ε",
         "seed": "Random seed",
+        "advanced": "Advanced settings",
         "start": "Start training",
         "start_running": "Running…",
         "wait_title": "Run active · please keep this page open",
@@ -877,6 +883,9 @@ TEXT = {
         "log_waiting": "Waiting for a training run...",
         "preview": "Task preview / trained result",
         "preview_copy": "The 12 curated tasks include real trained examples. Other registry tasks show a task illustration until your run produces a replay GIF, policy map, or result plot.",
+        "saved_model": "Epoch model",
+        "saved_model_info": "Choose the evaluated policy saved at the end of an epoch",
+        "saved_model_empty": "No trained epoch models yet. Start training to create the first one.",
         "artifact": "Download run summary",
         "seconds": "s",
     },
@@ -903,14 +912,19 @@ TEXT = {
         "previous": "← 上一页",
         "next": "下一页 →",
         "settings": "实验设置",
-        "settings_copy": "可搜索完整环境目录或选择调优配方。Auto 项会检查动作空间并自动选择 DQN、PPO 或 SAC。",
+        "settings_copy": "设置每个 epoch 的训练步数与 epoch 数；每个 epoch 都会评估并保存一个可独立选择的策略。",
         "experiment": "实验",
         "budget": "训练预算",
         "budget_info": "表格任务使用回合数；DQN、PPO 与 SAC 使用环境步数",
+        "steps_per_epoch": "每个 epoch 的回合数 / 步数",
+        "steps_per_epoch_info": "一段固定训练量结束后执行评估、保存模型并生成回放",
+        "epochs": "训练 epochs / 保存模型数",
+        "epochs_info": "每个 epoch 都会生成一个可独立选择的策略",
         "alpha": "学习率",
         "gamma": "折扣因子 γ",
         "epsilon": "探索率 ε",
         "seed": "随机种子",
+        "advanced": "高级参数",
         "start": "开始训练",
         "start_running": "运行中…",
         "wait_title": "任务正在运行 · 请保持页面打开",
@@ -928,6 +942,9 @@ TEXT = {
         "log_waiting": "等待训练任务...",
         "preview": "任务预览 / 训练结果",
         "preview_copy": "12 个精选任务附带真实训练示例；其他注册表任务在运行前显示任务示意图，本次训练完成后替换为回放 GIF、策略图或结果曲线。",
+        "saved_model": "Epoch 模型",
+        "saved_model_info": "选择每个 epoch 结束时保存并评估的策略",
+        "saved_model_empty": "尚未训练出 epoch 模型；开始训练后会生成第一份。",
         "artifact": "下载运行摘要",
         "seconds": "秒",
     },
@@ -1171,6 +1188,136 @@ def save_summary(experiment: str, payload: dict) -> str:
     path = ARTIFACT_DIR / f"{slug}-run-summary.json"
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return str(path)
+
+
+MODEL_INDEX = ARTIFACT_DIR / "trained-models.json"
+
+
+def epoch_specs(experiment: str) -> tuple[tuple[float, float, float, float], tuple[float, float, float, float]]:
+    minimum, maximum, default, step = experiment_config(experiment)["budget"]
+    epochs = 6
+
+    def aligned(value: float) -> float:
+        return max(float(step), round(max(float(step), value) / float(step)) * float(step))
+
+    steps_default = aligned(float(default) / epochs)
+    return (
+        (min(steps_default, aligned(float(minimum) / epochs)), max(steps_default, aligned(float(maximum))), steps_default, float(step)),
+        (1.0, 12.0, float(epochs), 1.0),
+    )
+
+
+def epoch_targets(total: int, epochs: int) -> dict[int, int]:
+    count = max(1, min(int(total), min(12, int(epochs))))
+    targets = [max(1, round(int(total) * index / count)) for index in range(1, count + 1)]
+    targets[-1] = int(total)
+    return {step: index for index, step in enumerate(targets, start=1)}
+
+
+def model_slug(experiment: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", experiment.lower()).strip("-")
+
+
+def model_epoch_dir(experiment: str, run_id: str, epoch: int) -> Path:
+    path = ARTIFACT_DIR / f"{model_slug(experiment)}-{run_id}-epoch-{epoch:02d}"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def load_models(experiment: str | None = None) -> list[dict]:
+    try:
+        payload = json.loads(MODEL_INDEX.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        payload = {"models": []}
+    records = [record for record in payload.get("models", []) if isinstance(record, dict) and record.get("model_id")]
+    if experiment is not None:
+        records = [record for record in records if record.get("experiment") == experiment]
+    return sorted(records, key=lambda record: str(record.get("created_at", "")), reverse=True)
+
+
+def write_models(records: list[dict]) -> None:
+    temporary = MODEL_INDEX.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"models": records}, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(MODEL_INDEX)
+
+
+def register_model(
+    experiment: str,
+    run_id: str,
+    epoch: int,
+    epochs: int,
+    step: int,
+    total: int,
+    score: float,
+    model: str,
+    preview: str,
+) -> str:
+    model_id = f"{run_id}-epoch-{epoch:02d}"
+    record = {
+        "model_id": model_id,
+        "experiment": experiment,
+        "environment": experiment_config(experiment)["environment"],
+        "algorithm": experiment_config(experiment)["algorithm"],
+        "run_id": run_id,
+        "epoch": int(epoch),
+        "epochs": int(epochs),
+        "step": int(step),
+        "total": int(total),
+        "score": float(score),
+        "model": str(model),
+        "preview": str(preview),
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime()),
+    }
+    records = [existing for existing in load_models() if existing.get("model_id") != model_id]
+    records.insert(0, record)
+    write_models(records)
+    return model_id
+
+
+def model_selector(experiment: str, language: str, preferred: str | None = None, interactive: bool = True):
+    records = load_models(experiment)
+    choices = []
+    for record in records:
+        label = (
+            f"Epoch {record['epoch']}/{record['epochs']} · {record['step']:,}/{record['total']:,} · score {record['score']:.2f} · {record['run_id'][-8:]}"
+            if language == "English"
+            else f"Epoch {record['epoch']}/{record['epochs']} · {record['step']:,}/{record['total']:,} · 得分 {record['score']:.2f} · {record['run_id'][-8:]}"
+        )
+        choices.append((label, record["model_id"]))
+    values = {value for _, value in choices}
+    selected = preferred if preferred in values else (choices[0][1] if choices else None)
+    copy = copy_for(language)
+    return gr.Dropdown(
+        choices=choices,
+        value=selected,
+        label=copy["saved_model"],
+        info=copy["saved_model_info"] if choices else copy["saved_model_empty"],
+        interactive=interactive and bool(choices),
+        visible=True,
+    )
+
+
+def preview_provenance(experiment: str, model_id: str | None, language: str) -> str:
+    if not model_id:
+        message = copy_for(language)["saved_model_empty"]
+        return f'<div class="preview-provenance"><span></span>{html.escape(message)}</div>'
+    record = next((item for item in load_models(experiment) if item["model_id"] == model_id), None)
+    if record is None:
+        message = copy_for(language)["saved_model_empty"]
+        return f'<div class="preview-provenance"><span></span>{html.escape(message)}</div>'
+    message = (
+        f"Selected exact saved policy · epoch {record['epoch']}/{record['epochs']} · {record['step']:,} steps · score {record['score']:.2f}"
+        if language == "English"
+        else f"当前为真实保存策略 · epoch {record['epoch']}/{record['epochs']} · {record['step']:,} 步 · 得分 {record['score']:.2f}"
+    )
+    return f'<div class="preview-provenance preview-provenance--ready"><span></span>{html.escape(message)}</div>'
+
+
+def select_saved_model(experiment: str, model_id: str | None, language: str):
+    record = next((item for item in load_models(experiment) if item["model_id"] == model_id), None)
+    if record is None or not Path(str(record.get("preview", ""))).is_file():
+        return gr.skip(), preview_provenance(experiment, None, language)
+    return str(record["preview"]), preview_provenance(experiment, model_id, language)
 
 
 def run_bandit(budget: int, alpha: float, epsilon: float, seed: int, language: str):
@@ -1451,7 +1598,19 @@ def record_model(model, env_id: str, seed: int, filename: str, max_steps: int) -
     return str(path)
 
 
-def run_deep_control(experiment: str, env_id: str, algorithm: str, budget: int, alpha: float, gamma: float, epsilon: float, seed: int, language: str):
+def run_deep_control(
+    experiment: str,
+    env_id: str,
+    algorithm: str,
+    budget: int,
+    alpha: float,
+    gamma: float,
+    epsilon: float,
+    seed: int,
+    language: str,
+    epochs: int = 6,
+    run_id: str | None = None,
+):
     started = time.perf_counter()
     DQN, PPO, SAC, evaluate_policy = deep_rl_runtime()
     env = gym.make(env_id)
@@ -1467,24 +1626,80 @@ def run_deep_control(experiment: str, env_id: str, algorithm: str, budget: int, 
         model = SAC(policy, env, learning_rate=alpha, gamma=gamma, learning_starts=min(1000, max(100, budget // 10)), buffer_size=max(10000, budget), batch_size=64, seed=seed, device="cpu", verbose=0)
     else:
         model = PPO(policy, env, learning_rate=alpha, gamma=gamma, n_steps=min(1024, max(128, budget)), batch_size=64, seed=seed, device="cpu", verbose=0)
-    logs = [f"{experiment} training console", "=" * 72, elapsed_line(started, "CONFIG", f"environment={env_id} algorithm={algorithm} policy={policy} timesteps={budget} learning_rate={alpha:g} gamma={gamma:g} seed={seed} device=cpu")]
-    xs, rewards = [], []; chunk = 5000; trained = 0
-    while trained < budget:
-        step = min(chunk, budget - trained); model.learn(total_timesteps=step, reset_num_timesteps=False, progress_bar=False); trained += step
-        eval_env = gym.make(env_id); values, _ = evaluate_policy(model, eval_env, n_eval_episodes=3, deterministic=True, return_episode_rewards=True, warn=False); eval_env.close(); mean = float(np.mean(values)); xs.append(trained); rewards.append(mean)
-        logs.append(elapsed_line(started, "EVAL", f"step={trained}/{budget} mean_reward={mean:.1f}"))
-        yield status_card("running", copy_for(language)["running"], f"{trained:,}/{budget:,} steps", language), metric_card(f"{mean:.1f}", "3-episode evaluation reward", language), learning_figure(xs, rewards, f"{experiment} evaluation reward", "Mean reward"), gr.skip(), None, console_panel("\n".join(logs), language)
-    slug = re.sub(r"[^a-z0-9]+", "-", f"{env_id}-{algorithm}".lower()).strip("-"); model_path = ARTIFACT_DIR / slug; model.save(model_path); env.close()
+    run_id = run_id or f"{int(time.time())}-{seed}"
+    targets = epoch_targets(int(budget), int(epochs))
+    epoch_count = len(targets)
+    logs = [
+        f"{experiment} training console",
+        "=" * 72,
+        elapsed_line(started, "CONFIG", f"environment={env_id} algorithm={algorithm} policy={policy} total_steps={budget} epochs={epoch_count} learning_rate={alpha:g} gamma={gamma:g} seed={seed} device=cpu"),
+    ]
+    xs: list[float] = []
+    rewards: list[float] = []
+    trained = 0
+    last_preview = example_preview(experiment)
+    last_model = ""
     try:
-        gif = record_model(model, env_id, seed + 10000, f"{slug}-trained.gif", 500 if env_id in {"CartPole-v1", "Acrobot-v1"} else 999)
-        preview_kind = "replay GIF"
-    except Exception as exc:
-        gif = result_preview_image(experiment, "Training complete", f"{rewards[-1]:.1f}", "Final evaluation reward", x=xs, y=rewards, note="Training succeeded. Replay is unavailable in this CPU container.", algorithm=algorithm)
-        preview_kind = "result image"
-        logs.append(elapsed_line(started, "WARN", "training_succeeded=true replay_unavailable=headless renderer is not available in this CPU container"))
-    summary = save_summary(slug, {"experiment": experiment, "evaluation_steps": xs, "evaluation_rewards": rewards, "model": str(model_path.with_suffix('.zip')), "parameters": {"budget": budget, "learning_rate": alpha, "gamma": gamma, "epsilon": epsilon, "seed": seed}})
-    logs.append(elapsed_line(started, "DONE", f"preview={preview_kind} path={gif} model={model_path}.zip artifact={summary}"))
-    yield status_card("complete", copy_for(language)["complete"], f"{budget:,} steps · {time.perf_counter() - started:.1f}s", language), metric_card(f"{rewards[-1]:.1f}", "final evaluation reward", language), learning_figure(xs, rewards, f"{experiment} evaluation reward", "Mean reward"), gif, summary, console_panel("\n".join(logs), language)
+        for target, epoch in targets.items():
+            model.learn(total_timesteps=max(1, target - trained), reset_num_timesteps=False, progress_bar=False)
+            trained = target
+            eval_env = gym.make(env_id)
+            try:
+                values, _ = evaluate_policy(model, eval_env, n_eval_episodes=3, deterministic=True, return_episode_rewards=True, warn=False)
+            finally:
+                eval_env.close()
+            mean = float(np.mean(values))
+            xs.append(float(trained)); rewards.append(mean)
+            epoch_dir = model_epoch_dir(experiment, run_id, epoch)
+            model_path = epoch_dir / "policy"
+            model.save(model_path)
+            last_model = str(model_path.with_suffix(".zip"))
+            try:
+                last_preview = record_model(
+                    model,
+                    env_id,
+                    seed + 10_000 + epoch,
+                    f"{epoch_dir.name}/learned-policy.gif",
+                    500 if env_id in {"CartPole-v1", "Acrobot-v1"} else 999,
+                )
+                preview_kind = "replay GIF"
+            except Exception as exc:
+                last_preview = result_preview_image(
+                    experiment,
+                    "Training complete",
+                    f"{mean:.1f}",
+                    "Evaluation reward",
+                    filename=f"{epoch_dir.name}/learned-policy.png",
+                    x=xs,
+                    y=rewards,
+                    note=f"Training succeeded; replay unavailable: {type(exc).__name__}",
+                    algorithm=algorithm,
+                )
+                preview_kind = "result image"
+                logs.append(elapsed_line(started, "WARN", f"epoch={epoch} replay_unavailable={type(exc).__name__}: {exc}"))
+            model_id = register_model(experiment, run_id, epoch, epoch_count, trained, budget, mean, last_model, last_preview)
+            logs.append(elapsed_line(started, "EVAL", f"epoch={epoch}/{epoch_count} step={trained}/{budget} mean_reward={mean:.1f}"))
+            logs.append(elapsed_line(started, "SAVE", f"model_id={model_id} model={Path(last_model).name} preview={preview_kind}"))
+            yield (
+                status_card("running", copy_for(language)["running"], f"Epoch {epoch}/{epoch_count} · {trained:,}/{budget:,} steps", language),
+                metric_card(f"{mean:.1f}", "3-episode evaluation reward", language),
+                learning_figure(xs, rewards, f"{experiment} evaluation reward", "Mean reward"),
+                last_preview,
+                None,
+                console_panel("\n".join(logs), language),
+            )
+    finally:
+        env.close()
+    summary = save_summary(model_slug(experiment), {
+        "experiment": experiment,
+        "evaluation_steps": xs,
+        "evaluation_rewards": rewards,
+        "model": last_model,
+        "models": [record["model_id"] for record in load_models(experiment) if record["run_id"] == run_id],
+        "parameters": {"budget": budget, "epochs": epoch_count, "learning_rate": alpha, "gamma": gamma, "epsilon": epsilon, "seed": seed},
+    })
+    logs.append(elapsed_line(started, "DONE", f"saved_models={epoch_count} artifact={summary}"))
+    yield status_card("complete", copy_for(language)["complete"], f"{epoch_count} epoch models · {time.perf_counter() - started:.1f}s", language), metric_card(f"{rewards[-1]:.1f}", "final evaluation reward", language), learning_figure(xs, rewards, f"{experiment} evaluation reward", "Mean reward"), last_preview, summary, console_panel("\n".join(logs), language)
 
 
 def error_figure(title: str, message: str, heading: str = "Run stopped"):
@@ -1495,7 +1710,7 @@ def error_figure(title: str, message: str, heading: str = "Run stopped"):
     fig.tight_layout(); return fig
 
 
-def run_catalog_experiment(experiment: str, budget: int, alpha: float, gamma: float, epsilon: float, seed: int, language: str):
+def run_catalog_experiment(experiment: str, budget: int, alpha: float, gamma: float, epsilon: float, seed: int, language: str, epochs: int = 6, run_id: str | None = None):
     env_id = catalog_env_id(experiment); started = time.perf_counter()
     logs = [f"{env_id} automatic training console", "=" * 72, elapsed_line(started, "REGISTER", f"environment={env_id} family={experiment.split(' · ', 1)[0]}"), elapsed_line(started, "CONFIG", f"budget={budget} learning_rate={alpha:g} gamma={gamma:g} epsilon={epsilon:g} seed={seed}")]
     yield status_card("running", copy_for(language)["running"], "Inspecting environment and action space", language), metric_card("AUTO", "selecting a compatible baseline", language), error_figure(env_id, "Inspecting environment and action space...", "Preparing environment"), gr.skip(), None, console_panel("\n".join(logs), language)
@@ -1514,7 +1729,7 @@ def run_catalog_experiment(experiment: str, budget: int, alpha: float, gamma: fl
             raise ValueError(f"Unsupported action space for the automatic baseline: {action_space}")
         logs.append(elapsed_line(started, "AUTO", f"selected_algorithm={algorithm}")); env.close(); env = None
         yield status_card("running", copy_for(language)["running"], f"Auto selected {algorithm}", language), metric_card(algorithm, f"action space: {action_space}", language), error_figure(env_id, f"Initializing the {algorithm} model...", "Starting training"), gr.skip(), None, console_panel("\n".join(logs), language)
-        for status, metric, curve, preview, artifact, console in run_deep_control(experiment, env_id, algorithm, budget, alpha, gamma, epsilon, seed, language):
+        for status, metric, curve, preview, artifact, console in run_deep_control(experiment, env_id, algorithm, budget, alpha, gamma, epsilon, seed, language, epochs, run_id):
             deep_text = re.search(r'<pre class="console-text">(.*?)</pre>', console, re.DOTALL)
             combined = "\n".join(logs) + ("\n\n" + html.unescape(deep_text.group(1)) if deep_text else "")
             yield status, metric, curve, preview, artifact, console_panel(combined, language)
@@ -1527,46 +1742,188 @@ def run_catalog_experiment(experiment: str, budget: int, alpha: float, gamma: fl
         yield status_card("idle", "Legacy environment", "Choose the current maintained version", language), metric_card("LEGACY", "see the latest log lines", language), error_figure(env_id, message), diagnostic, summary, console_panel("\n".join(logs), language)
 
 
-def train(experiment: str, budget: float, alpha: float, gamma: float, epsilon: float, seed: float, language: str):
-    budget, seed = int(budget), int(seed)
+def _bandit_preview(probabilities: np.ndarray, q: np.ndarray, output: Path) -> str:
+    fig, ax = plt.subplots(figsize=(6, 4))
+    positions = np.arange(1, len(q) + 1)
+    ax.bar(positions - 0.16, probabilities, 0.32, label="True probability", color="#93c5fd")
+    ax.bar(positions + 0.16, q, 0.32, label="Learned estimate", color="#5b5ce2")
+    ax.set(xticks=positions, xlabel="Arm", ylabel="Reward probability", ylim=(0, 1), title="True vs learned arm values")
+    ax.legend(); ax.grid(axis="y", alpha=0.2); fig.tight_layout()
+    fig.savefig(output, dpi=150, bbox_inches="tight"); plt.close(fig)
+    return str(output)
+
+
+def run_bandit_epochs(budget: int, alpha: float, epsilon: float, seed: int, language: str, epochs: int, run_id: str):
+    started = time.perf_counter(); rng = np.random.default_rng(seed)
+    probabilities = np.array([0.35, 0.50, 0.72, 0.58]); q = np.zeros(4); counts = np.zeros(4, dtype=int); rewards: list[float] = []
+    targets = epoch_targets(budget, epochs); logs = ["Multi-Armed Bandit training console", "=" * 72, elapsed_line(started, "CONFIG", f"steps={budget} epochs={len(targets)} alpha={alpha:g} epsilon={epsilon:g} seed={seed}")]
+    completed = 0; last_preview = example_preview(BANDIT); last_model = ""
+    for target, epoch in targets.items():
+        for _ in range(completed, target):
+            action = int(rng.integers(4)) if rng.random() < epsilon else int(np.argmax(q)); reward = float(rng.random() < probabilities[action])
+            counts[action] += 1; q[action] += alpha * (reward - q[action]); rewards.append(reward)
+        completed = target; score = float(np.mean(rewards[-min(len(rewards), target - (list(targets)[epoch - 2] if epoch > 1 else 0)):]))
+        epoch_dir = model_epoch_dir(BANDIT, run_id, epoch); model_path = epoch_dir / "policy.npz"; np.savez(model_path, q=q, counts=counts, probabilities=probabilities)
+        last_model = str(model_path); last_preview = _bandit_preview(probabilities, q, epoch_dir / "learned-policy.png")
+        model_id = register_model(BANDIT, run_id, epoch, len(targets), completed, budget, score, last_model, last_preview)
+        logs.append(elapsed_line(started, "EPOCH", f"{epoch}/{len(targets)} step={completed}/{budget} average_reward={score:.3f} best_arm={int(np.argmax(q))+1}")); logs.append(elapsed_line(started, "SAVE", f"model_id={model_id}"))
+        curve = (np.cumsum(rewards) / np.arange(1, len(rewards) + 1)).tolist()
+        yield status_card("running", copy_for(language)["running"], f"Epoch {epoch}/{len(targets)} · {completed:,}/{budget:,} steps", language), metric_card(f"{score:.3f}", f"estimated best arm: {int(np.argmax(q))+1}", language), learning_figure(list(range(1, completed + 1)), curve, "Bandit cumulative average reward", "Average reward"), last_preview, None, console_panel("\n".join(logs), language)
+    summary = save_summary("bandit", {"experiment": BANDIT, "q_values": q.tolist(), "counts": counts.tolist(), "models": [r["model_id"] for r in load_models(BANDIT) if r["run_id"] == run_id], "parameters": {"budget": budget, "epochs": len(targets), "alpha": alpha, "epsilon": epsilon, "seed": seed}})
+    yield status_card("complete", copy_for(language)["complete"], f"{len(targets)} epoch models · {time.perf_counter()-started:.1f}s", language), metric_card(f"{np.mean(rewards):.3f}", f"best arm: {int(np.argmax(q))+1}", language), learning_figure(list(range(1, budget + 1)), (np.cumsum(rewards)/np.arange(1,budget+1)).tolist(), "Bandit cumulative average reward", "Average reward"), last_preview, summary, console_panel("\n".join(logs), language)
+
+
+def run_gridworld_epochs(budget: int, alpha: float, gamma: float, epsilon: float, seed: int, language: str, epochs: int, run_id: str):
+    started = time.perf_counter(); rng = np.random.default_rng(seed); q = np.zeros((4,4,4)); rewards: list[float] = []; targets = epoch_targets(budget, epochs); completed = 0
+    logs = ["GridWorld Q-Learning console", "="*72, elapsed_line(started,"CONFIG",f"episodes={budget} epochs={len(targets)} alpha={alpha:g} gamma={gamma:g} epsilon={epsilon:g}")]; last_preview = example_preview(GRIDWORLD)
+    for target, epoch in targets.items():
+        for _ in range(completed, target):
+            state=(0,0); total=0.0
+            for _ in range(100):
+                action=int(rng.integers(4)) if rng.random()<epsilon else int(rng.choice(np.flatnonzero(q[state]==q[state].max()))); nxt,reward,done=grid_step(state,action)
+                q[state][action]+=alpha*(reward+(0 if done else gamma*q[nxt].max())-q[state][action]); total+=reward; state=nxt
+                if done: break
+            rewards.append(total)
+        completed=target; score=float(np.mean(rewards[-min(50,len(rewards)):])); epoch_dir=model_epoch_dir(GRIDWORLD,run_id,epoch); model_path=epoch_dir/"q-table.npz"; np.savez(model_path,q=q)
+        policy={(r,c):ARROWS[int(np.argmax(q[r,c]))] for r in range(4) for c in range(4) if (r,c) not in {(1,1),(3,3)}}; values={(r,c):float(q[r,c].max()) for r in range(4) for c in range(4)}
+        last_preview=policy_grid_image(["S...",".T..","....","...G"],policy,"Learned GridWorld policy",f"{epoch_dir.name}/learned-policy.png",values); model_id=register_model(GRIDWORLD,run_id,epoch,len(targets),completed,budget,score,str(model_path),last_preview)
+        logs.append(elapsed_line(started,"EPOCH",f"{epoch}/{len(targets)} episode={completed}/{budget} recent_reward={score:.3f}")); logs.append(elapsed_line(started,"SAVE",f"model_id={model_id}"))
+        yield status_card("running",copy_for(language)["running"],f"Epoch {epoch}/{len(targets)} · {completed:,}/{budget:,} episodes",language),metric_card(f"{score:.3f}","recent mean reward",language),learning_figure(list(range(1,completed+1)),rewards,"GridWorld episode reward","Episode reward"),last_preview,None,console_panel("\n".join(logs),language)
+    summary=save_summary("gridworld",{"experiment":GRIDWORLD,"q_values":q.tolist(),"parameters":{"budget":budget,"epochs":len(targets),"alpha":alpha,"gamma":gamma,"epsilon":epsilon,"seed":seed}})
+    yield status_card("complete",copy_for(language)["complete"],f"{len(targets)} epoch models · {time.perf_counter()-started:.1f}s",language),metric_card(f"{score:.3f}","final recent mean reward",language),learning_figure(list(range(1,budget+1)),rewards,"GridWorld episode reward","Episode reward"),last_preview,summary,console_panel("\n".join(logs),language)
+
+
+def run_frozenlake_epochs(budget: int, alpha: float, gamma: float, epsilon: float, seed: int, language: str, epochs: int, run_id: str):
+    started=time.perf_counter(); rng=np.random.default_rng(seed); env=gym.make("FrozenLake-v1",map_name="4x4",is_slippery=True); q=np.zeros((16,4)); successes: list[float]=[]; targets=epoch_targets(budget,epochs); completed=0; desc=["SFFF","FHFH","FFFH","HFFG"]
+    logs=["FrozenLake Q-Learning console","="*72,elapsed_line(started,"CONFIG",f"episodes={budget} epochs={len(targets)} slippery=true")]; last_preview=example_preview(FROZENLAKE)
+    try:
+        for target,epoch in targets.items():
+            for episode in range(completed+1,target+1):
+                state,_=env.reset(seed=seed+episode); done=False; won=0.0; current_eps=max(.02,epsilon*(1-episode/budget))
+                while not done:
+                    action=int(rng.integers(4)) if rng.random()<current_eps else int(rng.choice(np.flatnonzero(q[state]==q[state].max()))); nxt,reward,terminated,truncated,_=env.step(action); done=terminated or truncated
+                    q[state,action]+=alpha*(reward+(0 if done else gamma*q[nxt].max())-q[state,action]); state=nxt; won=max(won,float(reward))
+                successes.append(won)
+            completed=target; score=float(np.mean(successes[-min(500,len(successes)):])); epoch_dir=model_epoch_dir(FROZENLAKE,run_id,epoch); model_path=epoch_dir/"q-table.npz"; np.savez(model_path,q=q)
+            policy={(s//4,s%4):ARROWS[int(np.argmax(q[s]))] for s in range(16) if desc[s//4][s%4] not in "HG"}; last_preview=policy_grid_image(desc,policy,"Learned policy on slippery FrozenLake",f"{epoch_dir.name}/learned-policy.png")
+            model_id=register_model(FROZENLAKE,run_id,epoch,len(targets),completed,budget,score,str(model_path),last_preview); logs.append(elapsed_line(started,"EPOCH",f"{epoch}/{len(targets)} episode={completed}/{budget} success={score:.1%}")); logs.append(elapsed_line(started,"SAVE",f"model_id={model_id}"))
+            curve=(np.cumsum(successes)/np.arange(1,len(successes)+1)).tolist(); yield status_card("running",copy_for(language)["running"],f"Epoch {epoch}/{len(targets)} · {completed:,}/{budget:,} episodes",language),metric_card(f"{score:.1%}","recent success rate",language),learning_figure(list(range(1,completed+1)),curve,"FrozenLake cumulative success rate","Success rate"),last_preview,None,console_panel("\n".join(logs),language)
+    finally: env.close()
+    summary=save_summary("frozenlake",{"experiment":FROZENLAKE,"q_values":q.tolist(),"success_rate":score,"parameters":{"budget":budget,"epochs":len(targets),"alpha":alpha,"gamma":gamma,"epsilon":epsilon,"seed":seed}}); curve=(np.cumsum(successes)/np.arange(1,len(successes)+1)).tolist()
+    yield status_card("complete",copy_for(language)["complete"],f"{len(targets)} epoch models · {time.perf_counter()-started:.1f}s",language),metric_card(f"{score:.1%}","final success rate",language),learning_figure(list(range(1,budget+1)),curve,"FrozenLake cumulative success rate","Success rate"),last_preview,summary,console_panel("\n".join(logs),language)
+
+
+def run_blackjack_epochs(budget: int, alpha: float, gamma: float, epsilon: float, seed: int, language: str, epochs: int, run_id: str):
+    started=time.perf_counter(); rng=np.random.default_rng(seed); env=gym.make("Blackjack-v1",sab=True); q=defaultdict(lambda:np.zeros(2,dtype=float)); rewards: list[float]=[]; targets=epoch_targets(budget,epochs); completed=0; logs=["Blackjack first-visit Monte Carlo console","="*72,elapsed_line(started,"CONFIG",f"episodes={budget} epochs={len(targets)}")]; last_preview=example_preview(BLACKJACK)
+    try:
+        for target,epoch in targets.items():
+            for episode in range(completed+1,target+1):
+                state,_=env.reset(seed=seed+episode); trajectory=[]; done=False; current_eps=max(.02,epsilon*(1-episode/budget))
+                while not done:
+                    action=int(rng.integers(2)) if rng.random()<current_eps else int(rng.choice(np.flatnonzero(q[state]==q[state].max()))); nxt,reward,terminated,truncated,_=env.step(action); trajectory.append((state,action,float(reward))); state=nxt; done=terminated or truncated
+                rewards.append(float(reward)); returns=0.0; visited=set()
+                for old_state,action,reward_step in reversed(trajectory):
+                    returns=reward_step+gamma*returns; pair=(old_state,action)
+                    if pair not in visited: q[old_state][action]+=alpha*(returns-q[old_state][action]); visited.add(pair)
+            completed=target; score=float(np.mean(np.asarray(rewards[-min(5000,len(rewards)):])>0)); epoch_dir=model_epoch_dir(BLACKJACK,run_id,epoch); model_path=epoch_dir/"policy.json"; serialized={str(state):values.tolist() for state,values in q.items()}; model_path.write_text(json.dumps({"q_values":serialized},ensure_ascii=False),encoding="utf-8")
+            last_preview=blackjack_policy_image(q,f"{epoch_dir.name}/learned-policy.png"); model_id=register_model(BLACKJACK,run_id,epoch,len(targets),completed,budget,score,str(model_path),last_preview); logs.append(elapsed_line(started,"EPOCH",f"{epoch}/{len(targets)} episode={completed}/{budget} win_rate={score:.1%}")); logs.append(elapsed_line(started,"SAVE",f"model_id={model_id}"))
+            curve=(np.cumsum(rewards)/np.arange(1,len(rewards)+1)).tolist(); yield status_card("running",copy_for(language)["running"],f"Epoch {epoch}/{len(targets)} · {completed:,}/{budget:,} episodes",language),metric_card(f"{score:.1%}","recent win rate",language),learning_figure(list(range(1,completed+1)),curve,"Blackjack cumulative mean return","Mean return"),last_preview,None,console_panel("\n".join(logs),language)
+    finally: env.close()
+    summary=save_summary("blackjack",{"experiment":BLACKJACK,"states":len(q),"win_rate":score,"parameters":{"budget":budget,"epochs":len(targets),"alpha":alpha,"gamma":gamma,"epsilon":epsilon,"seed":seed}}); curve=(np.cumsum(rewards)/np.arange(1,len(rewards)+1)).tolist()
+    yield status_card("complete",copy_for(language)["complete"],f"{len(targets)} epoch models · {time.perf_counter()-started:.1f}s",language),metric_card(f"{score:.1%}","final win rate",language),learning_figure(list(range(1,budget+1)),curve,"Blackjack cumulative mean return","Mean return"),last_preview,summary,console_panel("\n".join(logs),language)
+
+
+def run_discrete_epochs(experiment: str, env_id: str, method: str, budget: int, alpha: float, gamma: float, epsilon: float, seed: int, language: str, epochs: int, run_id: str):
+    started=time.perf_counter(); rng=np.random.default_rng(seed); env=gym.make(env_id); q=np.zeros((env.observation_space.n,env.action_space.n)); rewards: list[float]=[]; targets=epoch_targets(budget,epochs); completed=0; max_steps=1000 if env_id.startswith("Cliff") else 200; logs=[f"{experiment} training console","="*72,elapsed_line(started,"CONFIG",f"method={method} episodes={budget} epochs={len(targets)}")]; last_preview=example_preview(experiment)
+    try:
+        for target,epoch in targets.items():
+            for episode in range(completed+1,target+1):
+                state,_=env.reset(seed=seed+episode); current_eps=max(.02,epsilon*(1-episode/budget)); action=int(rng.integers(env.action_space.n)) if rng.random()<current_eps else int(rng.choice(np.flatnonzero(q[state]==q[state].max()))); total=0.0
+                for _ in range(max_steps):
+                    nxt,reward,terminated,truncated,_=env.step(action); done=terminated or truncated; nxt_action=int(rng.integers(env.action_space.n)) if rng.random()<current_eps else int(rng.choice(np.flatnonzero(q[nxt]==q[nxt].max()))); target_value=reward if done else reward+gamma*(q[nxt,nxt_action] if method=="SARSA" else q[nxt].max()); q[state,action]+=alpha*(target_value-q[state,action]); total+=float(reward); state,action=nxt,nxt_action
+                    if done: break
+                rewards.append(total)
+            completed=target; score=float(np.mean(rewards[-min(100,len(rewards)):])); epoch_dir=model_epoch_dir(experiment,run_id,epoch); model_path=epoch_dir/"q-table.npz"; np.savez(model_path,q=q)
+            try: last_preview=record_discrete_policy(env_id,q,seed+10000+epoch,f"{epoch_dir.name}/learned-policy.gif",max_steps)
+            except Exception as exc: last_preview=result_preview_image(experiment,"Training complete",f"{score:.1f}","Recent mean reward",filename=f"{epoch_dir.name}/learned-policy.png",x=list(range(1,completed+1)),y=rewards,note=f"Replay unavailable: {type(exc).__name__}")
+            model_id=register_model(experiment,run_id,epoch,len(targets),completed,budget,score,str(model_path),last_preview); logs.append(elapsed_line(started,"EPOCH",f"{epoch}/{len(targets)} episode={completed}/{budget} reward={score:.1f}")); logs.append(elapsed_line(started,"SAVE",f"model_id={model_id}"))
+            yield status_card("running",copy_for(language)["running"],f"Epoch {epoch}/{len(targets)} · {completed:,}/{budget:,} episodes",language),metric_card(f"{score:.1f}","recent mean reward",language),learning_figure(list(range(1,completed+1)),rewards,f"{experiment} episode reward","Episode reward"),last_preview,None,console_panel("\n".join(logs),language)
+    finally: env.close()
+    summary=save_summary(model_slug(experiment),{"experiment":experiment,"q_values":q.tolist(),"parameters":{"budget":budget,"epochs":len(targets),"alpha":alpha,"gamma":gamma,"epsilon":epsilon,"seed":seed}})
+    yield status_card("complete",copy_for(language)["complete"],f"{len(targets)} epoch models · {time.perf_counter()-started:.1f}s",language),metric_card(f"{score:.1f}","final recent mean reward",language),learning_figure(list(range(1,budget+1)),rewards,f"{experiment} episode reward","Episode reward"),last_preview,summary,console_panel("\n".join(logs),language)
+
+
+def run_mountaincar_epochs(budget: int, alpha: float, gamma: float, epsilon: float, seed: int, language: str, epochs: int, run_id: str):
+    started=time.perf_counter(); rng=np.random.default_rng(seed); env=gym.make("MountainCar-v0"); q=np.zeros((24,20,3)); rewards: list[float]=[]; targets=epoch_targets(budget,epochs); completed=0; logs=["MountainCar Q-Learning console","="*72,elapsed_line(started,"CONFIG",f"episodes={budget} epochs={len(targets)} bins=24x20")]; last_preview=example_preview(MOUNTAINCAR)
+    try:
+        for target,epoch in targets.items():
+            for episode in range(completed+1,target+1):
+                obs,_=env.reset(seed=seed+episode); state=mountain_state(obs); total=0.0; current_eps=max(.02,epsilon*(1-episode/budget))
+                for _ in range(200):
+                    action=int(rng.integers(3)) if rng.random()<current_eps else int(np.argmax(q[state])); nxt_obs,reward,terminated,truncated,_=env.step(action); nxt=mountain_state(nxt_obs); shaped=reward+25.0*max(0.0,float(nxt_obs[0]-obs[0]))+(100.0 if terminated else 0.0); q[state][action]+=alpha*(shaped+(0 if terminated else gamma*q[nxt].max())-q[state][action]); total+=reward; obs=nxt_obs; state=nxt
+                    if terminated or truncated: break
+                rewards.append(total)
+            completed=target; score=float(np.mean(rewards[-min(100,len(rewards)):])); epoch_dir=model_epoch_dir(MOUNTAINCAR,run_id,epoch); model_path=epoch_dir/"q-table.npz"; np.savez(model_path,q=q)
+            try: last_preview=record_tabular_control("MountainCar-v0",lambda obs:int(np.argmax(q[mountain_state(obs)])),seed+10000+epoch,f"{epoch_dir.name}/learned-policy.gif",200)
+            except Exception as exc: last_preview=result_preview_image(MOUNTAINCAR,"Training complete",f"{score:.1f}","Recent mean reward",filename=f"{epoch_dir.name}/learned-policy.png",x=list(range(1,completed+1)),y=rewards,note=f"Replay unavailable: {type(exc).__name__}")
+            model_id=register_model(MOUNTAINCAR,run_id,epoch,len(targets),completed,budget,score,str(model_path),last_preview); logs.append(elapsed_line(started,"EPOCH",f"{epoch}/{len(targets)} episode={completed}/{budget} reward={score:.1f}")); logs.append(elapsed_line(started,"SAVE",f"model_id={model_id}"))
+            yield status_card("running",copy_for(language)["running"],f"Epoch {epoch}/{len(targets)} · {completed:,}/{budget:,} episodes",language),metric_card(f"{score:.1f}","recent mean reward",language),learning_figure(list(range(1,completed+1)),rewards,"MountainCar episode reward","Episode reward"),last_preview,None,console_panel("\n".join(logs),language)
+    finally: env.close()
+    summary=save_summary("mountaincar",{"experiment":MOUNTAINCAR,"q_values":q.tolist(),"parameters":{"budget":budget,"epochs":len(targets),"alpha":alpha,"gamma":gamma,"epsilon":epsilon,"seed":seed}})
+    yield status_card("complete",copy_for(language)["complete"],f"{len(targets)} epoch models · {time.perf_counter()-started:.1f}s",language),metric_card(f"{score:.1f}","final recent mean reward",language),learning_figure(list(range(1,budget+1)),rewards,"MountainCar episode reward","Episode reward"),last_preview,summary,console_panel("\n".join(logs),language)
+
+
+def train(experiment: str, steps_per_epoch: float, epochs: float, alpha: float, gamma: float, epsilon: float, seed: float, language: str):
+    steps_per_epoch, epochs, seed = int(steps_per_epoch), max(1, min(12, int(epochs))), int(seed)
+    budget = steps_per_epoch * epochs
+    run_id = f"{int(time.time())}-{time.time_ns() % 1_000_000:06d}"
     try:
         if experiment not in EXPERIMENT_CHOICES:
             raise ValueError("This environment is not registered in the current runtime. Refresh the page and choose an available task.")
         if is_catalog_experiment(experiment):
-            yield from run_catalog_experiment(experiment, budget, alpha, gamma, epsilon, seed, language)
+            yield from run_catalog_experiment(experiment, budget, alpha, gamma, epsilon, seed, language, epochs, run_id)
         elif experiment == BANDIT:
-            yield from run_bandit(budget, alpha, epsilon, seed, language)
+            yield from run_bandit_epochs(budget, alpha, epsilon, seed, language, epochs, run_id)
         elif experiment == BLACKJACK:
-            yield from run_blackjack(budget, alpha, gamma, epsilon, seed, language)
+            yield from run_blackjack_epochs(budget, alpha, gamma, epsilon, seed, language, epochs, run_id)
         elif experiment == GRIDWORLD:
-            yield from run_gridworld(budget, alpha, gamma, epsilon, seed, language)
+            yield from run_gridworld_epochs(budget, alpha, gamma, epsilon, seed, language, epochs, run_id)
         elif experiment == FROZENLAKE:
-            yield from run_frozenlake(budget, alpha, gamma, epsilon, seed, language)
+            yield from run_frozenlake_epochs(budget, alpha, gamma, epsilon, seed, language, epochs, run_id)
         elif experiment == CLIFF:
-            yield from run_discrete_control(CLIFF, "CliffWalking-v1", "SARSA", budget, alpha, gamma, epsilon, seed, language)
+            yield from run_discrete_epochs(CLIFF, "CliffWalking-v1", "SARSA", budget, alpha, gamma, epsilon, seed, language, epochs, run_id)
         elif experiment == TAXI:
-            yield from run_discrete_control(TAXI, "Taxi-v4", "Q-Learning", budget, alpha, gamma, epsilon, seed, language)
+            yield from run_discrete_epochs(TAXI, "Taxi-v4", "Q-Learning", budget, alpha, gamma, epsilon, seed, language, epochs, run_id)
         elif experiment == MOUNTAINCAR:
-            yield from run_mountaincar(budget, alpha, gamma, epsilon, seed, language)
+            yield from run_mountaincar_epochs(budget, alpha, gamma, epsilon, seed, language, epochs, run_id)
         else:
             env_id = EXPERIMENTS[experiment]["environment"]
-            yield from run_deep_control(experiment, env_id, EXPERIMENTS[experiment]["algorithm"], budget, alpha, gamma, epsilon, seed, language)
+            yield from run_deep_control(experiment, env_id, EXPERIMENTS[experiment]["algorithm"], budget, alpha, gamma, epsilon, seed, language, epochs, run_id)
     except Exception as exc:
         message = f"{type(exc).__name__}: {exc}"
         diagnostic = result_preview_image(experiment, "Run stopped", "ERROR", "training result", note=message)
-        summary = save_summary(experiment, {"experiment": experiment, "status": "failed", "error": message, "parameters": {"budget": budget, "learning_rate": alpha, "gamma": gamma, "epsilon": epsilon, "seed": seed}})
+        summary = save_summary(experiment, {"experiment": experiment, "status": "failed", "error": message, "parameters": {"steps_per_epoch": steps_per_epoch, "epochs": epochs, "budget": budget, "learning_rate": alpha, "gamma": gamma, "epsilon": epsilon, "seed": seed}})
         logs = [f"{experiment} training console", "=" * 72, elapsed_line(time.perf_counter(), "ERROR", message), "RESULT  A diagnostic preview and JSON summary were produced."]
         yield status_card("idle", "Training stopped", "Diagnostic result produced", language), metric_card("ERROR", "see the latest log lines", language), error_figure(experiment, message), diagnostic, summary, console_panel("\n".join(logs), language)
 
 
-def train_with_ui(experiment: str, budget: float, alpha: float, gamma: float, epsilon: float, seed: float, language: str):
+def train_with_ui(experiment: str, steps_per_epoch: float, epochs: float, alpha: float, gamma: float, epsilon: float, seed: float, language: str):
     """Stream waiting, training, and completion states through one request."""
     copy = copy_for(language)
-    unchanged = (gr.skip(),) * 6
+    unchanged = (gr.skip(),) * 8
     yield *unchanged, gr.HTML(value=waiting_panel(language), visible=True), gr.Button(value=copy["start_running"], interactive=False)
-    for result in train(experiment, budget, alpha, gamma, epsilon, seed, language):
-        yield *result, gr.skip(), gr.skip()
-    yield *unchanged, gr.HTML(value="", visible=False), gr.Button(value=copy["start"], interactive=True)
+    preferred = None
+    for result in train(experiment, steps_per_epoch, epochs, alpha, gamma, epsilon, seed, language):
+        values = list(result)
+        artifact_value = values[4]
+        values[4] = gr.File(value=None, visible=False) if artifact_value is None else gr.File(value=artifact_value, label=copy["artifact"], visible=True)
+        records = load_models(experiment)
+        if records:
+            preferred = records[0]["model_id"]
+        values.extend([model_selector(experiment, language, preferred, interactive=False), preview_provenance(experiment, preferred, language)])
+        yield *values, gr.skip(), gr.skip()
+    final_selector = model_selector(experiment, language, preferred, interactive=True)
+    yield *(gr.skip(),) * 6, final_selector, preview_provenance(experiment, preferred, language), gr.HTML(value="", visible=False), gr.Button(value=copy["start"], interactive=True)
 
 
 def slider_update(label: str, spec: tuple[float, float, float, float], visible: bool = True):
@@ -1576,10 +1933,13 @@ def slider_update(label: str, spec: tuple[float, float, float, float], visible: 
 
 def select_experiment(experiment: str, language: str):
     copy = copy_for(language); cfg = experiment_config(experiment)
+    step_spec, epoch_spec = epoch_specs(experiment)
+    selector = model_selector(experiment, language)
     return (
         hero_html(language, experiment),
         task_brief(experiment, language),
-        slider_update(copy["budget"], cfg["budget"]),
+        slider_update(copy["steps_per_epoch"], step_spec),
+        slider_update(copy["epochs"], epoch_spec),
         slider_update(copy["alpha"], cfg["alpha"]),
         slider_update(copy["gamma"], cfg["gamma"], cfg["gamma_visible"]),
         slider_update(copy["epsilon"], cfg["epsilon"], cfg["algorithm"] not in {"PPO", "SAC"}),
@@ -1587,16 +1947,20 @@ def select_experiment(experiment: str, language: str):
         metric_card("—", copy["metric_waiting"], language),
         console_panel(copy["log_waiting"], language),
         example_preview(experiment),
-        None,
+        gr.File(value=None, label=copy["artifact"], visible=False),
+        selector,
+        preview_provenance(experiment, selector.value, language),
     )
 
 
 def switch_language(language: str, experiment: str, seed: float, learning_path: str, query: str, feature_value: str, page: float):
     copy = copy_for(language); cfg = experiment_config(experiment)
+    step_spec, epoch_spec = epoch_specs(experiment)
     feature_options = feature_choices(query, learning_path, language)
     valid_features = {value for _, value in feature_options}
     selected_feature = feature_value if feature_value in valid_features else ALL_FEATURES
     gallery_values = catalog_page(query, learning_path, selected_feature, int(page), language)
+    selector = model_selector(experiment, language)
     return (
         hero_html(language, experiment), catalog_header_html(language),
         gr.Radio(choices=path_choices(language), value=learning_path, label=copy["path"]),
@@ -1605,17 +1969,19 @@ def switch_language(language: str, experiment: str, seed: float, learning_path: 
         goal_pager_html(language),
         catalog_wait_html(language),
         *gallery_values,
-        panel_html(copy["settings"], copy["settings_copy"]), task_brief(experiment, language),
-        slider_update(copy["budget"], cfg["budget"]), slider_update(copy["alpha"], cfg["alpha"]), slider_update(copy["gamma"], cfg["gamma"], cfg["gamma_visible"]), slider_update(copy["epsilon"], cfg["epsilon"], cfg["algorithm"] not in {"PPO", "SAC"}),
+        panel_html(copy["settings"], copy["settings_copy"]), gr.Accordion(label=copy["advanced"], open=False), task_brief(experiment, language),
+        slider_update(copy["steps_per_epoch"], step_spec), slider_update(copy["epochs"], epoch_spec), slider_update(copy["alpha"], cfg["alpha"]), slider_update(copy["gamma"], cfg["gamma"], cfg["gamma_visible"]), slider_update(copy["epsilon"], cfg["epsilon"], cfg["algorithm"] not in {"PPO", "SAC"}),
         gr.Number(value=seed, precision=0, label=copy["seed"]), gr.Button(value=copy["start"]), status_card("idle", copy["ready"], copy["ready_detail"], language),
         metric_card("—", copy["metric_waiting"], language), panel_html(copy["curve"], copy["curve_copy"]), console_panel(copy["log_waiting"], language),
-        panel_html(copy["preview"], copy["preview_copy"], "artifact-note"), gr.File(label=copy["artifact"]),
+        panel_html(copy["preview"], copy["preview_copy"], "artifact-note"), gr.File(label=copy["artifact"], visible=False), selector, preview_provenance(experiment, selector.value, language),
     )
 
 
 CSS = """
 :root { --ink:#172033; --muted:#68748a; --line:#e4e8f0; --canvas:#f4f6fa; --brand:#5b5ce2; --green:#13a36f; }
-.gradio-container { max-width:1180px!important; margin:0 auto!important; padding:28px 22px 52px!important; background:var(--canvas); }
+.gradio-container { width:100%!important; min-width:0!important; max-width:1180px!important; margin:0 auto!important; padding:28px clamp(10px,2vw,22px) 52px!important; box-sizing:border-box!important; background:var(--canvas); }
+.gradio-container>.main { width:100%!important; min-width:0!important; padding:clamp(8px,1.5vw,24px)!important; box-sizing:border-box!important; }
+.gradio-container .contain { width:100%!important; min-width:0!important; }
 .hero-stack { position:relative!important; margin:0!important; padding:0!important; border:0!important; background:transparent!important; }
 .language-bar { position:absolute!important; z-index:5!important; top:18px!important; right:20px!important; width:auto!important; min-width:0!important; margin:0!important; padding:0!important; border:0!important; background:transparent!important; }
 .language-switch { width:216px!important; min-width:216px!important; margin:0!important; padding:3px!important; border:1px solid rgba(255,255,255,.18)!important; border-radius:10px!important; background:rgba(14,20,46,.58)!important; box-shadow:0 7px 20px rgba(5,8,24,.22)!important; backdrop-filter:blur(12px)!important; }
@@ -1632,10 +1998,12 @@ CSS = """
 .catalog-card{margin:0 0 18px!important;padding:22px!important;border:1px solid var(--line)!important;border-radius:17px!important;background:#fff!important;box-shadow:0 10px 30px rgba(18,25,43,.045)!important}.catalog-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}.ui-version{flex:none;padding:6px 10px;border:1px solid #dbe2f2;border-radius:999px;color:#536178;background:#f7f9fd;font-size:10px;font-weight:750}.catalog-family{min-width:0!important}.catalog-family>div{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(210px,1fr))!important;gap:8px!important}.catalog-family label,.catalog-feature label{position:relative!important;display:flex!important;cursor:pointer!important}.catalog-family input,.catalog-feature input{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important}.catalog-family label span{width:100%!important;min-height:42px!important;justify-content:flex-start!important;padding:10px 13px!important;border:1px solid #dfe3ef!important;border-radius:10px!important;background:#fff!important;font-size:12px!important;font-weight:750!important}.catalog-family label:has(input:checked) span,.catalog-family input:checked+span{color:#fff!important;border-color:#5b5ce2!important;background:#5b5ce2!important;box-shadow:0 5px 14px rgba(91,92,226,.18)!important}.catalog-search{min-width:0!important}.catalog-feature{margin:2px 0 14px!important;padding:11px 13px!important;border:1px solid #e6e8f4!important;border-radius:12px!important;background:#f8f9fd!important}.catalog-feature>div{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))!important;gap:7px!important}.catalog-feature label span{width:100%!important;min-height:38px!important;justify-content:flex-start!important;padding:8px 11px!important;border:1px solid transparent!important;border-radius:9px!important;font-size:12px!important;font-weight:700!important}.catalog-feature label:has(input:checked) span,.catalog-feature input:checked+span{color:#fff!important;border-color:#5b5ce2!important;background:#5b5ce2!important;box-shadow:none!important}.catalog-meta{margin-right:auto!important;color:var(--muted);font-size:12px;font-weight:700}.catalog-pager{align-items:center!important;justify-content:flex-end!important;gap:8px!important}.catalog-pager button{max-width:110px!important;border-radius:9px!important}.experiment-gallery{max-height:660px;overflow:auto;padding:4px!important}.experiment-gallery .grid-wrap{display:grid!important;grid-template-columns:repeat(auto-fill,minmax(230px,270px))!important;justify-content:start!important;gap:12px!important}.experiment-gallery button,.experiment-gallery .thumbnail-item{position:relative!important;width:100%!important;min-width:0!important;max-width:270px!important;overflow:hidden!important;border:1px solid var(--line)!important;border-radius:14px!important;background:#0b1230!important;box-shadow:0 7px 18px rgba(18,25,43,.045)!important;transition:transform .16s ease,box-shadow .16s ease,border-color .16s ease!important}.experiment-gallery button::after,.experiment-gallery .thumbnail-item::after{content:attr(data-feature)!important;position:absolute!important;right:12px!important;bottom:11px!important;z-index:3!important;max-width:72%!important;padding:6px 10px!important;border:1px solid rgba(255,255,255,.28)!important;border-radius:999px!important;color:#fff!important;background:rgba(16,24,56,.78)!important;backdrop-filter:blur(8px)!important;font-size:10px!important;font-weight:800!important;line-height:1.2!important;text-align:right!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important}.experiment-gallery button:hover,.experiment-gallery .thumbnail-item:hover{transform:translateY(-2px);border-color:#a5b4fc!important;box-shadow:0 12px 25px rgba(50,55,120,.12)!important}.experiment-gallery .image-container,.experiment-gallery [data-testid="image"]{width:100%!important;height:auto!important;aspect-ratio:2/1!important;background:#0b1230!important;overflow:hidden!important}.experiment-gallery img{display:block!important;width:100%!important;height:100%!important;aspect-ratio:2/1!important;object-fit:cover!important;object-position:center!important}.experiment-gallery .caption,.experiment-gallery .label{position:absolute!important;inset:0 0 auto 0!important;z-index:2!important;display:block!important;min-height:72px!important;padding:14px 16px 18px!important;overflow:visible!important;text-overflow:clip!important;white-space:pre-line!important;overflow-wrap:anywhere!important;background:linear-gradient(180deg,rgba(5,9,30,.94),rgba(5,9,30,.76) 70%,transparent)!important;color:#fff!important;font-size:clamp(12px,1.25vw,17px)!important;font-weight:800!important;line-height:1.28!important;text-align:left!important;text-shadow:0 1px 2px rgba(0,0,0,.4)!important;pointer-events:none!important}.selected-experiment input{font-weight:750!important;color:var(--brand)!important;background:#f5f5ff!important}
 .task-brief{display:grid;grid-template-columns:minmax(210px,34%) 1fr;gap:20px;margin:0 0 18px;padding:14px;border:1px solid #dfe3f5;border-radius:15px;background:linear-gradient(135deg,#fafaff,#f6fbff)}.task-brief__visual{display:flex;align-items:center;overflow:hidden;border-radius:11px;background:#171b3f}.task-brief__visual img{display:block;width:100%;height:auto;max-height:250px;min-height:190px;object-fit:contain;border-radius:11px}.task-brief__body{padding:9px 9px 7px}.task-kicker{color:var(--brand);font-size:10px;font-weight:850;letter-spacing:.12em}.task-brief h3{margin:6px 0;color:var(--ink);font-size:23px}.task-brief p{margin:0 0 13px;color:var(--muted);font-size:13px;line-height:1.6}.task-facts{display:grid;grid-template-columns:1fr 1fr;gap:8px}.task-facts span{padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font-size:11px;overflow-wrap:anywhere}.task-facts b{display:block;margin-bottom:3px;color:#8a94a8;font-size:9px;letter-spacing:.09em;text-transform:uppercase}.task-hint{margin-top:12px!important;margin-bottom:0!important;font-weight:650;color:#4b5563!important}
 .training-guide{display:grid;grid-template-columns:minmax(210px,.62fr) minmax(0,1.8fr);gap:22px;margin:-4px 0 18px;padding:20px 22px;border:1px solid #dfe4f4;border-radius:17px;background:linear-gradient(135deg,#f8f9ff,#fff);box-shadow:0 10px 30px rgba(18,25,43,.04)}.training-guide__intro{padding:5px 2px}.training-guide__intro>span{display:block;margin-bottom:7px;color:var(--brand);font-size:10px;font-weight:850;letter-spacing:.13em}.training-guide__intro h3{margin:0 0 5px;color:var(--ink);font-size:18px}.training-guide__intro p,.training-guide article p{margin:0;color:var(--muted);font-size:12px;line-height:1.55}.training-guide__grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.training-guide article{padding:14px;border:1px solid #e0e5f0;border-radius:12px;background:#fff}.training-guide article>b{display:block;margin-bottom:8px;color:var(--brand);font-size:10px;letter-spacing:.12em}.training-guide article h4{margin:0 0 6px;color:var(--ink);font-size:13px}.training-guide article p{font-size:11px}
-.control-card,.chart-card,.output-card{border:1px solid var(--line)!important;border-radius:17px!important;background:#fff!important;box-shadow:0 10px 30px rgba(18,25,43,.045)!important}.control-card,.chart-card{padding:22px!important}.output-card{margin-top:16px!important;padding:22px!important}.panel-title{margin:0 0 5px;color:var(--ink);font-size:19px}.panel-copy,.artifact-note{margin:0 0 17px;color:var(--muted);font-size:13px;line-height:1.6}.policy-preview{min-height:360px!important;border:1px solid var(--line)!important;border-radius:13px!important;background:#f8f9fc!important;overflow:hidden!important}.policy-preview .image-container,.policy-preview [data-testid="image"]{min-height:360px!important;background:#f8f9fc!important}.policy-preview img{display:block!important;width:100%!important;height:100%!important;min-height:360px!important;max-height:560px!important;object-fit:contain!important;background:#f8f9fc!important}
+.control-card,.chart-card,.preview-card{border:1px solid var(--line)!important;border-radius:17px!important;background:#fff!important;box-shadow:0 10px 30px rgba(18,25,43,.045)!important}.training-layout{align-items:flex-start!important}.training-layout>.control-card,.training-layout>.results-stack{align-self:flex-start!important}.results-stack{min-width:0!important;gap:18px!important;padding:0!important;border:0!important;background:transparent!important}.control-card,.chart-card,.preview-card{padding:22px!important}.advanced-settings{margin:2px 0 12px!important;overflow:hidden!important;border:1px solid #dfe4ee!important;border-radius:11px!important;background:#fafbfe!important}.advanced-settings>button,.advanced-settings summary{min-height:44px!important;color:#3f485c!important;font-size:12px!important;font-weight:800!important}.result-summary{display:grid!important;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)!important;gap:10px!important;margin:0 0 10px!important}.result-summary>div{min-width:0!important}.result-summary .run-state,.result-summary .live-metric{height:100%;margin-top:0}.panel-title{margin:0 0 5px;color:var(--ink);font-size:19px}.panel-copy,.artifact-note{margin:0 0 17px;color:var(--muted);font-size:13px;line-height:1.6}.policy-preview{min-height:360px!important;border:1px solid var(--line)!important;border-radius:13px!important;background:#f8f9fc!important;overflow:hidden!important}.policy-preview .image-container,.policy-preview [data-testid="image"]{min-height:360px!important;background:#f8f9fc!important}.policy-preview img{display:block!important;width:100%!important;height:100%!important;min-height:360px!important;max-height:560px!important;object-fit:contain!important;background:#f8f9fc!important}.artifact-download{height:76px!important;min-height:76px!important;margin-top:8px!important;overflow:hidden!important}.artifact-download [data-testid="status-tracker"]{height:76px!important}.artifact-download .empty{height:50px!important;min-height:50px!important}
+.preview-provenance{display:flex;gap:9px;align-items:flex-start;margin:0 0 12px;padding:10px 12px;border:1px solid #e0e5f0;border-radius:10px;color:#59657a;background:#f8f9fc;font-size:11px;line-height:1.5}.preview-provenance span{flex:0 0 auto;width:8px;height:8px;margin-top:4px;border-radius:50%;background:#9ba5b5}.preview-provenance--ready{color:#16664d;border-color:#cfeadf;background:#f2fbf7}.preview-provenance--ready span{background:#13a36f}
 .primary-btn{min-height:46px!important;border:0!important;border-radius:11px!important;background:linear-gradient(135deg,#5153d6,#6969ec)!important;font-weight:750!important}.primary-btn:disabled{opacity:.8!important;cursor:wait!important}.run-wait{position:relative;display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:center;overflow:hidden;margin:0 0 16px;padding:14px 16px 17px;border:1px solid #c7d2fe;border-radius:13px;background:linear-gradient(135deg,#f5f5ff,#f0f7ff);box-shadow:0 8px 24px rgba(79,70,229,.08)}.run-wait__spinner{width:24px;height:24px;border:3px solid #d9ddff;border-top-color:#5b5ce2;border-radius:50%;animation:run-spin .8s linear infinite}.run-wait__copy strong,.run-wait__copy small{display:block}.run-wait__copy strong{color:#292d65;font-size:13px}.run-wait__copy small{margin-top:4px;color:#68748a;font-size:11px;line-height:1.5}.run-wait__elapsed{display:inline-block;margin-top:7px;color:#5b5ce2;font-size:11px;font-style:normal;font-weight:750}.run-wait__pulse{position:absolute;right:0;bottom:0;left:0;height:3px;background:#e0e7ff}.run-wait__pulse i{display:block;width:38%;height:100%;border-radius:999px;background:linear-gradient(90deg,transparent,#6366f1,#22c55e,transparent);animation:run-pulse 1.4s ease-in-out infinite}@keyframes run-spin{to{transform:rotate(360deg)}}@keyframes run-pulse{0%{transform:translateX(-110%)}100%{transform:translateX(285%)}}.run-state,.live-metric{display:flex;gap:12px;margin-top:14px;padding:14px 15px;border-radius:13px;background:#f8f9fc}.run-state__dot{width:9px;height:9px;margin-top:6px;border-radius:50%;background:#94a3b8}.run-state--running .run-state__dot{background:#5b5ce2;box-shadow:0 0 0 5px rgba(91,92,226,.13);animation:run-dot 1.2s ease-in-out infinite}@keyframes run-dot{50%{box-shadow:0 0 0 9px rgba(91,92,226,.04)}}.run-state--complete .run-state__dot{background:#13a36f}.run-state strong,.run-state small,.summary-label{display:block}.summary-label{color:#8a94a8;font-size:10px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}.run-state strong{margin-top:3px;color:var(--ink);font-size:14px}.run-state small,.live-metric small{margin-top:3px;color:var(--muted);font-size:12px}.metric-reading{display:flex;align-items:baseline;gap:9px;margin-top:4px}.metric-reading strong{color:var(--ink);font-size:24px}
 .console-panel{overflow:hidden;margin-top:18px;border:1px solid #202b3d;border-radius:13px;background:#0f1623}.console-head{display:flex;align-items:center;gap:9px;padding:11px 15px;border-bottom:1px solid #263244;color:#e2e8f0;font-size:12px;font-weight:750}.console-dot{width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.12)}.console-text{box-sizing:border-box;height:300px;margin:0;padding:17px 18px;overflow:auto;white-space:pre;color:#cbd5e1!important;background:#0f1623!important;font:12px/1.58 "SFMono-Regular",Consolas,monospace!important;scrollbar-gutter:stable}.footer-note{margin-top:18px;text-align:center;color:#94a3b8;font-size:12px}.footer-note a{color:var(--brand)!important;text-decoration:none!important;font-weight:650}
-@media(max-width:760px){.gradio-container{padding:12px 10px 30px!important}.language-bar{top:14px!important;right:14px!important}.language-switch{width:196px!important;min-width:196px!important}.hero{padding:70px 22px 25px;border-radius:19px}.hero-topline{align-items:flex-start;flex-direction:column}.project-mark{max-width:70%}.catalog-card{padding:16px!important}.catalog-heading{display:block}.ui-version{display:inline-flex;margin:0 0 14px}.catalog-family>div,.catalog-feature>div{grid-template-columns:1fr!important}.experiment-gallery{max-height:580px}.experiment-gallery .grid-wrap{grid-template-columns:1fr!important}.experiment-gallery button,.experiment-gallery .thumbnail-item{max-width:none!important}.task-brief,.training-guide,.training-guide__grid{grid-template-columns:1fr}.task-brief__visual img{min-height:160px}.task-facts{grid-template-columns:1fr}.policy-preview,.policy-preview .image-container,.policy-preview [data-testid="image"],.policy-preview img{min-height:230px!important}.policy-preview img{max-height:420px!important}}
+@media(max-width:900px){.training-layout{flex-direction:column!important}.training-layout>.control-card,.training-layout>.results-stack{width:100%!important;min-width:0!important;flex:1 1 auto!important}}
+@media(max-width:760px){.language-bar{top:14px!important;right:14px!important}.language-switch{width:196px!important;min-width:196px!important}.hero{padding:70px 22px 25px;border-radius:19px}.brand-lockup{max-width:100%;flex-wrap:wrap;font-size:10px;letter-spacing:.045em}.hero-topline{align-items:flex-start;flex-direction:column}.project-mark{max-width:70%}.catalog-card{padding:16px!important}.catalog-heading{display:block}.ui-version{display:inline-flex;margin:0 0 14px}.catalog-family>div,.catalog-feature>div{grid-template-columns:1fr!important}.experiment-gallery{max-height:580px}.experiment-gallery .grid-wrap{grid-template-columns:1fr!important}.experiment-gallery button,.experiment-gallery .thumbnail-item{max-width:none!important}.task-brief,.training-guide,.training-guide__grid{grid-template-columns:1fr}.task-brief__visual img{min-height:160px}.task-facts,.result-summary{grid-template-columns:1fr!important}.policy-preview,.policy-preview .image-container,.policy-preview [data-testid="image"],.policy-preview img{min-height:230px!important}.policy-preview img{max-height:420px!important}}
 .catalog-family input,.catalog-feature input{position:absolute!important;inset:0!important;width:100%!important;height:100%!important;margin:0!important;opacity:0!important;cursor:pointer!important;pointer-events:auto!important}
 .catalog-filter-row{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(0,1fr)!important;align-items:stretch!important;gap:14px!important;margin:4px 0 16px!important}.catalog-filter-pane{min-width:0!important;margin:0!important;padding:14px!important;border:1px solid #e4e8f2!important;border-radius:13px!important;background:#fafbfe!important}.catalog-filter-pane--path{background:linear-gradient(145deg,#fbfbff,#f7f8ff)!important}.catalog-filter-pane--goal{background:linear-gradient(145deg,#fbfdfd,#f6fbfa)!important}.catalog-filter-pane .catalog-family,.catalog-filter-pane .catalog-feature{margin:0!important;padding:0!important;border:0!important;background:transparent!important}.catalog-filter-pane .catalog-family>div,.catalog-filter-pane .catalog-feature>div{grid-template-columns:1fr!important}.catalog-filter-pane .catalog-family label span,.catalog-filter-pane .catalog-feature label span{min-height:40px!important}.catalog-filter-pane .catalog-feature label span{border-color:#e7eaf1!important;background:#fff!important}.catalog-filter-pane .catalog-feature label:has(input:checked) span,.catalog-filter-pane .catalog-feature input:checked+span{border-color:#5b5ce2!important;background:#5b5ce2!important}.catalog-search{margin-bottom:10px!important}
 .card-image-preload{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;opacity:.001!important;pointer-events:none!important}.card-image-preload img{position:absolute!important;width:1px!important;height:1px!important}
@@ -1795,6 +2163,7 @@ DEFAULT_LANGUAGE = "English"
 DEFAULT_EXPERIMENT = CARTPOLE_PPO
 copy = copy_for(DEFAULT_LANGUAGE)
 cfg = EXPERIMENTS[DEFAULT_EXPERIMENT]
+initial_step_spec, initial_epoch_spec = epoch_specs(DEFAULT_EXPERIMENT)
 initial_feature_choices = feature_choices("", "Start here", DEFAULT_LANGUAGE)
 initial_cards, initial_visible, initial_page, initial_meta, _, _ = catalog_page("", "Start here", ALL_FEATURES, 0, DEFAULT_LANGUAGE)
 
@@ -1817,7 +2186,7 @@ with gr.Blocks(title="Hands-On Modern RL · Gymnasium CPU Playground") as demo:
                     with gr.Column(elem_classes="catalog-filter-pane catalog-filter-pane--goal"):
                         feature = gr.Radio(choices=initial_feature_choices, value=ALL_FEATURES, label=copy["goal"], visible=True, elem_classes="catalog-feature")
                         goal_pager = gr.HTML(goal_pager_html(DEFAULT_LANGUAGE), elem_classes="goal-pager-host")
-            gallery = gr.Gallery(value=initial_cards, label=None, show_label=False, columns=4, rows=3, object_fit="cover", height="auto", allow_preview=False, buttons=[], elem_classes="experiment-gallery")
+            gallery = gr.Gallery(value=initial_cards, label=None, show_label=False, columns=4, object_fit="cover", height="auto", allow_preview=False, buttons=[], elem_classes="experiment-gallery")
             visible_experiments = gr.State(initial_visible)
             catalog_page_state = gr.State(initial_page)
             with gr.Row(elem_classes="catalog-pager"):
@@ -1829,30 +2198,37 @@ with gr.Blocks(title="Hands-On Modern RL · Gymnasium CPU Playground") as demo:
     task_info = gr.HTML(task_brief(DEFAULT_EXPERIMENT, DEFAULT_LANGUAGE), elem_id="selected-task-detail")
     selection_done = gr.HTML(value="0", elem_classes="selection-done")
 
-    with gr.Row():
+    with gr.Row(elem_classes="training-layout"):
         with gr.Column(scale=1, min_width=310, elem_classes="control-card"):
             settings_header = gr.HTML(panel_html(copy["settings"], copy["settings_copy"]))
             experiment = gr.Textbox(value=DEFAULT_EXPERIMENT, label="Selected experiment", interactive=False, elem_classes="selected-experiment")
-            budget = gr.Slider(minimum=200, maximum=100000, value=cfg["budget"][2], step=100, label=copy["budget"], info=copy["budget_info"])
-            alpha = gr.Slider(minimum=.00001, maximum=1, value=cfg["alpha"][2], step=.00001, label=copy["alpha"])
-            gamma = gr.Slider(minimum=0, maximum=1, value=0, step=.05, label=copy["gamma"], visible=False)
-            epsilon = gr.Slider(minimum=0, maximum=1, value=.1, step=.01, label=copy["epsilon"])
-            seed = gr.Number(value=42, precision=0, label=copy["seed"])
+            steps_per_epoch = gr.Slider(minimum=initial_step_spec[0], maximum=initial_step_spec[1], value=initial_step_spec[2], step=initial_step_spec[3], label=copy["steps_per_epoch"], info=copy["steps_per_epoch_info"])
+            epochs = gr.Slider(minimum=initial_epoch_spec[0], maximum=initial_epoch_spec[1], value=initial_epoch_spec[2], step=initial_epoch_spec[3], label=copy["epochs"], info=copy["epochs_info"])
+            with gr.Accordion(copy["advanced"], open=False, elem_classes="advanced-settings") as advanced:
+                alpha = gr.Slider(minimum=.00001, maximum=1, value=cfg["alpha"][2], step=.00001, label=copy["alpha"])
+                gamma = gr.Slider(minimum=0, maximum=1, value=0, step=.05, label=copy["gamma"], visible=False)
+                epsilon = gr.Slider(minimum=0, maximum=1, value=.1, step=.01, label=copy["epsilon"])
+                seed = gr.Number(value=42, precision=0, label=copy["seed"])
             start = gr.Button(copy["start"], variant="primary", elem_classes="primary-btn")
-            status = gr.HTML(status_card("idle", copy["ready"], copy["ready_detail"], DEFAULT_LANGUAGE))
-            metric = gr.HTML(metric_card("—", copy["metric_waiting"], DEFAULT_LANGUAGE))
-        with gr.Column(scale=2, elem_classes="chart-card"):
-            chart_header = gr.HTML(panel_html(copy["curve"], copy["curve_copy"]))
-            wait_state = gr.HTML(value="", visible=False)
-            curve = gr.Plot(show_label=False)
-            console = gr.HTML(console_panel(copy["log_waiting"], DEFAULT_LANGUAGE), elem_id="live-training-console")
+        with gr.Column(scale=2, elem_classes="results-stack"):
+            with gr.Column(elem_classes="chart-card"):
+                chart_header = gr.HTML(panel_html(copy["curve"], copy["curve_copy"]))
+                with gr.Row(elem_classes="result-summary"):
+                    status = gr.HTML(status_card("idle", copy["ready"], copy["ready_detail"], DEFAULT_LANGUAGE))
+                    metric = gr.HTML(metric_card("—", copy["metric_waiting"], DEFAULT_LANGUAGE))
+                wait_state = gr.HTML(value="", visible=False)
+                curve = gr.Plot(show_label=False)
+                console = gr.HTML(console_panel(copy["log_waiting"], DEFAULT_LANGUAGE), elem_id="live-training-console")
 
-    with gr.Row(elem_classes="output-card"):
-        with gr.Column(scale=2):
-            preview_header = gr.HTML(panel_html(copy["preview"], copy["preview_copy"], "artifact-note"))
-            preview = gr.Image(value=example_preview(DEFAULT_EXPERIMENT), show_label=False, interactive=False, elem_classes="policy-preview")
-        with gr.Column(scale=1):
-            artifact = gr.File(label=copy["artifact"], interactive=False)
+            with gr.Column(elem_classes="preview-card"):
+                preview_header = gr.HTML(panel_html(copy["preview"], copy["preview_copy"], "artifact-note"))
+                trained_model = model_selector(DEFAULT_EXPERIMENT, DEFAULT_LANGUAGE)
+                preview_status = gr.HTML(preview_provenance(DEFAULT_EXPERIMENT, trained_model.value, DEFAULT_LANGUAGE))
+                preview = gr.Image(value=example_preview(DEFAULT_EXPERIMENT), show_label=False, interactive=False, elem_classes="policy-preview")
+                artifact = gr.File(
+                    label=copy["artifact"], interactive=False, visible=False,
+                    height=76, elem_classes="artifact-download",
+                )
 
     gr.HTML(footer_html())
 
@@ -1863,9 +2239,10 @@ with gr.Blocks(title="Hands-On Modern RL · Gymnasium CPU Playground") as demo:
     feature.input(reset_catalog, inputs=[search, family, feature, language], outputs=page_outputs, queue=False, show_progress="hidden", trigger_mode="always_last")
     previous_page.click(lambda q, f, t, p, lang: move_catalog(q, f, t, p, lang, -1), inputs=[search, family, feature, catalog_page_state, language], outputs=page_outputs, queue=False, show_progress="hidden")
     next_page.click(lambda q, f, t, p, lang: move_catalog(q, f, t, p, lang, 1), inputs=[search, family, feature, catalog_page_state, language], outputs=page_outputs, queue=False, show_progress="hidden")
-    gallery.select(choose_card, inputs=[visible_experiments, language], outputs=[experiment, hero, task_info, budget, alpha, gamma, epsilon, status, metric, console, preview, artifact, selection_done], queue=False, show_progress="hidden")
-    language.change(switch_language, inputs=[language, experiment, seed, family, search, feature, catalog_page_state], outputs=[hero, catalog_header, family, search, feature, goal_pager, catalog_wait, gallery, visible_experiments, catalog_page_state, catalog_meta, previous_page, next_page, settings_header, task_info, budget, alpha, gamma, epsilon, seed, start, status, metric, chart_header, console, preview_header, artifact], queue=False)
-    start.click(train_with_ui, inputs=[experiment, budget, alpha, gamma, epsilon, seed, language], outputs=[status, metric, curve, preview, artifact, console, wait_state, start], concurrency_limit=1)
+    gallery.select(choose_card, inputs=[visible_experiments, language], outputs=[experiment, hero, task_info, steps_per_epoch, epochs, alpha, gamma, epsilon, status, metric, console, preview, artifact, trained_model, preview_status, selection_done], queue=False, show_progress="hidden")
+    language.change(switch_language, inputs=[language, experiment, seed, family, search, feature, catalog_page_state], outputs=[hero, catalog_header, family, search, feature, goal_pager, catalog_wait, gallery, visible_experiments, catalog_page_state, catalog_meta, previous_page, next_page, settings_header, advanced, task_info, steps_per_epoch, epochs, alpha, gamma, epsilon, seed, start, status, metric, chart_header, console, preview_header, artifact, trained_model, preview_status], queue=False)
+    start.click(train_with_ui, inputs=[experiment, steps_per_epoch, epochs, alpha, gamma, epsilon, seed, language], outputs=[status, metric, curve, preview, artifact, console, trained_model, preview_status, wait_state, start], concurrency_limit=1)
+    trained_model.change(select_saved_model, inputs=[experiment, trained_model, language], outputs=[preview, preview_status], queue=False, show_progress="hidden")
 
 
 if __name__ == "__main__":

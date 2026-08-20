@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import math
+import json
 import random
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -32,6 +34,7 @@ SPACE = {
 
 
 def task(key, title, environment, description, observation, action, algorithm, preview, budget):
+    unit = {"en": "CFR iterations", "zh": "CFR 迭代"} if algorithm == "CFR+" else {"en": "self-play games", "zh": "自博弈对局"}
     return {
         "key": key,
         "title": {"en": title, "zh": title},
@@ -42,18 +45,22 @@ def task(key, title, environment, description, observation, action, algorithm, p
         "algorithm": algorithm,
         "preview": preview,
         "budget": budget,
+        "training_unit": unit,
         "learning_rate": (0.01, 1.0, 0.25, 0.01),
         "gamma": (0.8, 1.0, 1.0, 0.01),
         "epsilon": (0.0, 1.0, 0.15, 0.01),
         "checkpoints": 8,
+        "baseline_name": f"{algorithm} learning baseline",
+        "baseline_time": {"en": "about 15 seconds–3 minutes on CPU", "zh": "CPU 上约 15 秒–3 分钟"},
+        "baseline_outcome": {"en": "Exploitability or regret falls for CFR, while self-play policies produce stronger legal play and stable evaluation returns.", "zh": "CFR 的可利用度或遗憾值下降；自博弈策略产生更强的合法决策和更稳定的评估回报。"},
     }
 
 
 TASKS = [
     task("kuhn-poker", "Kuhn Poker", "kuhn_poker", {"en": "Learn an equilibrium strategy in a tiny imperfect-information poker game.", "zh": "在小型不完全信息扑克游戏中学习均衡策略。"}, {"en": "Private card and betting history", "zh": "私有牌和下注历史"}, {"en": "Pass or bet", "zh": "过牌或下注"}, "CFR+", "assets/kuhn-poker.png", (50, 20_000, 2_000, 50)),
-    task("leduc-poker", "Leduc Poker", "leduc_poker", {"en": "Balance betting, folding, and hidden information across two betting rounds.", "zh": "在两轮下注中权衡下注、弃牌和隐藏信息。"}, {"en": "Private/public cards and betting history", "zh": "私有牌、公共牌和下注历史"}, {"en": "Fold / call / raise", "zh": "弃牌、跟注、加注"}, "CFR+", "assets/leduc-poker.png", (50, 10_000, 1_000, 50)),
-    task("tic-tac-toe", "Tic-Tac-Toe", "tic_tac_toe", {"en": "Discover blocking, forks, and winning lines through tabular self-play.", "zh": "通过表格自博弈发现阻挡、双威胁和获胜连线。"}, {"en": "3×3 board", "zh": "3×3 棋盘"}, {"en": "Place a mark in a legal cell", "zh": "在合法空格落子"}, "Self-play Q-Learning", "assets/tic-tac-toe.png", (100, 100_000, 10_000, 100)),
-    task("connect-four", "Connect Four", "connect_four", {"en": "Learn vertical, horizontal, and diagonal threats through self-play.", "zh": "通过自博弈学习纵向、横向和斜向威胁。"}, {"en": "7×6 board", "zh": "7×6 棋盘"}, {"en": "Drop a piece into a legal column", "zh": "在合法列中投入棋子"}, "Self-play Q-Learning", "assets/connect-four.png", (500, 200_000, 20_000, 500)),
+    task("leduc-poker", "Leduc Poker", "leduc_poker", {"en": "Balance betting, folding, and hidden information across two betting rounds.", "zh": "在两轮下注中权衡下注、弃牌和隐藏信息。"}, {"en": "Private/public cards and betting history", "zh": "私有牌、公共牌和下注历史"}, {"en": "Fold / call / raise", "zh": "弃牌、跟注、加注"}, "CFR+", "assets/leduc-poker.png", (50, 50_000, 5_000, 50)),
+    task("tic-tac-toe", "Tic-Tac-Toe", "tic_tac_toe", {"en": "Discover blocking, forks, and winning lines through tabular self-play.", "zh": "通过表格自博弈发现阻挡、双威胁和获胜连线。"}, {"en": "3×3 board", "zh": "3×3 棋盘"}, {"en": "Place a mark in a legal cell", "zh": "在合法空格落子"}, "Self-play Q-Learning", "assets/tic-tac-toe.png", (100, 200_000, 50_000, 100)),
+    task("connect-four", "Connect Four", "connect_four", {"en": "Learn vertical, horizontal, and diagonal threats through self-play.", "zh": "通过自博弈学习纵向、横向和斜向威胁。"}, {"en": "7×6 board", "zh": "7×6 棋盘"}, {"en": "Drop a piece into a legal column", "zh": "在合法列中投入棋子"}, "Self-play Q-Learning", "assets/connect-four.png", (500, 500_000, 100_000, 500)),
 ]
 
 
@@ -88,8 +95,8 @@ def _frame(title: str, state_text: str, footer: str, size=(760, 460)) -> np.ndar
     return np.asarray(image)
 
 
-def _save_replay(key: str, title: str, states: list[tuple[str, str]]) -> str:
-    artifacts = ROOT / "artifacts"
+def _save_replay(key: str, title: str, states: list[tuple[str, str]], artifacts: Path | None = None) -> str:
+    artifacts = artifacts or ROOT / "artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
     frames = [_frame(title, state, footer) for state, footer in states]
     path = artifacts / f"{key}-learned-policy.gif"
@@ -106,31 +113,13 @@ def _sample(probabilities: dict[int, float], rng: random.Random) -> int:
     return actions[int(np.searchsorted(np.cumsum(weights), rng.random(), side="right").clip(0, len(actions) - 1))]
 
 
-def _cfr_run(task, budget: int, seed: int):
-    import pyspiel
-    from open_spiel.python.algorithms import cfr, exploitability
-
-    game = pyspiel.load_game(task["environment"])
-    solver = cfr.CFRPlusSolver(game)
-    checkpoint = max(1, budget // int(task["checkpoints"]))
-    x: list[float] = []
-    y: list[float] = []
-    for iteration in range(1, budget + 1):
-        solver.evaluate_and_update_policy()
-        if iteration == 1 or iteration % checkpoint == 0 or iteration == budget:
-            gap = float(exploitability.exploitability(game, solver.average_policy()))
-            score = -gap
-            x.append(float(iteration)); y.append(score)
-            yield {"step": iteration, "score": score, "x": x, "y": y, "metric_detail": f"negative exploitability · gap={gap:.6f}", "log": f"CFR+ iteration={iteration:,} exploitability={gap:.8f}"}
-
-    rng = random.Random(seed + 1000)
+def _cfr_replay(task, game, policy, seed: int, artifacts: Path) -> str:
+    rng = random.Random(seed)
     state = game.new_initial_state()
-    policy = solver.average_policy()
     replay: list[tuple[str, str]] = [(str(state), "Initial state")]
     while not state.is_terminal():
         if state.is_chance_node():
-            outcomes = dict(state.chance_outcomes())
-            action = _sample(outcomes, rng)
+            action = _sample(dict(state.chance_outcomes()), rng)
             label = f"Chance → {action}"
         else:
             player = state.current_player()
@@ -140,8 +129,43 @@ def _cfr_run(task, budget: int, seed: int):
         state.apply_action(action)
         replay.append((str(state), label))
     replay.append((str(state), f"Returns: {state.returns()}"))
-    preview = _save_replay(task["key"], task["title"]["en"], replay)
-    yield {"phase": "complete", "step": budget, "score": y[-1], "x": x, "y": y, "preview": preview, "log": "Sampled a terminal game from the learned average policy"}
+    return _save_replay(task["key"], task["title"]["en"], replay, artifacts)
+
+
+def _save_cfr_policy(policy, path: Path) -> str:
+    tabular = policy.to_tabular() if hasattr(policy, "to_tabular") else policy
+    probabilities = np.asarray(tabular.action_probability_array, dtype=np.float32)
+    lookup = dict(tabular.state_lookup)
+    np.savez_compressed(path, action_probabilities=probabilities, state_lookup=json.dumps(lookup, ensure_ascii=False))
+    return str(path)
+
+
+def _cfr_run(task, budget: int, seed: int, checkpoints: int):
+    import pyspiel
+    from open_spiel.python.algorithms import cfr, exploitability
+
+    game = pyspiel.load_game(task["environment"])
+    solver = cfr.CFRPlusSolver(game)
+    checkpoint_count = max(1, min(int(checkpoints), int(budget)))
+    targets = {max(1, round(budget * index / checkpoint_count)): index for index in range(1, checkpoint_count + 1)}
+    run_token = f"{int(time.time())}-{seed}"
+    x: list[float] = []
+    y: list[float] = []
+    for iteration in range(1, budget + 1):
+        solver.evaluate_and_update_policy()
+        if iteration in targets:
+            gap = float(exploitability.exploitability(game, solver.average_policy()))
+            score = -gap
+            x.append(float(iteration)); y.append(score)
+            checkpoint_index = targets[iteration]
+            artifacts = ROOT / "artifacts" / f"{task['key']}-{run_token}-epoch-{checkpoint_index:02d}"
+            artifacts.mkdir(parents=True, exist_ok=True)
+            policy = solver.average_policy()
+            model = _save_cfr_policy(policy, artifacts / "policy.npz")
+            preview = _cfr_replay(task, game, policy, seed + 1000 + checkpoint_index, artifacts)
+            yield {"step": iteration, "score": score, "x": x, "y": y, "model": model, "preview": preview, "checkpoint_index": checkpoint_index, "checkpoint_count": checkpoint_count, "metric_detail": f"negative exploitability · gap={gap:.6f}", "log": f"CFR+ iteration={iteration:,} exploitability={gap:.8f}\nSAVE epoch={checkpoint_index}/{checkpoint_count} policy={Path(model).name}"}
+
+    yield {"phase": "complete", "step": budget, "score": y[-1], "x": x, "y": y, "log": f"Saved {checkpoint_count} CFR policies and sampled one terminal game per epoch"}
 
 
 def _state_key(state, player: int) -> str:
@@ -182,13 +206,37 @@ def _evaluate_q(game, q, seed: int, episodes: int = 100) -> float:
     return wins / episodes
 
 
-def _q_run(task, budget: int, alpha: float, gamma: float, epsilon: float, seed: int):
+def _q_replay(task, game, q, rng: random.Random, artifacts: Path) -> str:
+    state = game.new_initial_state()
+    replay: list[tuple[str, str]] = [(str(state), "Initial board")]
+    while not state.is_terminal():
+        player = state.current_player()
+        action = _choose_q(q, state, player, 0.0, rng)
+        label = f"Player {player} → {state.action_to_string(player, action)}"
+        state.apply_action(action)
+        replay.append((str(state), label))
+    replay.append((str(state), f"Returns: {state.returns()}"))
+    return _save_replay(task["key"], task["title"]["en"], replay, artifacts)
+
+
+def _save_q_table(q, path: Path) -> str:
+    entries = [
+        {"player": int(player), "state": state, "action": int(action), "value": float(value)}
+        for (player, state, action), value in q.items()
+    ]
+    path.write_text(json.dumps({"q_values": entries}, ensure_ascii=False), encoding="utf-8")
+    return str(path)
+
+
+def _q_run(task, budget: int, alpha: float, gamma: float, epsilon: float, seed: int, checkpoints: int):
     import pyspiel
 
     game = pyspiel.load_game(task["environment"])
     q = defaultdict(float)
     rng = random.Random(seed)
-    checkpoint = max(1, budget // int(task["checkpoints"]))
+    checkpoint_count = max(1, min(int(checkpoints), int(budget)))
+    targets = {max(1, round(budget * index / checkpoint_count)): index for index in range(1, checkpoint_count + 1)}
+    run_token = f"{int(time.time())}-{seed}"
     x: list[float] = []
     y: list[float] = []
     for episode in range(1, budget + 1):
@@ -211,27 +259,23 @@ def _q_run(task, budget: int, alpha: float, gamma: float, epsilon: float, seed: 
         returns = state.returns()
         for player, (key, action) in last.items():
             q[(player, key, action)] += alpha * (returns[player] - q[(player, key, action)])
-        if episode == 1 or episode % checkpoint == 0 or episode == budget:
+        if episode in targets:
             win_rate = _evaluate_q(game, q, seed + episode, episodes=80)
             x.append(float(episode)); y.append(win_rate)
-            yield {"step": episode, "score": win_rate, "x": x, "y": y, "metric_detail": "win/draw rate versus random", "log": f"SELFPLAY episode={episode:,} states={len(q):,} win_or_draw_rate={win_rate:.3f}"}
+            checkpoint_index = targets[episode]
+            artifacts = ROOT / "artifacts" / f"{task['key']}-{run_token}-epoch-{checkpoint_index:02d}"
+            artifacts.mkdir(parents=True, exist_ok=True)
+            model = _save_q_table(q, artifacts / "q-table.json")
+            preview = _q_replay(task, game, q, random.Random(seed + 1000 + checkpoint_index), artifacts)
+            yield {"step": episode, "score": win_rate, "x": x, "y": y, "model": model, "preview": preview, "checkpoint_index": checkpoint_index, "checkpoint_count": checkpoint_count, "metric_detail": "win/draw rate versus random", "log": f"SELFPLAY episode={episode:,} states={len(q):,} win_or_draw_rate={win_rate:.3f}\nSAVE epoch={checkpoint_index}/{checkpoint_count} policy={Path(model).name}"}
 
-    state = game.new_initial_state()
-    replay: list[tuple[str, str]] = [(str(state), "Initial board")]
-    while not state.is_terminal():
-        player = state.current_player()
-        action = _choose_q(q, state, player, 0.0, rng)
-        label = f"Player {player} → {state.action_to_string(player, action)}"
-        state.apply_action(action)
-        replay.append((str(state), label))
-    replay.append((str(state), f"Returns: {state.returns()}"))
-    preview = _save_replay(task["key"], task["title"]["en"], replay)
-    yield {"phase": "complete", "step": budget, "score": y[-1], "x": x, "y": y, "preview": preview, "log": "Rendered a complete greedy self-play game from the learned Q table"}
+    yield {"phase": "complete", "step": budget, "score": y[-1], "x": x, "y": y, "log": f"Saved {checkpoint_count} Q-table policies and greedy self-play replays"}
 
 
-def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int):
+def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int, checkpoints: int | None = None):
     task = next(item for item in TASKS if item["key"] == key)
+    checkpoint_count = int(checkpoints or task["checkpoints"])
     if task["algorithm"] == "CFR+":
-        yield from _cfr_run(task, budget, seed)
+        yield from _cfr_run(task, budget, seed, checkpoint_count)
     else:
-        yield from _q_run(task, budget, learning_rate, gamma, epsilon, seed)
+        yield from _q_run(task, budget, learning_rate, gamma, epsilon, seed, checkpoint_count)

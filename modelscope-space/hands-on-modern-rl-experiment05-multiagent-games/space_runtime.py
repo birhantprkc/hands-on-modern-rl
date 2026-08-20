@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+import time
+from functools import reduce
+from math import gcd
 from pathlib import Path
 
 import imageio.v2 as imageio
@@ -38,7 +41,9 @@ SPACE = {
 }
 
 
-def task(key, title, environment, description, observation, action, preview, policy, budget):
+def task(key, title, environment, description, observation, action, preview, policy, budget, agent_slots):
+    rollout_quantum = 128 * int(agent_slots)
+    epoch_steps = max(rollout_quantum, round((int(budget[2]) / 6) / rollout_quantum) * rollout_quantum)
     return {
         "key": key,
         "title": {"en": title, "zh": title},
@@ -49,19 +54,24 @@ def task(key, title, environment, description, observation, action, preview, pol
         "algorithm": "Parameter-sharing PPO",
         "policy": policy,
         "preview": preview,
-        "budget": budget,
+        "budget": (budget[0], budget[1], epoch_steps * 6, budget[3]),
+        "steps_per_epoch": (rollout_quantum * 2, float(budget[1]), epoch_steps, rollout_quantum),
+        "epochs": (1, 12, 6, 1),
         "learning_rate": (1e-5, 0.003, 0.0003, 1e-5),
         "gamma": (0.8, 1.0, 0.99, 0.005),
         "epsilon": (0.0, 0.2, 0.01, 0.005),
         "checkpoints": 6,
+        "baseline_name": "Parameter-sharing PPO learning baseline",
+        "baseline_time": {"en": "about 8–35 minutes on CPU, depending on pixel observations", "zh": "CPU 上约 8–35 分钟，像素观测任务耗时更长"},
+        "baseline_outcome": {"en": "Team return rises and the replay shows coordinated spacing, pursuit, or paddle timing.", "zh": "团队回报上升，回放中出现协同站位、追逐或球拍配合。"},
     }
 
 
 TASKS = [
-    task("simple-spread", "Cooperative Navigation", "MPE/simple_spread_v3", {"en": "Three agents coordinate to cover landmarks while avoiding collisions.", "zh": "三个智能体协调覆盖地标，同时避免彼此碰撞。"}, {"en": "Local positions and velocities", "zh": "局部位置和速度"}, {"en": "Five discrete movement actions", "zh": "五个离散移动动作"}, "assets/simple-spread.png", "MlpPolicy", (2_000, 200_000, 20_000, 2_000)),
-    task("simple-tag", "Predator & Prey", "MPE/simple_tag_v3", {"en": "Predators cooperate to tag a faster adversary around fixed obstacles.", "zh": "多个捕食者协作，在障碍物周围追捕速度更快的对手。"}, {"en": "Relative positions and velocities", "zh": "相对位置和速度"}, {"en": "Five discrete movement actions", "zh": "五个离散移动动作"}, "assets/simple-tag.png", "MlpPolicy", (2_000, 200_000, 20_000, 2_000)),
-    task("pistonball", "Pistonball", "Butterfly/pistonball_v6", {"en": "A line of pistons learns coordinated timing to push one ball toward the goal.", "zh": "一排活塞学习协同时机，把球推向目标。"}, {"en": "Local RGB crop", "zh": "局部 RGB 画面"}, {"en": "Move piston up or down", "zh": "控制活塞上下移动"}, "assets/pistonball.png", "CnnPolicy", (2_000, 100_000, 10_000, 2_000)),
-    task("cooperative-pong", "Cooperative Pong", "Butterfly/cooperative_pong_v6", {"en": "Two paddles cooperate to keep the ball in play for as long as possible.", "zh": "两个球拍协作，让球尽可能长时间保持运动。"}, {"en": "RGB game frame", "zh": "RGB 游戏画面"}, {"en": "Move paddle up or down", "zh": "控制球拍上下移动"}, "assets/cooperative-pong.png", "CnnPolicy", (2_000, 100_000, 10_000, 2_000)),
+    task("simple-spread", "Cooperative Navigation", "MPE/simple_spread_v3", {"en": "Three agents coordinate to cover landmarks while avoiding collisions.", "zh": "三个智能体协调覆盖地标，同时避免彼此碰撞。"}, {"en": "Local positions and velocities", "zh": "局部位置和速度"}, {"en": "Five discrete movement actions", "zh": "五个离散移动动作"}, "assets/simple-spread.png", "MlpPolicy", (3_840, 1_000_000, 300_000, 384), 3),
+    task("simple-tag", "Predator & Prey", "MPE/simple_tag_v3", {"en": "Predators cooperate to tag a faster adversary around fixed obstacles.", "zh": "多个捕食者协作，在障碍物周围追捕速度更快的对手。"}, {"en": "Relative positions and velocities", "zh": "相对位置和速度"}, {"en": "Five discrete movement actions", "zh": "五个离散移动动作"}, "assets/simple-tag.png", "MlpPolicy", (5_120, 1_500_000, 450_000, 512), 4),
+    task("pistonball", "Pistonball", "Butterfly/pistonball_v6", {"en": "A line of pistons learns coordinated timing to push one ball toward the goal.", "zh": "一排活塞学习协同时机，把球推向目标。"}, {"en": "Local RGB crop", "zh": "局部 RGB 画面"}, {"en": "Move piston up or down", "zh": "控制活塞上下移动"}, "assets/pistonball.png", "CnnPolicy", (12_800, 1_500_000, 600_000, 1_280), 10),
+    task("cooperative-pong", "Cooperative Pong", "Butterfly/cooperative_pong_v6", {"en": "Two paddles cooperate to keep the ball in play for as long as possible.", "zh": "两个球拍协作，让球尽可能长时间保持运动。"}, {"en": "RGB game frame", "zh": "RGB 游戏画面"}, {"en": "Move paddle up or down", "zh": "控制球拍上下移动"}, "assets/cooperative-pong.png", "CnnPolicy", (2_560, 1_500_000, 600_000, 256), 2),
 ]
 
 
@@ -137,38 +147,60 @@ def _rollout(model, task, seed: int, render: bool):
     return float(np.mean(list(totals.values()))) if totals else 0.0, frames
 
 
-def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int):
+def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int, checkpoints: int | None = None):
     from stable_baselines3 import PPO
 
     task = next(item for item in TASKS if item["key"] == key)
     train_env = _wrapped_env(task, max_cycles=160, vector=True)
+    checkpoint_count = max(1, min(12, int(budget), int(checkpoints or task["checkpoints"])))
+    checkpoint_targets = [max(1, round(int(budget) * index / checkpoint_count)) for index in range(1, checkpoint_count + 1)]
+    checkpoint_targets[-1] = int(budget)
+    checkpoint_deltas = [target - (checkpoint_targets[index - 1] if index else 0) for index, target in enumerate(checkpoint_targets)]
+    common_delta = reduce(gcd, checkpoint_deltas)
+    rollout_steps = next(
+        (
+            candidate
+            for candidate in range(min(128, common_delta), 0, -1)
+            if common_delta % (candidate * int(train_env.num_envs)) == 0
+        ),
+        1,
+    )
+    rollout_size = rollout_steps * int(train_env.num_envs)
+    batch_size = next(
+        (size for size in (64, 50, 40, 32, 25, 20, 16, 10, 8, 5, 4, 2) if size <= rollout_size and rollout_size % size == 0),
+        None,
+    )
+    if batch_size is None:
+        raise ValueError(
+            f"Training budget is too small for PPO: one rollout contains only {rollout_size} transition(s)."
+        )
     model = PPO(
         task["policy"], train_env, learning_rate=learning_rate, gamma=gamma,
-        ent_coef=epsilon, n_steps=128, batch_size=64, n_epochs=4,
+        ent_coef=epsilon, n_steps=rollout_steps, batch_size=batch_size, n_epochs=4,
         seed=seed, verbose=0, device="cpu",
     )
-    checkpoints = int(task["checkpoints"])
-    chunk = max(1, budget // checkpoints)
+    run_token = f"{int(time.time())}-{seed}"
     x: list[float] = []
     y: list[float] = []
     completed = 0
     yield {"step": 0, "x": x, "y": y, "log": f"Initialized shared PPO policy for {train_env.num_envs} vector-agent slots"}
     try:
-        while completed < budget:
-            current = min(chunk, budget - completed)
+        for checkpoint_index, target in enumerate(checkpoint_targets, start=1):
+            current = target - completed
             model.learn(total_timesteps=current, reset_num_timesteps=False, progress_bar=False)
-            completed += current
-            score, _ = _rollout(model, task, seed + completed, render=False)
+            completed = target
+            score, frames = _rollout(model, task, seed + 10_000 + checkpoint_index, render=True)
             x.append(float(completed)); y.append(score)
-            yield {"step": completed, "score": score, "x": x, "y": y, "metric_detail": "mean reward per agent", "log": f"PPO update step={completed:,} mean_agent_reward={score:.4f}"}
-        score, frames = _rollout(model, task, seed + 10_000, render=True)
-        artifacts = ROOT / "artifacts"
-        artifacts.mkdir(parents=True, exist_ok=True)
-        model.save(str(artifacts / f"{key}-model"))
-        preview = artifacts / f"{key}-learned-policy.gif"
-        if not frames:
-            raise RuntimeError("PettingZoo returned no RGB frames for the learned-policy replay")
-        imageio.mimsave(preview, frames, duration=.07, loop=0)
-        yield {"phase": "complete", "step": completed, "score": score, "x": x, "y": y, "preview": str(preview), "log": f"Rendered {len(frames)} synchronized multi-agent frames"}
+            artifacts = ROOT / "artifacts" / f"{key}-{run_token}-epoch-{checkpoint_index:02d}"
+            artifacts.mkdir(parents=True, exist_ok=True)
+            model_path = artifacts / "policy"
+            model.save(str(model_path))
+            model_file = str(model_path.with_suffix(".zip"))
+            preview = artifacts / "learned-policy.gif"
+            if not frames:
+                raise RuntimeError("PettingZoo returned no RGB frames for the learned-policy replay")
+            imageio.mimsave(preview, frames, duration=.07, loop=0)
+            yield {"step": completed, "score": score, "x": x, "y": y, "model": model_file, "preview": str(preview), "checkpoint_index": checkpoint_index, "checkpoint_count": checkpoint_count, "metric_detail": "mean reward per agent", "log": f"PPO update step={completed:,} mean_agent_reward={score:.4f}\nSAVE epoch={checkpoint_index}/{checkpoint_count} model={Path(model_file).name} replay_frames={len(frames)}"}
+        yield {"phase": "complete", "step": completed, "score": y[-1] if y else None, "x": x, "y": y, "log": f"Saved {checkpoint_index} independently selectable multi-agent policies and replays"}
     finally:
         train_env.close()

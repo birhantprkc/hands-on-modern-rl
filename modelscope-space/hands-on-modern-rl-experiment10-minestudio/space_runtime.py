@@ -60,8 +60,13 @@ def _task(key: str, title: str, zh: str, description: str, description_zh: str,
         "action": {"en": "10 reduced keyboard/mouse actions", "zh": "10 个简化键鼠动作"},
         "algorithm": "CNN PPO", "preview": preview, "commands": commands,
         "reward_event": reward_event, "reward_objects": objects,
-        "budget": (1_024, 50_000, 8_192, 1_024), "learning_rate": (1e-5, 0.001, 0.00025, 1e-5),
+        "budget": (1_024, 1_000_000, 98_304, 256),
+        "steps_per_epoch": (1_024, 1_000_000, 16_384, 256), "epochs": (1, 12, 6, 1),
+        "learning_rate": (1e-5, 0.001, 0.00025, 1e-5),
         "gamma": (0.8, 1.0, 0.99, 0.005), "epsilon": (0.0, 0.2, 0.01, 0.005), "checkpoints": 6,
+        "baseline_name": "MineStudio CNN PPO learning baseline",
+        "baseline_time": {"en": "about 20–90 minutes on xGPU after the Java world is ready", "zh": "Java 世界启动后，xGPU 上约 20–90 分钟"},
+        "baseline_outcome": {"en": "The task event reward appears more often and the exact epoch replay mines, collects, tracks, or fights with purposeful actions.", "zh": "任务事件奖励出现得更频繁，对应 epoch 的回放能有目的地挖掘、收集、追踪或战斗。"},
     }
 
 
@@ -289,26 +294,31 @@ def _make_env(task: dict[str, Any], seed: int):
     return MinecraftDiscreteEnv(task, seed)
 
 
-def _record(model: Any, task: dict[str, Any], seed: int) -> tuple[str, float]:
-    env = _make_env(task, seed)
+def _record_episode(model: Any, env: Any, output_dir: Path, seed: int) -> tuple[str, float]:
     frames: list[np.ndarray] = []
     total = 0.0
-    try:
-        observation, _ = env.reset(seed=seed)
-        for _ in range(256):
-            frames.append(env.render())
-            action, _ = model.predict(observation, deterministic=True)
-            observation, reward, terminated, truncated, _ = env.step(action)
-            total += float(reward)
-            if terminated or truncated:
-                break
-    finally:
-        env.close()
-    path = save_gif(frames, ROOT / "artifacts" / f"{task['key']}-learned-policy.gif", fps=20)
+    observation, _ = env.reset(seed=seed)
+    for _ in range(256):
+        frames.append(env.render())
+        action, _ = model.predict(observation, deterministic=True)
+        observation, reward, terminated, truncated, _ = env.step(action)
+        total += float(reward)
+        if terminated or truncated:
+            break
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = save_gif(frames, output_dir / "learned-policy.gif", fps=20)
     return path, total
 
 
-def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int) -> Iterator[dict[str, Any]]:
+def run(
+    key: str,
+    budget: int,
+    learning_rate: float,
+    gamma: float,
+    epsilon: float,
+    seed: int,
+    checkpoints: int | None = None,
+) -> Iterator[dict[str, Any]]:
     import torch
     from stable_baselines3 import PPO
     from stable_baselines3.common.callbacks import BaseCallback
@@ -349,33 +359,80 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         x: list[float] = []
         y: list[float] = []
         completed = 0
-        # One 1,024-step call leaves the online console unchanged for several
-        # minutes. PPO already uses 256-step rollouts, so expose each rollout
-        # as a real checkpoint without changing the total amount of training.
-        chunk = max(256, (int(budget) // 6 // 256) * 256)
-        while completed < int(budget):
-            model.learn(total_timesteps=min(chunk, int(budget) - completed), reset_num_timesteps=False,
+        checkpoint_count = max(1, min(12, int(checkpoints or task["checkpoints"])))
+        checkpoint_targets = [
+            max(1, round(int(budget) * index / checkpoint_count))
+            for index in range(1, checkpoint_count + 1)
+        ]
+        checkpoint_targets[-1] = int(budget)
+        run_token = f"{int(time.time())}-{seed}"
+        artifact_root = ROOT / "artifacts"
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        saved_models: list[tuple[int, int, float, Path]] = []
+        # PPO uses 256-step rollouts internally. Each requested epoch becomes
+        # one actual saved policy; rendering happens later from those exact
+        # files after the training Java world has been released.
+        for checkpoint_index, target in enumerate(checkpoint_targets, start=1):
+            model.learn(total_timesteps=max(1, target - completed), reset_num_timesteps=False,
                         callback=callback, progress_bar=False)
-            completed = min(int(budget), int(model.num_timesteps))
+            completed = target
             score = float(callback.latest.get("rollout/ep_rew_mean") or 0.0)
             x.append(float(completed)); y.append(score)
+            epoch_dir = artifact_root / f"{key}-{run_token}-epoch-{checkpoint_index:02d}"
+            epoch_dir.mkdir(parents=True, exist_ok=True)
+            model.save(str(epoch_dir / "policy"))
+            model_file = epoch_dir / "policy.zip"
+            saved_models.append((checkpoint_index, completed, score, model_file))
             log = (f"Minecraft PPO update · step={completed:,}\n"
                    f"device={model.device}  fps={callback.latest.get('time/fps', '—')}\n"
                    f"episode_reward_mean={score:.4f}  value_loss={float(callback.latest.get('train/value_loss') or 0):.5f}\n"
-                   f"policy_gradient_loss={float(callback.latest.get('train/policy_gradient_loss') or 0):.5f}")
+                   f"policy_gradient_loss={float(callback.latest.get('train/policy_gradient_loss') or 0):.5f}\n"
+                   f"SAVE epoch={checkpoint_index}/{checkpoint_count} model={model_file.name}")
             yield {"phase": "training", "step": completed, "score": score, "x": x, "y": y,
                    "detail": f"{completed:,}/{int(budget):,} Minecraft steps", "metric_detail": "episode reward mean", "log": log}
-        artifact_dir = ROOT / "artifacts"; artifact_dir.mkdir(parents=True, exist_ok=True)
-        model.save(str(artifact_dir / f"{key}-cnn-ppo"))
         env.close(); env = None
         yield {"phase": "finalizing", "step": completed, "x": x, "y": y,
-               "detail": "Recording the learned Minecraft policy",
-               "log": "Training is complete. Starting a fresh Minecraft episode for the learned-policy GIF."}
-        preview, evaluation = _record(model, task, int(seed) + 10_000)
-        (artifact_dir / f"{key}-model.json").write_text(json.dumps({"environment": task["environment"], "algorithm": "CNN PPO", "budget": int(budget), "seed": int(seed), "evaluation_return": evaluation}, indent=2), encoding="utf-8")
-        yield {"phase": "complete", "step": completed, "score": evaluation, "x": x, "y": y,
-               "preview": preview, "metric_detail": "deterministic replay return",
-               "log": f"Saved CNN PPO and recorded the learned Minecraft policy: {Path(preview).name}"}
+               "detail": "Starting one replay world for all saved epochs",
+               "log": "Training is complete. Reusing one fresh Minecraft world to replay every saved policy."}
+        replay_env = _make_env(task, int(seed) + 10_000)
+        try:
+            for checkpoint_index, saved_step, score, model_file in saved_models:
+                replay_model = PPO.load(str(model_file), device="cuda")
+                epoch_dir = model_file.parent
+                preview, evaluation = _record_episode(
+                    replay_model,
+                    replay_env,
+                    epoch_dir,
+                    int(seed) + 10_000 + checkpoint_index,
+                )
+                (epoch_dir / "metadata.json").write_text(json.dumps({
+                    "environment": task["environment"],
+                    "algorithm": "CNN PPO",
+                    "step": saved_step,
+                    "epoch": checkpoint_index,
+                    "epochs": len(saved_models),
+                    "training_score": score,
+                    "evaluation_return": evaluation,
+                    "seed": int(seed),
+                }, indent=2), encoding="utf-8")
+                yield {
+                    "phase": "finalizing",
+                    "step": saved_step,
+                    "score": evaluation,
+                    "x": x,
+                    "y": y,
+                    "model": str(model_file),
+                    "preview": preview,
+                    "checkpoint_index": checkpoint_index,
+                    "checkpoint_count": len(saved_models),
+                    "metric_detail": "deterministic replay return",
+                    "detail": f"Rendered replay {checkpoint_index}/{len(saved_models)}",
+                    "log": f"REPLAY epoch={checkpoint_index}/{len(saved_models)} model={model_file.name} return={evaluation:.3f}",
+                }
+        finally:
+            replay_env.close()
+        yield {"phase": "complete", "step": completed, "score": y[-1] if y else None, "x": x, "y": y,
+               "log": f"Saved {len(saved_models)} independently selectable Minecraft policies and replays"}
     finally:
         if env is not None:
             env.close()

@@ -42,7 +42,7 @@ SPACE = {
     "training_guide": {
         "success": {"en": "The final mean reward should improve over the initial checkpoint, and the replay should show the intended coordinated behavior. Training complete confirms the pipeline, not that the task is solved.", "zh": "最终平均奖励应高于初始检查点，回放中应出现任务要求的协调行为；“训练完成”表示流程结束，不等于任务已经学会。"},
         "preview": {"en": "Before training it shows an authentic scene capture; during training it streams up to 8 sampled frames/s; after training it becomes this run's 12 fps replay GIF. The trainer runs independently of the sampled browser preview.", "zh": "训练前显示真实场景画面，训练中最多推送每秒 8 个采样帧，训练后变为本次运行的 12 FPS 回放 GIF；训练器运行速度不受网页采样帧率代表。"},
-        "time": {"en": "Huggy at the default 100k budget usually takes about 4–6 minutes after Unity connects. The first download and process startup can add about 1 minute; larger scenes may take 5–10 minutes.", "zh": "Huggy 默认 10 万步在 Unity 连接后通常需要约 4–6 分钟；首次下载和进程启动可能额外增加约 1 分钟，较大场景约需 5–10 分钟。"},
+        "time": {"en": "Smoke runs finish in a few minutes. The learning baselines follow scene-scale ML-Agents budgets and take roughly 10 minutes to several hours on xGPU; Walker is intentionally a long curriculum run.", "zh": "短流程验证只需几分钟；学习配方采用与场景规模匹配的 ML-Agents 预算，在 xGPU 上约需 10 分钟到数小时，Walker 是有意保留的长程训练。"},
     },
     "device": "xGPU",
     "organization_url": "https://modelscope.cn/organization/walkinglab",
@@ -74,6 +74,9 @@ def _task(key: str, title: str, title_zh: str, scene: str, behavior: str, descri
         "checkpoints": 6, "trainer": trainer,
         "bundle_url": bundle_url,
         "bundle_sha256": bundle_sha256,
+        "baseline_name": "Unity ML-Agents PPO learning baseline",
+        "baseline_time": {"en": "about 10 minutes to several hours on xGPU, depending on the scene", "zh": "xGPU 上约 10 分钟到数小时，具体取决于场景"},
+        "baseline_outcome": {"en": "Mean reward rises and the selected native checkpoint replay shows stable task-directed behavior.", "zh": "平均奖励上升，所选原生 checkpoint 的回放呈现稳定且面向任务的行为。"},
     }
     if cache_subdir:
         task["cache_subdir"] = cache_subdir
@@ -92,26 +95,26 @@ TASKS = [
           "协调四条腿的关节运动，跑向随机出现的树枝，并在不过度旋转的情况下抵达目标。",
           "Stick position, relative target direction, body state, and leg orientation",
           "Continuous joint-motor rotations for all four legs", "assets/unity-huggy.webp",
-          (20_000, 2_000_000, 100_000, 20_000),
+          (20_000, 5_000_000, 1_000_000, 20_000),
           {"trainer_type": "ppo", "hyperparameters": {"batch_size": 2048, "buffer_size": 20480, "learning_rate": 0.0003, "beta": 0.005, "epsilon": 0.2, "lambd": 0.95, "num_epoch": 3, "learning_rate_schedule": "linear"}, "network_settings": {"normalize": True, "hidden_units": 512, "num_layers": 3, "vis_encode_type": "simple"}, "reward_signals": {"extrinsic": {"gamma": 0.995, "strength": 1.0}}, "keep_checkpoints": 3, "time_horizon": 1000},
           bundle_url=HUGGY_BUNDLE_URL, bundle_sha256=HUGGY_BUNDLE_SHA256,
           cache_subdir="huggy", executable="Huggy/Huggy.x86_64", env_args=[],
           reference_url="https://huggingface.co/learn/deep-rl-course/unitbonus1/train"),
     _task("unity-basic", "Basic · Discrete PPO", "Basic · 离散 PPO", "Basic", "Basic",
           "Match the target value with a short sequence of discrete decisions.", "通过一小段离散决策使数值匹配目标。",
-          "Vector target and current state", "Discrete left / stay / right", "assets/unity-basic.webp", (2_000, 120_000, 20_000, 2_000),
+          "Vector target and current state", "Discrete left / stay / right", "assets/unity-basic.webp", (2_000, 1_000_000, 500_000, 2_000),
           {"trainer_type": "ppo", "hyperparameters": {"batch_size": 32, "buffer_size": 256, "learning_rate": 0.0003, "beta": 0.005, "epsilon": 0.2, "lambd": 0.95, "num_epoch": 3, "learning_rate_schedule": "linear"}, "network_settings": {"normalize": False, "hidden_units": 20, "num_layers": 1, "vis_encode_type": "simple"}, "reward_signals": {"extrinsic": {"gamma": 0.9, "strength": 1.0}}, "keep_checkpoints": 3, "time_horizon": 3}),
     _task("unity-3dball", "3D Ball · Continuous PPO", "3D Ball · 连续 PPO", "3DBall", "3DBall",
           "Tilt a platform in two axes and keep the ball from falling.", "控制平台在两个方向倾斜，使小球不掉落。",
-          "Ball position/velocity and platform rotation", "Continuous platform tilt", "assets/unity-3dball.webp", (8_000, 500_000, 60_000, 4_000),
+          "Ball position/velocity and platform rotation", "Continuous platform tilt", "assets/unity-3dball.webp", (8_000, 1_000_000, 500_000, 4_000),
           {"trainer_type": "ppo", "hyperparameters": {"batch_size": 64, "buffer_size": 12000, "learning_rate": 0.0003, "beta": 0.001, "epsilon": 0.2, "lambd": 0.99, "num_epoch": 3, "learning_rate_schedule": "linear"}, "network_settings": {"normalize": True, "hidden_units": 128, "num_layers": 2, "vis_encode_type": "simple"}, "reward_signals": {"extrinsic": {"gamma": 0.99, "strength": 1.0}}, "keep_checkpoints": 3, "time_horizon": 1000}),
     _task("unity-food", "Food Collector · Visual PPO", "Food Collector · 视觉 PPO", "FoodCollector", "GridFoodCollector",
           "Collect green food while avoiding red food and competing agents.", "收集绿色食物，同时避开红色食物与其他智能体。",
-          "Ray sensors and local visual state", "Move, rotate, and fire", "assets/unity-food.webp", (10_000, 500_000, 80_000, 5_000),
+          "Ray sensors and local visual state", "Move, rotate, and fire", "assets/unity-food.webp", (10_000, 5_000_000, 2_000_000, 5_000),
           {"trainer_type": "ppo", "hyperparameters": {"batch_size": 1024, "buffer_size": 10240, "learning_rate": 0.0003, "beta": 0.005, "epsilon": 0.2, "lambd": 0.95, "num_epoch": 3, "learning_rate_schedule": "linear"}, "network_settings": {"normalize": False, "hidden_units": 256, "num_layers": 1, "vis_encode_type": "simple"}, "reward_signals": {"extrinsic": {"gamma": 0.99, "strength": 1.0}}, "keep_checkpoints": 3, "time_horizon": 64}),
     _task("unity-walker", "Walker · Locomotion PPO", "Walker · 运动控制 PPO", "Walker", "Walker",
           "Coordinate a many-jointed body to move toward the target direction.", "协调多关节身体，沿目标方向稳定行走。",
-          "Joint rotations, velocities, contacts, and target direction", "Continuous joint targets", "assets/unity-walker.webp", (20_000, 1_000_000, 120_000, 10_000),
+          "Joint rotations, velocities, contacts, and target direction", "Continuous joint targets", "assets/unity-walker.webp", (50_000, 30_000_000, 30_000_000, 50_000),
           {"trainer_type": "ppo", "hyperparameters": {"batch_size": 2048, "buffer_size": 20480, "learning_rate": 0.0003, "beta": 0.005, "epsilon": 0.2, "lambd": 0.95, "num_epoch": 3, "learning_rate_schedule": "linear"}, "network_settings": {"normalize": True, "hidden_units": 256, "num_layers": 3, "vis_encode_type": "simple"}, "reward_signals": {"extrinsic": {"gamma": 0.995, "strength": 1.0}}, "keep_checkpoints": 3, "time_horizon": 1000}),
 ]
 
@@ -202,7 +205,7 @@ def _ensure_unity_bundle(task: dict[str, Any]) -> Path:
 
 def _scaled_config(task: dict[str, Any], budget: int, learning_rate: float, gamma: float,
                    epsilon: float, seed: int, executable: Path, run_id: str,
-                   graphics_available: bool) -> Path:
+                   graphics_available: bool, checkpoint_count: int) -> Path:
     import torch
 
     trainer = yaml.safe_load(yaml.safe_dump(task["trainer"]))
@@ -212,7 +215,13 @@ def _scaled_config(task: dict[str, Any], budget: int, learning_rate: float, gamm
     min_buffer = max(256, int(hyper["batch_size"]) * 4)
     hyper["buffer_size"] = max(min_buffer, min(int(hyper["buffer_size"]), max(min_buffer, budget // 4)))
     hyper["batch_size"] = max(16, min(int(hyper["batch_size"]), int(hyper["buffer_size"]) // 4))
-    trainer.update(max_steps=budget, summary_freq=max(200, budget // 8), checkpoint_interval=max(1_000, budget))
+    trainer.update(
+        max_steps=budget,
+        summary_freq=max(200, budget // max(8, checkpoint_count)),
+        keep_checkpoints=checkpoint_count,
+        checkpoint_interval=max(1, budget // checkpoint_count),
+        even_checkpoints=True,
+    )
     env_args = task.get("env_args")
     if env_args is None:
         env_args = ["--mlagents-scene-name", f"Assets/ML-Agents/Examples/{task['scene']}/Scenes/{task['scene']}.unity"]
@@ -353,6 +362,7 @@ def _trim_blank_gif_tail(output: Path, replay_filter: str, fps: int) -> None:
 
 
 def _make_gif(video: Path, output: Path) -> str:
+    output.parent.mkdir(parents=True, exist_ok=True)
     replay_fps = REPLAY_FPS
     replay_filter = (
         f"[0:v]fps={replay_fps},scale=480:-1:flags=lanczos,split[palette_source][replay];"
@@ -382,8 +392,162 @@ def _make_gif(video: Path, output: Path) -> str:
     return str(output)
 
 
-def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int) -> Iterator[dict[str, Any]]:
+def _checkpoint_step(path: Path) -> int | None:
+    numbers = re.findall(r"(?:^|[-_])(\d+)(?=\D*$)", path.stem)
+    return int(numbers[-1]) if numbers else None
+
+
+def _unity_checkpoints(run_dir: Path, expected: int) -> list[tuple[int, Path]]:
+    by_step: dict[int, Path] = {}
+    for candidate in run_dir.rglob("*.pt"):
+        step = _checkpoint_step(candidate)
+        if step is not None:
+            by_step[step] = candidate
+    checkpoints = sorted(by_step.items())
+    if len(checkpoints) < expected:
+        found = ", ".join(path.name for _, path in checkpoints) or "none"
+        raise RuntimeError(
+            f"ML-Agents saved {len(checkpoints)}/{expected} resumable checkpoints ({found}); "
+            "the run is not exposed as a complete epoch set"
+        )
+    return checkpoints[-expected:]
+
+
+def _run_directory(model_path: Path) -> Path:
+    for parent in model_path.parents:
+        if parent.parent.name == "unity-results":
+            return parent
+    raise RuntimeError(f"Cannot locate the Unity results run for {model_path}")
+
+
+def _score_near_step(x: list[float], y: list[float], step: int) -> float | None:
+    candidates = [(sample_step, score) for sample_step, score in zip(x, y) if sample_step <= step]
+    if candidates:
+        return float(candidates[-1][1])
+    return float(y[0]) if y else None
+
+
+def _snapshot_checkpoint(source_run: Path, selected_model: Path, snapshot_id: str) -> tuple[Path, Path]:
+    results_root = ARTIFACTS / "unity-inference-results"
+    snapshot_run = results_root / snapshot_id
+    if snapshot_run.exists():
+        shutil.rmtree(snapshot_run)
+    shutil.copytree(source_run, snapshot_run)
+    selected_step = _checkpoint_step(selected_model)
+    if selected_step is None:
+        raise RuntimeError(f"The selected Unity checkpoint has no step number: {selected_model.name}")
+    selected_relative = selected_model.relative_to(source_run)
+    for candidate in snapshot_run.rglob("*.pt"):
+        step = _checkpoint_step(candidate)
+        if step is not None and step > selected_step:
+            candidate.unlink(missing_ok=True)
+    snapshot_model = snapshot_run / selected_relative
+    if not snapshot_model.is_file():
+        raise RuntimeError("The selected Unity checkpoint was not copied into the inference snapshot")
+    return results_root, snapshot_model
+
+
+def _inference_config(task: dict[str, Any], source_run: Path, model_path: Path, model_id: str) -> tuple[Path, Path]:
+    source_run_id = source_run.name
+    source_config = ARTIFACTS / f"{source_run_id}.yaml"
+    if not source_config.is_file():
+        raise RuntimeError(f"Training configuration is missing for {source_run_id}")
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", model_id).strip("-")
+    snapshot_id = f"replay-{safe_id}"
+    results_root, snapshot_model = _snapshot_checkpoint(source_run, model_path, snapshot_id)
+    config = yaml.safe_load(source_config.read_text(encoding="utf-8"))
+    config["checkpoint_settings"] = {
+        "run_id": snapshot_id,
+        "results_dir": str(results_root),
+        "resume": True,
+        "load_model": True,
+        "train_model": False,
+        "inference": True,
+        "force": False,
+    }
+    config["engine_settings"].update(
+        time_scale=1,
+        target_frame_rate=30,
+        capture_frame_rate=30,
+        no_graphics=False,
+    )
+    # The copied result directory retains all optimizer metadata, while newer
+    # .pt files were removed. Resume therefore loads this exact epoch rather
+    # than silently falling back to the final policy.
+    config["behaviors"][task["behavior"]]["init_path"] = str(snapshot_model)
+    path = ARTIFACTS / f"{snapshot_id}.yaml"
+    path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    return path, results_root / snapshot_id
+
+
+def render_saved_model(key: str, model_path: str, model_id: str) -> dict[str, str]:
     task = next(item for item in TASKS if item["key"] == key)
+    source_model = Path(model_path)
+    if not source_model.is_file():
+        raise RuntimeError(f"Saved Unity checkpoint no longer exists: {source_model}")
+    cached = ARTIFACTS / "unity-policy-replays" / f"{re.sub(r'[^A-Za-z0-9_.-]+', '-', model_id)}.gif"
+    if cached.is_file() and cached.stat().st_size > 1_000:
+        return {"preview": str(cached)}
+    source_run = _run_directory(source_model)
+    config, snapshot_run = _inference_config(task, source_run, source_model, model_id)
+    video = cached.with_suffix(".mp4")
+    frames_dir = cached.parent / f"{cached.stem}-live"
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    executable = _ensure_unity_bundle(task)
+    # The executable path is restored explicitly because inference snapshots
+    # can outlive a rescheduled container's generated YAML.
+    config_data = yaml.safe_load(config.read_text(encoding="utf-8"))
+    config_data["env_settings"]["env_path"] = str(executable)
+    config.write_text(yaml.safe_dump(config_data, sort_keys=False), encoding="utf-8")
+    xvfb = capture = inference = None
+    visible_since: float | None = None
+    try:
+        xvfb = _start_xvfb()
+        capture = _start_capture(video, frames_dir)
+        inference = subprocess.Popen(
+            ["mlagents-learn", str(config), "--resume", "--inference"],
+            cwd=ROOT,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            env={**os.environ, "PYTHONUNBUFFERED": "1"},
+            start_new_session=True,
+        )
+        deadline = time.monotonic() + (120.0 if key == "unity-huggy" else 75.0)
+        while time.monotonic() < deadline:
+            if inference.poll() is not None:
+                output = inference.stdout.read()[-2_000:] if inference.stdout else ""
+                raise RuntimeError(f"Unity checkpoint inference exited early ({inference.returncode}): {output}")
+            frame = _latest_preview_frame(frames_dir)
+            if frame is not None and visible_since is None:
+                visible_since = time.monotonic()
+            if visible_since is not None and time.monotonic() - visible_since >= 8.0:
+                break
+            time.sleep(0.15)
+        else:
+            raise RuntimeError("The selected Unity checkpoint did not render a visible inference episode")
+    finally:
+        _stop_process(inference)
+        _stop_process(capture)
+        _stop_process(xvfb)
+        if snapshot_run.exists():
+            shutil.rmtree(snapshot_run)
+    if not video.is_file() or video.stat().st_size <= 1_000:
+        raise RuntimeError("Unity checkpoint inference produced no replay video")
+    return {"preview": _make_gif(video, cached)}
+
+
+def run(
+    key: str,
+    budget: int,
+    learning_rate: float,
+    gamma: float,
+    epsilon: float,
+    seed: int,
+    checkpoints: int | None = None,
+) -> Iterator[dict[str, Any]]:
+    task = next(item for item in TASKS if item["key"] == key)
+    checkpoint_count = max(1, min(12, int(checkpoints or task["checkpoints"])))
     run_id = f"{key}-{int(time.time())}"
     download_note = " · first run downloads a resumable 39 MB scene" if key == "unity-huggy" else ""
     yield {"phase": "initializing", "step": 0, "log": f"Checking the Unity ML-Agents 1.1.0 Linux environment cache{download_note}"}
@@ -402,8 +566,19 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
             f"final replay={REPLAY_FPS} fps · Xvfb={xvfb_path} · ffmpeg={ffmpeg_path}"
         ),
     }
-    config = _scaled_config(task, int(budget), float(learning_rate), float(gamma), float(epsilon), int(seed), executable, run_id, True)
-    video, replay = ARTIFACTS / f"{run_id}-training.mp4", ARTIFACTS / f"{key}-learned-policy.gif"
+    config = _scaled_config(
+        task,
+        int(budget),
+        float(learning_rate),
+        float(gamma),
+        float(epsilon),
+        int(seed),
+        executable,
+        run_id,
+        True,
+        checkpoint_count,
+    )
+    video, training_replay = ARTIFACTS / f"{run_id}-training.mp4", ARTIFACTS / f"{run_id}-training.gif"
     frames_dir = ARTIFACTS / f"{run_id}-live"
     xvfb = capture = trainer = None
     x: list[float] = []
@@ -508,9 +683,49 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         _stop_process(xvfb)
     if not rendered_frame_seen or not video.exists() or video.stat().st_size <= 1_000:
         raise RuntimeError("Unity training completed without a valid rendered recording")
-    preview = _make_gif(video, replay)
+    training_preview = _make_gif(video, training_replay)
+    run_results = ARTIFACTS / "unity-results" / run_id
+    saved_checkpoints = _unity_checkpoints(run_results, checkpoint_count)
+    for checkpoint_index, (training_step, model_file) in enumerate(saved_checkpoints, start=1):
+        model_id = f"{run_id}-epoch-{checkpoint_index:02d}"
+        score = _score_near_step(x, y, training_step)
+        is_latest = checkpoint_index == len(saved_checkpoints)
+        preview = None
+        if is_latest:
+            yield {
+                "phase": "finalizing",
+                "step": training_step,
+                "score": score,
+                "x": x,
+                "y": y,
+                "detail": "Running the final saved checkpoint in Unity inference mode",
+                "log": "Training capture is complete. Launching an exact-policy inference replay for the final epoch.",
+            }
+            preview = render_saved_model(key, str(model_file), model_id)["preview"]
+        yield {
+            "phase": "finalizing",
+            "step": training_step,
+            "score": score,
+            "x": x,
+            "y": y,
+            "model": str(model_file),
+            "model_id": model_id,
+            "preview": preview,
+            "checkpoint_index": checkpoint_index,
+            "checkpoint_count": len(saved_checkpoints),
+            "metric_detail": "Unity trainer mean reward",
+            "detail": f"Registered epoch policy {checkpoint_index}/{len(saved_checkpoints)}",
+            "log": (
+                f"SAVE epoch={checkpoint_index}/{len(saved_checkpoints)} step={training_step:,} "
+                f"model={model_file.name}"
+                + (f" replay={Path(preview).name}" if preview else " replay=generated on first selection")
+            ),
+        }
     yield {
         "phase": "complete", "step": int(budget), "score": y[-1] if y else None,
-        "x": x, "y": y, "preview": preview,
-        "log": f"Unity PPO complete · recorded a real animated Unity replay: {Path(preview).name}",
+        "x": x, "y": y, "preview": preview or training_preview,
+        "log": (
+            f"Unity PPO complete · saved {len(saved_checkpoints)} independently selectable checkpoints. "
+            "The latest exact-policy replay is ready; earlier replays are generated once when selected."
+        ),
     }

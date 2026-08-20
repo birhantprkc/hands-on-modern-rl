@@ -76,11 +76,7 @@ def main() -> None:
             if expected_url not in readme.read_text(encoding="utf-8"):
                 errors.append(f"{slug}: {readme.relative_to(ROOT)} is missing its companion URL")
 
-        if slug.endswith("experiment01-cartpole"):
-            hero_source = (studio_dir / "app.py").read_text(encoding="utf-8")
-            if "MODELSCOPE_NOTEBOOK_URL" not in hero_source or "copy['notebook']" not in hero_source:
-                errors.append(f"{slug}: CartPole hero is missing the Notebook button")
-        elif slug.endswith("experiment-gymnasium"):
+        if slug.endswith("experiment-gymnasium"):
             hero_source = (studio_dir / "app.py").read_text(encoding="utf-8")
             if expected_url not in hero_source.replace('"\n    "', ""):
                 errors.append(f"{slug}: Gymnasium app does not contain its Notebook URL")

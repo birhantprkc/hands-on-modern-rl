@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 
 import imageio.v2 as imageio
 import numpy as np
@@ -38,13 +39,17 @@ def task(key, title, environment, description, action, preview, colors):
         "action": action,
         "algorithm": "JAX REINFORCE",
         "preview": preview,
-        "budget": (10, 1_000, 120, 10),
+        "budget": (20, 5_000, 600, 20),
+        "training_unit": {"en": "training episodes", "zh": "训练回合"},
         "learning_rate": (1e-5, 0.01, 0.001, 1e-5),
         "gamma": (0.8, 1.0, 0.99, 0.005),
         "epsilon": (0.0, 0.5, 0.05, 0.01),
         "checkpoints": 8,
         "max_steps": 1_000,
         "colors": colors,
+        "baseline_name": "JAX REINFORCE learning baseline",
+        "baseline_time": {"en": "about 2–12 minutes on CPU after JIT compilation", "zh": "JIT 编译完成后，CPU 上约 2–12 分钟"},
+        "baseline_outcome": {"en": "Mean evaluation return rises above early epochs and the semantic replay scores or survives longer.", "zh": "平均评估回报高于早期 epoch，语义回放中得分提高或存活时间变长。"},
     }
 
 
@@ -97,7 +102,15 @@ def _init_network(jax, key, input_size: int, actions: int):
     }
 
 
-def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int):
+def run(
+    key: str,
+    budget: int,
+    learning_rate: float,
+    gamma: float,
+    epsilon: float,
+    seed: int,
+    checkpoints: int | None = None,
+):
     import gymnax
     import jax
     import jax.numpy as jnp
@@ -159,8 +172,17 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
     yield {"step": 0, "x": [], "y": [], "log": f"JIT compiling policy update · observation={first_observation.shape} actions={actions}"}
     x: list[float] = []
     y: list[float] = []
-    checkpoint = max(1, budget // int(task["checkpoints"]))
+    checkpoint_count = max(1, min(int(budget), min(12, int(checkpoints or task["checkpoints"]))))
+    checkpoint_targets = [
+        max(1, round(int(budget) * index / checkpoint_count))
+        for index in range(1, checkpoint_count + 1)
+    ]
+    checkpoint_targets[-1] = int(budget)
+    run_token = f"{int(time.time())}-{seed}"
+    artifacts = ROOT / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
     recent_losses: list[float] = []
+    checkpoint_index = 0
     for episode_index in range(1, budget + 1):
         rng, episode_key = jax.random.split(rng)
         _, observations, selected, rewards, _, _ = episode(network, episode_key, explore=True)
@@ -178,7 +200,7 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
             jnp.asarray(np.asarray(selected), dtype=jnp.int32), jnp.asarray(advantages),
         )
         recent_losses.append(float(loss))
-        if episode_index == 1 or episode_index % checkpoint == 0 or episode_index == budget:
+        if episode_index == checkpoint_targets[checkpoint_index]:
             evaluations = []
             for offset in range(5):
                 rng, eval_key = jax.random.split(rng)
@@ -186,15 +208,41 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
                 evaluations.append(score)
             score = float(np.mean(evaluations))
             x.append(float(episode_index)); y.append(score)
-            yield {"step": episode_index, "score": score, "x": x, "y": y, "metric_detail": f"mean return · std={np.std(evaluations):.2f}", "log": f"JAX update episode={episode_index:,} loss={np.mean(recent_losses[-checkpoint:]):.6f} eval_return={score:.3f}"}
+            rng, record_key = jax.random.split(rng)
+            replay_score, _, _, _, frames, _ = episode(network, record_key, explore=False, capture=True)
+            if not frames:
+                raise RuntimeError("Gymnax returned no semantic frames for replay")
+            checkpoint_index += 1
+            epoch_dir = artifacts / f"{key}-{run_token}-epoch-{checkpoint_index:02d}"
+            epoch_dir.mkdir(parents=True, exist_ok=True)
+            model_path = epoch_dir / "policy.npz"
+            np.savez(model_path, **{name: np.asarray(value) for name, value in network.items()})
+            preview = epoch_dir / "learned-policy.gif"
+            imageio.mimsave(preview, frames, duration=.08, loop=0)
+            window = max(1, checkpoint_targets[checkpoint_index - 1] - (checkpoint_targets[checkpoint_index - 2] if checkpoint_index > 1 else 0))
+            yield {
+                "step": episode_index,
+                "score": score,
+                "x": x,
+                "y": y,
+                "model": str(model_path),
+                "preview": str(preview),
+                "checkpoint_index": checkpoint_index,
+                "checkpoint_count": checkpoint_count,
+                "metric_detail": f"mean return · std={np.std(evaluations):.2f}",
+                "log": (
+                    f"JAX epoch={checkpoint_index}/{checkpoint_count} episode={episode_index:,} "
+                    f"loss={np.mean(recent_losses[-window:]):.6f} eval_return={score:.3f} "
+                    f"replay_return={replay_score:.3f}\n"
+                    f"SAVE model={model_path.name} replay={preview.name} frames={len(frames)}"
+                ),
+            }
 
-    rng, record_key = jax.random.split(rng)
-    final_score, _, _, _, frames, _ = episode(network, record_key, explore=False, capture=True)
-    artifacts = ROOT / "artifacts"
-    artifacts.mkdir(parents=True, exist_ok=True)
-    np.savez(artifacts / f"{key}-policy.npz", **{name: np.asarray(value) for name, value in network.items()})
-    preview = artifacts / f"{key}-learned-policy.gif"
-    if not frames:
-        raise RuntimeError("Gymnax returned no semantic frames for replay")
-    imageio.mimsave(preview, frames, duration=.08, loop=0)
-    yield {"phase": "complete", "step": budget, "score": final_score, "x": x, "y": y, "preview": str(preview), "log": f"Saved JAX parameters and rendered {len(frames)} learned-policy frames"}
+    yield {
+        "phase": "complete",
+        "step": budget,
+        "score": y[-1] if y else None,
+        "x": x,
+        "y": y,
+        "log": f"Saved {checkpoint_index} independently selectable JAX policies and semantic replays",
+    }

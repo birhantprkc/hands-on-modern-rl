@@ -66,8 +66,13 @@ def _task(key: str, title: str, zh: str, scene: str, target: str, room: str, roo
         "observation": {"en": "84×84 egocentric RGB + shaped target distance", "zh": "84×84 第一人称 RGB 与目标距离塑形"},
         "action": {"en": "Move, rotate, and look", "zh": "移动、旋转与抬头/低头"},
         "algorithm": "ObjectNav CNN PPO", "preview": preview,
-        "budget": (1_024, 100_000, 8_192, 1_024), "learning_rate": (1e-5, 0.001, 0.00025, 1e-5),
+        "budget": (1_024, 1_000_000, 98_304, 256),
+        "steps_per_epoch": (1_024, 1_000_000, 16_384, 256), "epochs": (1, 12, 6, 1),
+        "learning_rate": (1e-5, 0.001, 0.00025, 1e-5),
         "gamma": (0.8, 1.0, 0.99, 0.005), "epsilon": (0.0, 0.2, 0.01, 0.005), "checkpoints": 6,
+        "baseline_name": "AI2-THOR ObjectNav PPO learning baseline",
+        "baseline_time": {"en": "about 20–60 minutes on xGPU after the scene cache is warm", "zh": "场景缓存就绪后，xGPU 上约 20–60 分钟"},
+        "baseline_outcome": {"en": "Evaluation return rises, target distance falls, and the exact epoch replay finishes with the target close and visible.", "zh": "评估回报上升、目标距离缩短，对应 epoch 的回放最终能靠近并看见目标。"},
     }
 
 
@@ -290,26 +295,31 @@ def _make_env(task: dict[str, Any], seed: int):
     return gym.wrappers.RecordEpisodeStatistics(ThorObjectNavEnv(task, seed))
 
 
-def _record(model: Any, task: dict[str, Any], seed: int) -> tuple[str, float, bool]:
-    env = _make_env(task, seed)
+def _record_episode(model: Any, env: Any, output_dir: Path, seed: int) -> tuple[str, float, bool]:
     frames: list[np.ndarray] = []
     total, success = 0.0, False
-    try:
-        observation, _ = env.reset(seed=seed)
-        for _ in range(256):
-            frames.append(env.render())
-            action, _ = model.predict(observation, deterministic=True)
-            observation, reward, terminated, truncated, info = env.step(action)
-            total += float(reward); success = bool(info.get("success"))
-            if terminated or truncated:
-                break
-    finally:
-        env.close()
-    path = save_gif(frames, ROOT / "artifacts" / f"{task['key']}-learned-policy.gif", fps=12)
+    observation, _ = env.reset(seed=seed)
+    for _ in range(256):
+        frames.append(env.render())
+        action, _ = model.predict(observation, deterministic=True)
+        observation, reward, terminated, truncated, info = env.step(action)
+        total += float(reward); success = bool(info.get("success"))
+        if terminated or truncated:
+            break
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path = save_gif(frames, output_dir / "learned-policy.gif", fps=12)
     return path, total, success
 
 
-def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int) -> Iterator[dict[str, Any]]:
+def run(
+    key: str,
+    budget: int,
+    learning_rate: float,
+    gamma: float,
+    epsilon: float,
+    seed: int,
+    checkpoints: int | None = None,
+) -> Iterator[dict[str, Any]]:
     import torch
     from stable_baselines3 import PPO
     from stable_baselines3.common.callbacks import BaseCallback
@@ -343,30 +353,78 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         x: list[float] = []
         y: list[float] = []
         completed = 0
-        # Publish every native 256-step PPO rollout so the progress bar and
-        # live console keep moving during the minimum online demonstration.
-        chunk = max(256, (int(budget) // 6 // 256) * 256)
-        while completed < int(budget):
-            model.learn(total_timesteps=min(chunk, int(budget) - completed), reset_num_timesteps=False, callback=callback, progress_bar=False)
-            completed = min(int(budget), int(model.num_timesteps))
+        checkpoint_count = max(1, min(12, int(checkpoints or task["checkpoints"])))
+        checkpoint_targets = [
+            max(1, round(int(budget) * index / checkpoint_count))
+            for index in range(1, checkpoint_count + 1)
+        ]
+        checkpoint_targets[-1] = int(budget)
+        run_token = f"{int(time.time())}-{seed}"
+        artifact_root = ROOT / "artifacts"
+        artifact_root.mkdir(parents=True, exist_ok=True)
+        saved_models: list[tuple[int, int, float, Path]] = []
+        for checkpoint_index, target in enumerate(checkpoint_targets, start=1):
+            model.learn(total_timesteps=max(1, target - completed), reset_num_timesteps=False, callback=callback, progress_bar=False)
+            completed = target
             score = float(callback.latest.get("rollout/ep_rew_mean") or 0.0)
             x.append(float(completed)); y.append(score)
+            epoch_dir = artifact_root / f"{key}-{run_token}-epoch-{checkpoint_index:02d}"
+            epoch_dir.mkdir(parents=True, exist_ok=True)
+            model.save(str(epoch_dir / "policy"))
+            model_file = epoch_dir / "policy.zip"
+            saved_models.append((checkpoint_index, completed, score, model_file))
             log = (f"ObjectNav PPO update · step={completed:,}\n"
                    f"scene={task['scene']}  target={task['target']}  device={model.device}\n"
                    f"episode_reward_mean={score:.4f}  entropy_loss={float(callback.latest.get('train/entropy_loss') or 0):.5f}\n"
-                   f"policy_gradient_loss={float(callback.latest.get('train/policy_gradient_loss') or 0):.5f}")
+                   f"policy_gradient_loss={float(callback.latest.get('train/policy_gradient_loss') or 0):.5f}\n"
+                   f"SAVE epoch={checkpoint_index}/{checkpoint_count} model={model_file.name}")
             yield {"phase": "training", "step": completed, "score": score, "x": x, "y": y,
                    "detail": f"{completed:,}/{int(budget):,} simulator steps", "metric_detail": "episode reward mean", "log": log}
-        artifact_dir = ROOT / "artifacts"; artifact_dir.mkdir(parents=True, exist_ok=True)
-        model.save(str(artifact_dir / f"{key}-cnn-ppo"))
         env.close(); env = None
         yield {"phase": "finalizing", "step": completed, "x": x, "y": y,
-               "detail": "Recording the learned ObjectNav policy",
-               "log": "Training is complete. Starting a fresh AI2-THOR episode for the learned-policy GIF."}
-        preview, evaluation, success = _record(model, task, int(seed) + 10_000)
-        (artifact_dir / f"{key}-model.json").write_text(json.dumps({"scene": task["scene"], "target": task["target"], "algorithm": "CNN PPO", "budget": int(budget), "seed": int(seed), "evaluation_return": evaluation, "success": success}, indent=2), encoding="utf-8")
-        yield {"phase": "complete", "step": completed, "score": evaluation, "x": x, "y": y, "preview": preview,
-               "metric_detail": "deterministic ObjectNav return", "log": f"Recorded learned ObjectNav policy · success={success} · {Path(preview).name}"}
+               "detail": "Starting one replay scene for all saved epochs",
+               "log": "Training is complete. Reusing one fresh AI2-THOR controller to replay every saved policy."}
+        replay_env = _make_env(task, int(seed) + 10_000)
+        try:
+            for checkpoint_index, saved_step, score, model_file in saved_models:
+                replay_model = PPO.load(str(model_file), device="cuda")
+                epoch_dir = model_file.parent
+                preview, evaluation, success = _record_episode(
+                    replay_model,
+                    replay_env,
+                    epoch_dir,
+                    int(seed) + 10_000 + checkpoint_index,
+                )
+                (epoch_dir / "metadata.json").write_text(json.dumps({
+                    "scene": task["scene"],
+                    "target": task["target"],
+                    "algorithm": "CNN PPO",
+                    "step": saved_step,
+                    "epoch": checkpoint_index,
+                    "epochs": len(saved_models),
+                    "training_score": score,
+                    "evaluation_return": evaluation,
+                    "success": success,
+                    "seed": int(seed),
+                }, indent=2), encoding="utf-8")
+                yield {
+                    "phase": "finalizing",
+                    "step": saved_step,
+                    "score": evaluation,
+                    "x": x,
+                    "y": y,
+                    "model": str(model_file),
+                    "preview": preview,
+                    "checkpoint_index": checkpoint_index,
+                    "checkpoint_count": len(saved_models),
+                    "metric_detail": "deterministic ObjectNav return",
+                    "detail": f"Rendered replay {checkpoint_index}/{len(saved_models)}",
+                    "log": f"REPLAY epoch={checkpoint_index}/{len(saved_models)} model={model_file.name} return={evaluation:.3f} success={success}",
+                }
+        finally:
+            replay_env.close()
+        yield {"phase": "complete", "step": completed, "score": y[-1] if y else None, "x": x, "y": y,
+               "log": f"Saved {len(saved_models)} independently selectable AI2-THOR policies and replays"}
     finally:
         if env is not None:
             env.close()

@@ -83,22 +83,28 @@ SPACE = {
 
 def _task(key: str, env_id: str, title: str, zh: str, description: str, description_zh: str,
           action: str, preview: str, default_budget: int, gamma: float) -> dict[str, Any]:
+    rollout_quantum = 16 * 50
+    epoch_steps = max(rollout_quantum, round((default_budget / 6) / rollout_quantum) * rollout_quantum)
     return {
         "key": key, "title": {"en": title, "zh": zh}, "environment": env_id,
         "description": {"en": description, "zh": description_zh},
         "observation": {"en": "Robot joint state + object pose", "zh": "机器人关节状态与物体位姿"},
         "action": {"en": action, "zh": action}, "algorithm": "GPU PPO", "policy": "MlpPolicy",
-        "device": "cuda", "preview": preview, "budget": (10_000, 1_000_000, default_budget, 10_000),
+        "device": "cuda", "preview": preview, "budget": (8_000, 5_000_000, epoch_steps * 6, 800),
+        "steps_per_epoch": (8_000, 5_000_000, epoch_steps, rollout_quantum), "epochs": (1, 12, 6, 1),
         "learning_rate": (1e-5, 0.001, 0.0003, 1e-5), "gamma": (0.8, 1.0, gamma, 0.005),
         "epsilon": (0.0, 0.2, 0.02, 0.005), "checkpoints": 6,
+        "baseline_name": "ManiSkill GPU PPO learning baseline",
+        "baseline_time": {"en": "about 8–45 minutes on xGPU after simulator warm-up", "zh": "模拟器预热后，xGPU 上约 8–45 分钟"},
+        "baseline_outcome": {"en": "Dense evaluation return rises and the exact epoch replay moves, grasps, stacks, or inserts the object toward success.", "zh": "密集评估回报上升，对应 epoch 的真实回放能将物体推、抓、叠放或插入到目标位置。"},
     }
 
 
 TASKS = [
-    _task("push-cube", "PushCube-v1", "PushCube · Panda", "PushCube · 熊猫机械臂", "Push the cube to the marked goal position.", "将方块推到标记的目标位置。", "7D end-effector delta pose", "assets/maniskill-push.jpg", 100_000, 0.8),
-    _task("pick-cube", "PickCube-v1", "PickCube · Panda", "PickCube · 熊猫机械臂", "Grasp a cube and lift it to a target pose.", "抓住方块并将其抬升到目标位姿。", "7D end-effector delta pose + gripper", "assets/maniskill-pick.jpg", 150_000, 0.9),
-    _task("stack-cube", "StackCube-v1", "StackCube · Panda", "StackCube · 熊猫机械臂", "Pick up one cube and stack it stably on another.", "拾取一个方块，并将它稳定叠放在另一个方块上。", "7D end-effector delta pose + gripper", "assets/maniskill-stack.jpg", 250_000, 0.95),
-    _task("peg-insertion", "PegInsertionSide-v1", "PegInsertionSide · Panda", "PegInsertionSide · 熊猫机械臂", "Align a peg and insert it into a horizontal socket.", "对齐插销，并把它插入水平插座。", "7D end-effector delta pose + gripper", "assets/maniskill-peg.jpg", 300_000, 0.95),
+    _task("push-cube", "PushCube-v1", "PushCube · Panda", "PushCube · 熊猫机械臂", "Push the cube to the marked goal position.", "将方块推到标记的目标位置。", "7D end-effector delta pose", "assets/maniskill-push.jpg", 500_000, 0.8),
+    _task("pick-cube", "PickCube-v1", "PickCube · Panda", "PickCube · 熊猫机械臂", "Grasp a cube and lift it to a target pose.", "抓住方块并将其抬升到目标位姿。", "7D end-effector delta pose + gripper", "assets/maniskill-pick.jpg", 1_000_000, 0.9),
+    _task("stack-cube", "StackCube-v1", "StackCube · Panda", "StackCube · 熊猫机械臂", "Pick up one cube and stack it stably on another.", "拾取一个方块，并将它稳定叠放在另一个方块上。", "7D end-effector delta pose + gripper", "assets/maniskill-stack.jpg", 2_000_000, 0.95),
+    _task("peg-insertion", "PegInsertionSide-v1", "PegInsertionSide · Panda", "PegInsertionSide · 熊猫机械臂", "Align a peg and insert it into a horizontal socket.", "对齐插销，并把它插入水平插座。", "7D end-effector delta pose + gripper", "assets/maniskill-peg.jpg", 3_000_000, 0.95),
 ]
 
 
@@ -388,7 +394,7 @@ def _task_state_frame(
     return np.asarray(image)
 
 
-def _record_task_state(model: Any, task: dict[str, Any], seed: int) -> str:
+def _record_task_state(model: Any, task: dict[str, Any], seed: int, output_dir: Path) -> str:
     raw, env = _make_vec_env(task, 1)
     states: list[dict[str, np.ndarray]] = []
     rewards: list[float] = []
@@ -408,10 +414,12 @@ def _record_task_state(model: Any, task: dict[str, Any], seed: int) -> str:
         _task_state_frame(task, index, states, rewards, action_norms)
         for index in range(0, len(states), 4)
     ]
-    return save_gif(frames, ROOT / "artifacts" / f"{task['key']}-learned-policy.gif", fps=12)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    return save_gif(frames, output_dir / "learned-policy.gif", fps=12)
 
 
-def _record(model: Any, task: dict[str, Any], seed: int) -> tuple[str, str]:
+def _record(model: Any, task: dict[str, Any], seed: int, output_dir: Path) -> tuple[str, str]:
+    output_dir.mkdir(parents=True, exist_ok=True)
     raw = None
     env = None
     try:
@@ -426,14 +434,14 @@ def _record(model: Any, task: dict[str, Any], seed: int) -> tuple[str, str]:
                 frames.append(np.asarray(frame))
             actions, _ = model.predict(observation, deterministic=True)
             observation, rewards, dones, infos = env.step(actions)
-        preview = save_gif(frames, ROOT / "artifacts" / f"{task['key']}-learned-policy.gif", fps=24)
+        preview = save_gif(frames, output_dir / "learned-policy.gif", fps=24)
         return preview, "Rendered the learned policy with the CPU Vulkan backend"
     except Exception as exc:
         if env is not None:
             env.close()
             env = None
         raw = None
-        preview = _record_task_state(model, task, seed)
+        preview = _record_task_state(model, task, seed, output_dir)
         return preview, (
             f"CPU Vulkan camera replay unavailable ({type(exc).__name__}); "
             "generated a camera-free GIF from the learned policy's real TCP, object, and goal poses"
@@ -444,7 +452,15 @@ def _record(model: Any, task: dict[str, Any], seed: int) -> tuple[str, str]:
         del raw
 
 
-def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int) -> Iterator[dict[str, Any]]:
+def run(
+    key: str,
+    budget: int,
+    learning_rate: float,
+    gamma: float,
+    epsilon: float,
+    seed: int,
+    checkpoints: int | None = None,
+) -> Iterator[dict[str, Any]]:
     import torch
     from stable_baselines3 import PPO
     from stable_baselines3.common.callbacks import BaseCallback
@@ -494,16 +510,24 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
     model = PPO("MlpPolicy", train_env, learning_rate=float(learning_rate), gamma=float(gamma),
                 gae_lambda=0.9, ent_coef=max(0.0, float(epsilon)), n_steps=n_steps,
                 batch_size=batch_size, n_epochs=6, device="cuda", seed=int(seed), verbose=0)
-    checkpoints = 6
-    chunk = max(rollout, (int(budget) // checkpoints // rollout) * rollout)
+    checkpoint_count = max(1, min(12, int(checkpoints or task["checkpoints"])))
+    checkpoint_targets = [
+        max(1, round(int(budget) * index / checkpoint_count))
+        for index in range(1, checkpoint_count + 1)
+    ]
+    checkpoint_targets[-1] = int(budget)
+    run_token = f"{int(time.time())}-{seed}"
+    artifact_root = ROOT / "artifacts"
+    artifact_root.mkdir(parents=True, exist_ok=True)
     x: list[float] = []
     y: list[float] = []
     completed = 0
+    saved_models: list[tuple[int, int, float, float, Path]] = []
     try:
-        while completed < int(budget):
-            current = min(chunk, int(budget) - completed)
+        for checkpoint_index, target in enumerate(checkpoint_targets, start=1):
+            current = max(1, target - completed)
             model.learn(total_timesteps=current, reset_num_timesteps=False, callback=callback, progress_bar=False)
-            completed += current
+            completed = target
             score, spread = _evaluate(model, task, int(seed) + completed, gpu_sim=gpu_sim)
             x.append(float(completed)); y.append(score)
             metrics = callback.latest
@@ -512,26 +536,69 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
             value_loss = metrics.get("train/value_loss")
             policy_loss_text = "n/a" if policy_loss is None else f"{float(policy_loss):.6g}"
             value_loss_text = "n/a" if value_loss is None else f"{float(value_loss):.6g}"
+            epoch_dir = artifact_root / f"{key}-{run_token}-epoch-{checkpoint_index:02d}"
+            epoch_dir.mkdir(parents=True, exist_ok=True)
+            model.save(str(epoch_dir / "policy"))
+            model_file = epoch_dir / "policy.zip"
+            saved_models.append((checkpoint_index, completed, score, spread, model_file))
             log = (f"PPO update · step={completed:,}\n"
                    f"parallel_envs={parallel_envs}  rollout={rollout}  policy_device={model.device}  simulation={simulation_backend}\n"
                    f"policy_loss={policy_loss_text}  value_loss={value_loss_text}\n"
-                   f"EVAL mean_dense_return={score:.3f} std={spread:.3f}")
+                   f"EVAL mean_dense_return={score:.3f} std={spread:.3f}\n"
+                   f"SAVE epoch={checkpoint_index}/{checkpoint_count} model={model_file.name}")
             yield {"phase": "training", "step": completed, "score": score, "x": x, "y": y,
                    "detail": f"{completed:,}/{int(budget):,} environment steps",
                    "metric_detail": f"mean dense return ± {spread:.2f}", "log": log}
-        artifact_dir = ROOT / "artifacts"
-        artifact_dir.mkdir(parents=True, exist_ok=True)
-        model.save(str(artifact_dir / f"{key}-ppo"))
         # Release the training scene before opening the replay scene. SAPIEN's
         # renderer and PhysX pools are process-global and keeping both alive can
         # make a later task fail with a misleading rendering-device error.
         train_env.close()
         train_env = None
         raw = None
-        preview, preview_detail = _record(model, task, int(seed) + 10_000)
-        (artifact_dir / f"{key}-model.json").write_text(json.dumps({"environment": task["environment"], "algorithm": "PPO", "budget": int(budget), "parallel_envs": parallel_envs, "simulation_backend": "gpu_physx" if gpu_sim else "cpu_physx_fallback", "policy_device": str(model.device), "seed": int(seed)}, indent=2), encoding="utf-8")
-        yield {"phase": "complete", "step": completed, "score": y[-1], "x": x, "y": y, "preview": preview,
-               "log": f"Saved the GPU policy and generated {Path(preview).name}. {preview_detail}"}
+        for checkpoint_index, saved_step, score, spread, model_file in saved_models:
+            replay_model = PPO.load(str(model_file), device="cuda")
+            epoch_dir = model_file.parent
+            preview, preview_detail = _record(
+                replay_model,
+                task,
+                int(seed) + 10_000 + checkpoint_index,
+                epoch_dir,
+            )
+            (epoch_dir / "metadata.json").write_text(json.dumps({
+                "environment": task["environment"],
+                "algorithm": "PPO",
+                "step": saved_step,
+                "epoch": checkpoint_index,
+                "epochs": len(saved_models),
+                "evaluation_return": score,
+                "evaluation_std": spread,
+                "parallel_envs": parallel_envs,
+                "simulation_backend": "gpu_physx" if gpu_sim else "cpu_physx_fallback",
+                "policy_device": str(model.device),
+                "seed": int(seed),
+            }, indent=2), encoding="utf-8")
+            yield {
+                "phase": "finalizing",
+                "step": saved_step,
+                "score": score,
+                "x": x,
+                "y": y,
+                "model": str(model_file),
+                "preview": preview,
+                "checkpoint_index": checkpoint_index,
+                "checkpoint_count": len(saved_models),
+                "metric_detail": f"mean dense return ± {spread:.2f}",
+                "detail": f"Rendered replay {checkpoint_index}/{len(saved_models)}",
+                "log": f"REPLAY epoch={checkpoint_index}/{len(saved_models)} model={model_file.name} · {preview_detail}",
+            }
+        yield {
+            "phase": "complete",
+            "step": completed,
+            "score": y[-1] if y else None,
+            "x": x,
+            "y": y,
+            "log": f"Saved {len(saved_models)} independently selectable ManiSkill policies and replays",
+        }
     finally:
         if train_env is not None:
             train_env.close()

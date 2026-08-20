@@ -19,7 +19,7 @@ SPACE = {
     "training_guide": {
         "success": {"en": "Success rate or episode return should improve, and the replay should reach the goal or complete the required key, door, and obstacle sequence.", "zh": "成功率或回合回报应提高，回放中应抵达目标，或正确完成钥匙、门和障碍物组成的交互顺序。"},
         "preview": {"en": "After training, Preview becomes this run's MiniGrid replay. Follow the agent's field of view and check whether exploration leads to the task goal.", "zh": "训练后，Preview 会变为本次 MiniGrid 回放；请跟随智能体的局部视野，检查探索是否最终到达任务目标。"},
-        "time": {"en": "Default CPU runs usually take 20 seconds–2 minutes; obstructed and multi-room tasks need longer budgets.", "zh": "默认 CPU 运行通常需要 20 秒到 2 分钟；复杂障碍和多房间任务需要更长预算。"},
+        "time": {"en": "A smoke run takes under 2 minutes. Recommended PPO learning baselines usually need about 3–30 minutes on CPU; sparse-reward mazes take longest.", "zh": "短流程验证通常不超过 2 分钟；推荐的 PPO 学习配方在 CPU 上约需 3–30 分钟，稀疏奖励迷宫耗时最长。"},
     },
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/chapter14_exploration_marl_hierarchical/intrinsic-motivation-exploration",
     "source_url": "https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment06-minigrid-adventure/file/view/master/space_runtime.py",
@@ -45,16 +45,19 @@ def task(key, title, environment, description, preview, budget):
         "epsilon": (0.0, 0.2, 0.01, 0.005),
         "checkpoints": 6,
         "max_steps": 500,
+        "baseline_name": "MiniGrid PPO learning baseline",
+        "baseline_time": {"en": "about 3–30 minutes on CPU", "zh": "CPU 上约 3–30 分钟"},
+        "baseline_outcome": {"en": "Episode reward and success frequency rise, and the replay completes the selected navigation sequence.", "zh": "回合奖励与成功频率上升，回放能够完成所选导航与交互序列。"},
     }
 
 
 TASKS = [
-    task("empty", "Reach the Goal", "MiniGrid-Empty-6x6-v0", {"en": "Learn basic egocentric navigation to a fixed goal.", "zh": "学习以自我视角导航到固定目标。"}, "assets/empty.png", (2_000, 100_000, 12_000, 2_000)),
-    task("doorkey", "Door & Key", "MiniGrid-DoorKey-6x6-v0", {"en": "Find the key, carry it to the locked door, open it, and reach the goal.", "zh": "寻找钥匙、携带钥匙打开上锁的门，然后到达目标。"}, "assets/doorkey.png", (5_000, 300_000, 30_000, 5_000)),
-    task("multiroom", "Multi-Room", "MiniGrid-MultiRoom-N2-S4-v0", {"en": "Explore connected rooms and remember which doorway advances toward the goal.", "zh": "探索相连房间，并记住哪一扇门通向目标。"}, "assets/multiroom.png", (5_000, 300_000, 30_000, 5_000)),
-    task("unlock", "Unlock the Door", "MiniGrid-Unlock-v0", {"en": "Search for a key and solve the interaction sequence required to unlock a door.", "zh": "寻找钥匙，并完成开门所需的交互顺序。"}, "assets/unlock.png", (5_000, 300_000, 30_000, 5_000)),
-    task("obstructed", "Obstructed Maze", "MiniGrid-ObstructedMaze-1Q-v1", {"en": "Move objects, uncover a key, and plan around an obstructed doorway.", "zh": "移动物体、找到钥匙，并绕过被阻挡的门口。"}, "assets/obstructed.png", (10_000, 500_000, 50_000, 10_000)),
-    task("dynamic", "Dynamic Obstacles", "MiniGrid-Dynamic-Obstacles-6x6-v0", {"en": "Reach the goal while reacting to obstacles that move after every action.", "zh": "在障碍物每一步都会移动的情况下到达目标。"}, "assets/dynamic.png", (5_000, 300_000, 30_000, 5_000)),
+    task("empty", "Reach the Goal", "MiniGrid-Empty-6x6-v0", {"en": "Learn basic egocentric navigation to a fixed goal.", "zh": "学习以自我视角导航到固定目标。"}, "assets/empty.png", (2_000, 500_000, 100_000, 2_000)),
+    task("doorkey", "Door & Key", "MiniGrid-DoorKey-6x6-v0", {"en": "Find the key, carry it to the locked door, open it, and reach the goal.", "zh": "寻找钥匙、携带钥匙打开上锁的门，然后到达目标。"}, "assets/doorkey.png", (5_000, 1_000_000, 400_000, 5_000)),
+    task("multiroom", "Multi-Room", "MiniGrid-MultiRoom-N2-S4-v0", {"en": "Explore connected rooms and remember which doorway advances toward the goal.", "zh": "探索相连房间，并记住哪一扇门通向目标。"}, "assets/multiroom.png", (5_000, 1_000_000, 400_000, 5_000)),
+    task("unlock", "Unlock the Door", "MiniGrid-Unlock-v0", {"en": "Search for a key and solve the interaction sequence required to unlock a door.", "zh": "寻找钥匙，并完成开门所需的交互顺序。"}, "assets/unlock.png", (5_000, 1_000_000, 400_000, 5_000)),
+    task("obstructed", "Obstructed Maze", "MiniGrid-ObstructedMaze-1Q-v1", {"en": "Move objects, uncover a key, and plan around an obstructed doorway.", "zh": "移动物体、找到钥匙，并绕过被阻挡的门口。"}, "assets/obstructed.png", (10_000, 2_000_000, 800_000, 10_000)),
+    task("dynamic", "Dynamic Obstacles", "MiniGrid-Dynamic-Obstacles-6x6-v0", {"en": "Reach the goal while reacting to obstacles that move after every action.", "zh": "在障碍物每一步都会移动的情况下到达目标。"}, "assets/dynamic.png", (5_000, 1_500_000, 500_000, 5_000)),
 ]
 
 
@@ -97,7 +100,7 @@ def _record(model, env, artifacts: Path, seed: int, task):
     return save_gif(frames, artifacts / f"{task['key']}-learned-policy.gif", fps=8)
 
 
-def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int):
+def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int, checkpoints: int | None = None):
     task = next(item for item in TASKS if item["key"] == key)
     environment = task["environment"]
     yield from train_sb3(
@@ -111,5 +114,6 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         gamma=gamma,
         epsilon=epsilon,
         seed=seed,
+        checkpoints=checkpoints,
         record_episode=lambda model, env, artifacts, record_seed: _record(model, env, artifacts, record_seed, task),
     )
