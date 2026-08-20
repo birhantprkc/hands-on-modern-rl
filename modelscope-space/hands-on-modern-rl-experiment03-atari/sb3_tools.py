@@ -27,6 +27,7 @@ def format_metrics(metrics: dict[str, Any], step: int) -> str:
     preferred = (
         "rollout/ep_rew_mean",
         "rollout/ep_len_mean",
+        "rollout/exploration_rate",
         "time/fps",
         "train/loss",
         "train/value_loss",
@@ -64,6 +65,7 @@ def train_sb3(
     gamma: float,
     epsilon: float,
     seed: int,
+    checkpoint_count: int | None = None,
     record_episode: Callable[[Any, Any, Path, int], str],
 ) -> Iterator[dict[str, Any]]:
     algorithms, BaseCallback, evaluate_policy = stable_baselines_runtime()
@@ -76,10 +78,11 @@ def train_sb3(
         def __init__(self):
             super().__init__(verbose=0)
             self.latest: dict[str, Any] = {}
+            self.stop_at: int | None = None
 
         def _on_step(self) -> bool:
             self.latest = dict(self.logger.name_to_value)
-            return True
+            return self.stop_at is None or self.num_timesteps < self.stop_at
 
     train_env = make_train_env()
     eval_env = make_eval_env()
@@ -171,7 +174,11 @@ def train_sb3(
     budget_spec = configured("budget", (1, max(1, budget), budget, 1))
     recommended_budget = int(budget_spec[2]) if isinstance(budget_spec, (list, tuple)) and len(budget_spec) >= 3 else budget
     smoke_test = budget < recommended_budget
-    checkpoints = 2 if smoke_test else int(configured("checkpoints", 6))
+    checkpoints = (
+        int(checkpoint_count)
+        if checkpoint_count is not None
+        else (2 if smoke_test else int(configured("checkpoints", 6)))
+    )
     checkpoints = max(2, min(12, checkpoints))
     eval_episodes = 1 if smoke_test else max(1, int(configured("eval_episodes", 3)))
     resolved_config.update(
@@ -185,6 +192,7 @@ def train_sb3(
     evaluation_steps = sorted({max(1, round(budget * index / checkpoints)) for index in range(1, checkpoints + 1)})
     progress_chunk = min(10_000, max(1_000, budget // 100)) if budget >= 1_000 else max(1, budget // 10)
     resolved_config["progress_chunk"] = progress_chunk
+    resolved_config["schedule_total_timesteps"] = budget
     x: list[float] = []
     y: list[float] = []
     initialization_log = f"Initialized {algorithm_name} with {policy} on {resolved_device.upper()}"
@@ -195,9 +203,10 @@ def train_sb3(
             f" target_update={resolved_config['target_update_interval']:,}"
             f" exploration={resolved_config['exploration_initial_eps']:.2f}→{resolved_config['exploration_final_eps']:.2f}"
             " train_reward=clipped eval_reward=raw"
+            f" schedule_horizon={budget:,}"
         )
     if smoke_test:
-        initialization_log += "\nSMOKE_TEST reduced evaluation=2 checkpoints × 1 episode"
+        initialization_log += f"\nSMOKE_TEST evaluation={checkpoints} checkpoints × 1 episode"
     yield {"phase": "training", "step": 0, "x": x, "y": y, "log": initialization_log}
     completed = 0
     evaluation_index = 0
@@ -214,8 +223,18 @@ def train_sb3(
         while completed < budget:
             next_evaluation = evaluation_steps[evaluation_index]
             current = min(progress_chunk, next_evaluation - completed, budget - completed)
-            model.learn(total_timesteps=current, reset_num_timesteps=False, callback=callback, progress_bar=False)
-            completed += current
+            target_step = completed + current
+            callback.stop_at = target_step
+            # Tell SB3 that every streamed chunk belongs to the same full run.
+            # The callback pauses at target_step, while SB3 keeps the learning-
+            # rate and exploration schedules anchored to the original budget.
+            remaining_budget = max(1, budget - int(model.num_timesteps))
+            model.learn(total_timesteps=remaining_budget, reset_num_timesteps=False, callback=callback, progress_bar=False)
+            completed = min(budget, int(model.num_timesteps))
+            if completed < target_step:
+                raise RuntimeError(
+                    f"Training paused before the requested progress checkpoint: {completed:,} < {target_step:,}"
+                )
             elapsed = max(time.perf_counter() - training_started, 1e-6)
             throughput = completed / elapsed
             eta_seconds = max(0.0, (budget - completed) / max(throughput, 1e-6))

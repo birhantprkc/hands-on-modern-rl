@@ -58,7 +58,7 @@ def task(
         "learning_rate": (1e-5, 0.0005, 0.0001, 1e-5),
         "gamma": (0.9, 1.0, 0.99, 0.005),
         "epsilon": (0.1, 1.0, 1.0, 0.05),
-        "baseline_name": "Atari DQN xGPU baseline v2",
+        "baseline_name": "Atari DQN xGPU baseline v3",
         "baseline_time": baseline_time,
         "baseline_outcome": baseline_outcome,
         "learning_starts": learning_starts,
@@ -209,7 +209,7 @@ def model_details(model_id: str) -> dict:
 
 
 def list_trained_models(key: str | None = None) -> list[dict]:
-    """List every completed training run, newest first."""
+    """List every saved policy checkpoint, newest first."""
     artifacts = ROOT / "artifacts"
     records: list[dict] = []
     for model_path in artifacts.glob("*-model*.zip"):
@@ -253,7 +253,15 @@ def render_preview(model_id: str):
     }
 
 
-def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int):
+def run(
+    key: str,
+    budget: int,
+    learning_rate: float,
+    gamma: float,
+    epsilon: float,
+    seed: int,
+    checkpoints: int | None = None,
+):
     import torch
 
     if not torch.cuda.is_available():
@@ -274,5 +282,6 @@ def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: floa
         gamma=gamma,
         epsilon=epsilon,
         seed=seed,
+        checkpoint_count=checkpoints,
         record_episode=lambda model, env, artifacts, record_seed: _record(model, env, artifacts, record_seed, task),
     )
