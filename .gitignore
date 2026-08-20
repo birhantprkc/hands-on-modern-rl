@@ -66,3 +66,4 @@ swanlog/
 
 # Qoder local skills
 .qoder/
+docs/.vitepress/.temp/
