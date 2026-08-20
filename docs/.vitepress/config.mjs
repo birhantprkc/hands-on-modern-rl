@@ -1314,11 +1314,11 @@ const zhSidebar = {
               link: '/chapter28_vla/embodied-intelligence/'
             },
             {
-              text: '24.4 图像生成怎样用强化学习对齐',
+              text: '24.4 图像生成的强化学习对齐',
               link: '/chapter29_visual_generation/visual-generation-dancegrpo'
             },
             {
-              text: '24.5 视频为什么会前后矛盾',
+              text: '24.5 视频的时间一致性',
               link: '/chapter29_visual_generation/video-generation-modern'
             }
           ]
@@ -1334,23 +1334,23 @@ const zhSidebar = {
           collapsed: false,
           items: [
             {
-              text: '25.1 奖励越高，任务为什么反而做坏',
+              text: '25.1 奖励与任务的背离',
               link: '/chapter30_alignment_failures/classical-failures'
             },
             {
-              text: '25.2 如何判断 RLVR 提升是真的',
+              text: '25.2 RLVR 的假性提升',
               link: '/chapter30_alignment_failures/modern-incidents'
             },
             {
-              text: '25.3 模型为什么会在特定条件下切换行为',
+              text: '25.3 潜伏行为与条件切换',
               link: '/chapter30_alignment_failures/sleeper-and-faking'
             },
             {
-              text: '25.4 如何防止模型钻奖励漏洞',
+              text: '25.4 奖励漏洞的防御',
               link: '/chapter30_alignment_failures/scaling-and-defenses'
             },
             {
-              text: '25.5 如何可信地评测强化学习模型',
+              text: '25.5 评测协议与可复现性',
               link: '/chapter30_alignment_failures/rl-evaluation'
             }
           ]
@@ -1360,19 +1360,19 @@ const zhSidebar = {
           collapsed: false,
           items: [
             {
-              text: '26.1 模型怎样自己产生训练数据',
+              text: '26.1 自博弈与训练数据生成',
               link: '/chapter32_selfplay/self-play-outlook/'
             },
             {
-              text: '26.2 新增算力应该花在哪里',
+              text: '26.2 训练时与测试时的规模扩展',
               link: '/chapter32_selfplay/rl-scaling-outlook'
             },
             {
-              text: '26.3 多个 LLM 怎样共同学习',
+              text: '26.3 多智能体协同学习',
               link: '/chapter32_selfplay/llm-multi-agent-rl/'
             },
             {
-              text: '26.4 LLM 怎样搜索新算法',
+              text: '26.4 LLM 驱动的算法搜索',
               link: '/chapter32_selfplay/alphaevolve/'
             }
           ]
@@ -1387,19 +1387,19 @@ const zhSidebar = {
           collapsed: false,
           items: [
             {
-              text: 'A.1 训练为什么跑偏',
+              text: 'A.1 训练跑偏的症状',
               link: '/appendix_industrial_training/training-debugging'
             },
             {
-              text: 'A.2 一批轨迹怎样变成一次更新',
+              text: 'A.2 从轨迹到策略更新',
               link: '/appendix_industrial_training/rl-infrastructure'
             },
             {
-              text: 'A.3 Agent 为什么必须在沙箱里训练',
+              text: 'A.3 沙箱与 Agent 训练',
               link: '/appendix_industrial_training/agentic-rl-infra'
             },
             {
-              text: 'A.4 怎样证明模型真的变好',
+              text: 'A.4 模型改进的评测验证',
               link: '/appendix_industrial_training/evaluation-badcase'
             }
           ]
