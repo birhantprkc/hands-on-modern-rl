@@ -67,12 +67,13 @@ TEXT = {
         "baseline_warmup": "Replay warm-up",
         "baseline_exploration": "Exploration",
         "baseline_time": "xGPU estimate",
+        "baseline_checkpoints": "Checkpoint schedule",
         "baseline_expected": "Expected signal",
         "baseline_restore": "Restore recommended baseline",
-        "saved_model": "Trained model",
-        "saved_model_info": "Every completed training run appears here",
-        "saved_model_empty": "No trained models yet. Complete a run to add the first option.",
-        "preview_waiting": "No trained model is selected. Complete a run, then choose its saved model here.",
+        "saved_model": "Policy checkpoint",
+        "saved_model_info": "Every evaluated checkpoint appears here",
+        "saved_model_empty": "No evaluated checkpoints yet. Start a run to save the first policy.",
+        "preview_waiting": "No policy checkpoint is selected. Start training, then choose a saved step here.",
         "start": "Start training",
         "running_button": "Training…",
         "run_status": "Run status",
@@ -88,7 +89,7 @@ TEXT = {
         "log": "Live training log",
         "log_waiting": "Waiting for a training run…",
         "preview": "Task preview / learned policy",
-        "preview_copy": "Each completed run saves a separate model. Choose one below to inspect the replay produced by that exact policy.",
+        "preview_copy": "Each run saves a policy at every evaluation checkpoint. Choose a step below to compare its exact learned behavior; non-best replays are generated once when selected.",
         "download": "Download run summary",
         "wait_title": "Training is active",
         "wait_detail": "Preparing the environment, updating the policy, evaluating it, and rendering the learned result.",
@@ -137,12 +138,13 @@ TEXT = {
         "baseline_warmup": "经验回放预热",
         "baseline_exploration": "探索调度",
         "baseline_time": "xGPU 时间估计",
+        "baseline_checkpoints": "检查点计划",
         "baseline_expected": "预期学习信号",
         "baseline_restore": "恢复推荐 Baseline",
-        "saved_model": "已训练模型",
-        "saved_model_info": "每次完成训练都会在这里新增一个模型",
-        "saved_model_empty": "还没有已训练模型。完成一次训练后会出现第一个选项。",
-        "preview_waiting": "尚未选择已训练模型。完成训练后，在这里选择对应模型查看回放。",
+        "saved_model": "策略检查点",
+        "saved_model_info": "每个完成评估的检查点都会显示在这里",
+        "saved_model_empty": "还没有完成评估的策略检查点。开始训练后会保存第一个策略。",
+        "preview_waiting": "尚未选择策略检查点。开始训练后，可在这里选择已保存的步数。",
         "start": "开始训练",
         "running_button": "训练中…",
         "run_status": "训练状态",
@@ -158,7 +160,7 @@ TEXT = {
         "log": "实时训练日志",
         "log_waiting": "等待训练任务…",
         "preview": "任务预览 / 学习后的策略",
-        "preview_copy": "每次完成训练都会单独保存一个模型。请在下方选择模型，查看该策略对应的回放。",
+        "preview_copy": "每次训练都会在各个评估检查点保存策略。可在下方选择不同步数比较真实行为；非最佳策略的回放会在第一次选择时生成并缓存。",
         "download": "下载运行摘要",
         "wait_title": "训练正在运行",
         "wait_detail": "正在准备环境、更新策略、执行评估并渲染学习结果。",
@@ -340,6 +342,13 @@ def baseline_card(task: Any, language: str) -> str:
     warmup = int(task_value(task, "learning_starts", max(100, budget // 10)))
     initial_epsilon = slider_spec(task, "epsilon", (0, 1, 1, .05))[2]
     final_epsilon = float(task_value(task, "exploration_final_eps", .01))
+    checkpoints = max(2, int(task_value(task, "checkpoints", 6)))
+    checkpoint_interval = max(1, round(budget / checkpoints))
+    checkpoint_schedule = (
+        f"{checkpoints} saved policies · approximately every {checkpoint_interval:,} steps"
+        if language != "中文"
+        else f"保存 {checkpoints} 个策略 · 约每 {checkpoint_interval:,} 步一次"
+    )
     duration = local_value(task_value(task, "baseline_time", {"en": "runtime varies by xGPU scheduling", "zh": "运行时间取决于 xGPU 调度"}), language)
     outcome = local_value(task_value(task, "baseline_outcome", {"en": "Evaluation should improve over early checkpoints.", "zh": "评估结果应高于早期检查点。"}), language)
     name = str(task_value(task, "baseline_name", "Atari DQN xGPU baseline"))
@@ -355,6 +364,7 @@ def baseline_card(task: Any, language: str) -> str:
         <span><b>{html.escape(copy['baseline_exploration'])}</b>ε {initial_epsilon:.2f} → {final_epsilon:.2f}</span>
         <span><b>{html.escape(copy['baseline_time'])}</b>{html.escape(duration)}</span>
       </div>
+      <p><b>{html.escape(copy['baseline_checkpoints'])}</b>{html.escape(checkpoint_schedule)}</p>
       <p><b>{html.escape(copy['baseline_expected'])}</b>{html.escape(outcome)}</p>
     </section>
     """
@@ -384,16 +394,31 @@ def saved_model_choices(records: list[dict], language: str) -> list[tuple[str, s
     choices: list[tuple[str, str]] = []
     total = len(records)
     for index, record in enumerate(records):
-        ordinal = total - index
-        prefix = f"Model {ordinal}" if language != "中文" else f"模型 {ordinal}"
+        run_id = str(record.get("run_id") or "")
+        checkpoint_index = int(record.get("checkpoint_index") or 0)
+        checkpoint_count = int(record.get("checkpoint_count") or 0)
+        if run_id and checkpoint_index:
+            prefix = (
+                f"Run …{run_id[-6:]} · Checkpoint {checkpoint_index}/{checkpoint_count}"
+                if language != "中文"
+                else f"运行 …{run_id[-6:]} · 检查点 {checkpoint_index}/{checkpoint_count}"
+            )
+        else:
+            ordinal = total - index
+            prefix = f"Legacy model {ordinal}" if language != "中文" else f"旧模型 {ordinal}"
         title = local_value(record.get("title", record.get("task_key", "Atari")), language)
         details: list[str] = [title]
-        budget = int(record.get("budget") or 0)
-        if budget:
-            details.append(f"{budget:,} steps")
+        trained_steps = int(record.get("training_step") or record.get("budget") or 0)
+        total_budget = int(record.get("total_budget") or 0)
+        if trained_steps:
+            details.append(f"{trained_steps:,}/{total_budget:,} steps" if total_budget else f"{trained_steps:,} steps")
         score = record.get("score")
         if score is not None:
             details.append(f"score {float(score):.2f}")
+        if record.get("is_best"):
+            details.append("BEST" if language != "中文" else "最佳")
+        elif record.get("run_complete") is False:
+            details.append("PARTIAL RUN" if language != "中文" else "未完成运行")
         created = str(record.get("created_at") or "").replace("T", " ").replace("+00:00", " UTC")
         if created:
             details.append(created[:16] + (" UTC" if "UTC" in created else ""))
@@ -540,7 +565,18 @@ def build_demo(space_module: Any):
         records = list(space_module.list_trained_models(key)) if hasattr(space_module, "list_trained_models") else []
         choices = saved_model_choices(records, language)
         available = {str(record["model_id"]): record for record in records}
-        selected_model = preferred if preferred in available else (str(records[0]["model_id"]) if records else None)
+        default_record = records[0] if records else None
+        if default_record and default_record.get("run_id"):
+            latest_run_id = str(default_record["run_id"])
+            default_record = next(
+                (
+                    record
+                    for record in records
+                    if str(record.get("run_id")) == latest_run_id and record.get("is_best")
+                ),
+                default_record,
+            )
+        selected_model = preferred if preferred in available else (str(default_record["model_id"]) if default_record else None)
         selected_record = available.get(str(selected_model)) if selected_model else None
         return records, choices, selected_model, selected_record
 
@@ -656,6 +692,7 @@ def build_demo(space_module: Any):
         last_y: list[float] = []
         last_score: float | None = None
         last_model: str | None = None
+        saved_models: list[str] = []
         preview = preview_path(root, task)
         wait = waiting_panel(language)
         selector, selected_record = model_dropdown(key, language, selected_model, interactive=False)
@@ -695,6 +732,21 @@ def build_demo(space_module: Any):
                 event_model = event_value(event, "model")
                 if event_model:
                     last_model = Path(str(event_model)).name
+                    if last_model not in saved_models:
+                        saved_models.append(last_model)
+                    selector, selected_record = model_dropdown(key, language, last_model, interactive=False)
+                    selected_model = str(selected_record["model_id"]) if selected_record else last_model
+                checkpoint_index = int(event_value(event, "checkpoint_index", 0) or 0)
+                checkpoint_count = int(event_value(event, "checkpoint_count", 0) or 0)
+                checkpoint_note = (
+                    (
+                        f"Checkpoint {checkpoint_index}/{checkpoint_count} saved · available after this run finishes"
+                        if language != "中文"
+                        else f"检查点 {checkpoint_index}/{checkpoint_count} 已保存 · 本次训练结束后可选择回放"
+                    )
+                    if checkpoint_index
+                    else ("Training a new policy…" if language != "中文" else "正在训练一个新策略……")
+                )
                 phase = str(event_value(event, "phase", "training"))
                 detail = str(event_value(event, "detail", f"{int(event_value(event, 'step', 0)):,}/{params['budget']:,}"))
                 metric_detail = str(event_value(event, "metric_detail", "Mean evaluation score"))
@@ -709,7 +761,7 @@ def build_demo(space_module: Any):
                     gr.HTML(value=wait, visible=True),
                     gr.Button(value=copy["running_button"], interactive=False),
                     selector,
-                    preview_provenance(task, language, detail=("Training a new policy…" if language != "中文" else "正在训练一个新策略……")),
+                    preview_provenance(task, language, selected_model, detail=checkpoint_note),
                 )
             if preview == preview_path(root, task):
                 preview = result_image(root, task, "training complete", last_score, last_x, last_y, "The environment did not expose replay frames; this plot records the learned result.")
@@ -720,6 +772,7 @@ def build_demo(space_module: Any):
                 "curve": {"x": last_x, "y": last_y},
                 "preview": preview,
                 "model": last_model,
+                "models": saved_models,
                 "logs": logs,
                 "elapsed_seconds": round(time.perf_counter() - started, 3),
             })
@@ -777,11 +830,12 @@ def build_demo(space_module: Any):
             if not selected_preview or not Path(str(selected_preview)).is_file():
                 result = space_module.render_preview(str(model_id))
                 selected_preview = event_value(result, "preview")
-            budget = int(record.get("budget") or 0)
+            budget = int(record.get("training_step") or record.get("budget") or 0)
+            total_budget = int(record.get("total_budget") or 0)
             score = record.get("score")
             facts = [str(model_id)]
             if budget:
-                facts.append(f"{budget:,} steps")
+                facts.append(f"{budget:,}/{total_budget:,} steps" if total_budget else f"{budget:,} steps")
             if score is not None:
                 facts.append(f"score {float(score):.2f}")
             detail = (

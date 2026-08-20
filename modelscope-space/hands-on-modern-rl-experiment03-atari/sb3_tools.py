@@ -206,7 +206,10 @@ def train_sb3(
     best_step = 0
     artifacts = root / "artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
-    best_checkpoint = artifacts / f".best-checkpoint-{time.time_ns()}"
+    task_key = str(getattr(task, "key", task.get("key")))
+    run_id = str(time.time_ns())
+    checkpoint_records: list[tuple[Path, Path]] = []
+    best_model_path: Path | None = None
     try:
         while completed < budget:
             next_evaluation = evaluation_steps[evaluation_index]
@@ -255,14 +258,43 @@ def train_sb3(
             spread = float(np.std(rewards))
             x.append(float(completed)); y.append(score)
             evaluation_index += 1
+
+            model_stem = f"{task_key}-model-r{run_id}-step-{completed:09d}"
+            model_path = artifacts / model_stem
+            model.save(str(model_path))
+            model_zip = model_path.with_suffix(".zip")
+            metadata = artifacts / f"{model_stem}.json"
+            metadata.write_text(json.dumps({
+                "model_id": model_zip.name,
+                "run_id": run_id,
+                "task_key": task_key,
+                "environment": getattr(task, "environment", task.get("environment")),
+                "title": getattr(task, "title", task.get("title")),
+                "algorithm": algorithm_name,
+                "policy": policy,
+                "budget": completed,
+                "training_step": completed,
+                "total_budget": budget,
+                "checkpoint_index": evaluation_index,
+                "checkpoint_count": len(evaluation_steps),
+                "seed": seed,
+                "score": score,
+                "score_std": spread,
+                "run_complete": False,
+                "is_best": False,
+                "training_config": resolved_config,
+                "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+            }, indent=2), encoding="utf-8")
+            checkpoint_records.append((model_zip, metadata))
             if score > best_score:
                 best_score = score
                 best_step = completed
-                model.save(str(best_checkpoint))
+                best_model_path = model_path
             details = format_metrics(callback.latest, completed)
             details += f"\nEVAL step={completed:,} mean_reward={score:.2f} std={spread:.2f} mean_length={np.mean(lengths):.1f}"
+            details += f"\nCHECKPOINT saved {evaluation_index}/{len(evaluation_steps)}: {model_zip.name}"
             if completed == best_step:
-                details += "\nCHECKPOINT new best policy saved for final replay"
+                details += "\nCHECKPOINT this is the best policy so far and will be used for the final replay"
             yield {
                 "phase": "training",
                 "step": completed,
@@ -272,37 +304,31 @@ def train_sb3(
                 "detail": f"{completed:,}/{budget:,} environment steps",
                 "metric_detail": f"mean reward ± {spread:.2f}",
                 "log": details,
+                "model": str(model_zip),
+                "model_id": model_zip.name,
+                "checkpoint_index": evaluation_index,
+                "checkpoint_count": len(evaluation_steps),
             }
 
-        if best_checkpoint.with_suffix(".zip").is_file():
-            model = algorithm_cls.load(str(best_checkpoint.with_suffix(".zip")), env=train_env, device=requested_device)
-        task_key = str(getattr(task, "key", task.get("key")))
-        run_token = str(time.time_ns())
-        model_stem = f"{task_key}-model-{run_token}"
-        model_path = artifacts / model_stem
-        model.save(str(model_path))
+        if best_model_path is None or not best_model_path.with_suffix(".zip").is_file():
+            raise RuntimeError("Training finished without a saved evaluation checkpoint")
+        model = algorithm_cls.load(str(best_model_path.with_suffix(".zip")), env=train_env, device=requested_device)
         record_env = make_record_env()
         raw_preview = Path(record_episode(model, record_env, artifacts, seed))
-        preview_path = artifacts / f"{model_stem}-preview.gif"
+        preview_path = artifacts / f"{best_model_path.name}-preview.gif"
         if raw_preview.resolve() != preview_path.resolve():
             raw_preview.replace(preview_path)
-        model_zip = model_path.with_suffix(".zip")
-        metadata = artifacts / f"{model_stem}.json"
-        metadata.write_text(json.dumps({
-            "model_id": model_zip.name,
-            "task_key": task_key,
-            "environment": getattr(task, "environment", task.get("environment")),
-            "title": getattr(task, "title", task.get("title")),
-            "algorithm": algorithm_name,
-            "policy": policy,
-            "budget": budget,
-            "seed": seed,
-            "score": best_score if np.isfinite(best_score) else (y[-1] if y else None),
-            "best_checkpoint_step": best_step,
-            "training_config": resolved_config,
-            "created_at": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-            "preview": str(preview_path),
-        }, indent=2), encoding="utf-8")
+        best_model_zip = best_model_path.with_suffix(".zip")
+        for checkpoint_zip, metadata in checkpoint_records:
+            payload = json.loads(metadata.read_text(encoding="utf-8"))
+            payload.update({
+                "run_complete": True,
+                "is_best": checkpoint_zip == best_model_zip,
+                "best_checkpoint_step": best_step,
+            })
+            if checkpoint_zip == best_model_zip:
+                payload["preview"] = str(preview_path)
+            metadata.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         yield {
             "phase": "complete",
             "step": completed,
@@ -310,18 +336,15 @@ def train_sb3(
             "x": x,
             "y": y,
             "preview": str(preview_path),
-            "model": str(model_zip),
-            "model_id": model_zip.name,
+            "model": str(best_model_zip),
+            "model_id": best_model_zip.name,
             "log": (
                 f"Restored best checkpoint from step {best_step:,} with mean reward {best_score:.2f}"
-                f"\nSaved {model_zip.name} and generated learned-policy replay: {preview_path.name}"
+                f"\nSaved {len(checkpoint_records)} selectable policy checkpoints for run {run_id}"
+                f"\nGenerated the best checkpoint replay: {preview_path.name}"
             ),
         }
     finally:
-        try:
-            best_checkpoint.with_suffix(".zip").unlink(missing_ok=True)
-        except OSError:
-            pass
         for env in (train_env, eval_env):
             try:
                 env.close()

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-import time
 
 import numpy as np
 
@@ -177,7 +176,7 @@ def _model_record(model_path: Path) -> dict:
             reverse=True,
         )
         legacy_preview = ROOT / "artifacts" / f"{task_key}-learned-policy.gif"
-        if not candidates and legacy_preview.is_file():
+        if not candidates and model_path.name == f"{task_key}-model.zip" and legacy_preview.is_file():
             candidates = [legacy_preview]
         preview_path = candidates[0] if candidates else None
 
@@ -235,14 +234,15 @@ def render_preview(model_id: str):
     model = DQN.load(str(model_path), device="cpu")
     environment = _make_vec_env(task["environment"], rollout_seed, training=False)
     artifacts = ROOT / "artifacts"
-    output = artifacts / f"{model_path.stem}-rollout-{time.time_ns()}.gif"
+    output = artifacts / f"{model_path.stem}-preview.gif"
     preview = _record(model, environment, artifacts, rollout_seed, task, output)
-
-    old_replays = sorted(artifacts.glob(f"{model_path.stem}-rollout-*.gif"), key=lambda path: path.stat().st_mtime, reverse=True)
-    for stale in old_replays[4:]:
+    metadata_path = model_path.with_suffix(".json")
+    if metadata_path.is_file():
         try:
-            stale.unlink()
-        except OSError:
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata["preview"] = str(preview)
+            metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        except (OSError, json.JSONDecodeError):
             pass
     return {
         "preview": preview,
