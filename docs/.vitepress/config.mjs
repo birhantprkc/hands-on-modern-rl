@@ -1387,7 +1387,7 @@ const zhSidebar = {
           collapsed: false,
           items: [
             {
-              text: 'A.1 识别训练跑偏',
+              text: 'A.1 训练跑偏',
               link: '/appendix_industrial_training/training-debugging'
             },
             {
