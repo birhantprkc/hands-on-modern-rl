@@ -554,6 +554,7 @@ def build_demo(space_module: Any):
                 label=copy["saved_model"],
                 info=copy["saved_model_info"] if choices else copy["saved_model_empty"],
                 interactive=interactive and bool(choices),
+                allow_custom_value=True,
                 elem_classes="model-selector",
             ),
             selected_record,
@@ -846,6 +847,7 @@ def build_demo(space_module: Any):
                     label=copy["saved_model"],
                     info=copy["saved_model_info"] if initial_model_choices else copy["saved_model_empty"],
                     interactive=bool(initial_model_choices),
+                    allow_custom_value=True,
                     elem_classes="model-selector",
                 )
                 preview_status = gr.HTML(preview_provenance(default_task, default_language, initial_model))
