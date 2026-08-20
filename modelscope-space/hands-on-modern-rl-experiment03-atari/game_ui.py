@@ -59,6 +59,7 @@ TEXT = {
         "steps_per_epoch_info": "How many environment interactions to train before evaluation and model saving",
         "epochs": "Training epochs / saved models",
         "epochs_info": "One epoch means one fixed step block; each epoch saves one evaluated policy",
+        "advanced": "Advanced settings",
         "lr": "Learning rate",
         "gamma": "Discount factor γ",
         "epsilon": "Exploration ε",
@@ -132,6 +133,7 @@ TEXT = {
         "steps_per_epoch_info": "每训练多少个环境交互步后评估并保存模型",
         "epochs": "训练 epochs / 保存模型数",
         "epochs_info": "此处一个 epoch 表示一段固定步数；每个 epoch 保存一个已评估策略",
+        "advanced": "高级参数",
         "lr": "学习率",
         "gamma": "折扣因子 γ",
         "epsilon": "探索率 ε",
@@ -660,7 +662,7 @@ def build_demo(space_module: Any):
             metric_card("—", copy["metric_waiting"], language),
             console_panel(copy["log_waiting"], language),
             selected_preview,
-            None,
+            gr.File(value=None, label=copy["download"], visible=False),
             selector,
             preview_provenance(task, language, selected_model),
         )
@@ -682,6 +684,7 @@ def build_demo(space_module: Any):
             gr.Slider(minimum=epoch_steps_spec[0], maximum=epoch_steps_spec[1], value=steps_per_epoch, step=epoch_steps_spec[3], label=copy["steps_per_epoch"], info=copy["steps_per_epoch_info"]),
             gr.Slider(minimum=epoch_count_spec[0], maximum=epoch_count_spec[1], value=epochs, step=epoch_count_spec[3], label=copy["epochs"], info=copy["epochs_info"]),
             checkpoint_plan(task, language, steps_per_epoch, epochs),
+            gr.Accordion(label=copy["advanced"], open=False),
             gr.Textbox(value=key, label=copy["selected"]),
             gr.Number(value=seed, label=copy["seed"], precision=0),
             gr.Button(value=copy["baseline_restore"]),
@@ -691,7 +694,7 @@ def build_demo(space_module: Any):
             panel_html(copy["curve"], copy["curve_copy"]),
             console_panel(copy["log_waiting"], language),
             panel_html(copy["preview"], copy["preview_copy"], "artifact-note"),
-            gr.File(label=copy["download"]),
+            gr.File(label=copy["download"], visible=False),
             selector,
             preview_provenance(task, language, selected_model),
         )
@@ -757,7 +760,7 @@ def build_demo(space_module: Any):
             metric_card("—", "Preparing runtime", language),
             None,
             preview,
-            None,
+            gr.File(value=None, label=copy["download"], visible=False),
             console_panel("\n".join(logs), language),
             gr.HTML(value=wait, visible=True),
             gr.Button(value=copy["running_button"], interactive=False),
@@ -811,7 +814,7 @@ def build_demo(space_module: Any):
                     metric_card("—" if last_score is None else f"{last_score:.2f}", metric_detail, language),
                     curve,
                     preview,
-                    None,
+                    gr.File(value=None, label=copy["download"], visible=False),
                     console_panel("\n".join(logs), language),
                     gr.HTML(value=wait, visible=True),
                     gr.Button(value=copy["running_button"], interactive=False),
@@ -840,7 +843,7 @@ def build_demo(space_module: Any):
                 metric_card("—" if last_score is None else f"{last_score:.2f}", "Final evaluation score", language),
                 curve,
                 preview,
-                summary,
+                gr.File(value=summary, label=copy["download"], visible=True),
                 console_panel("\n".join(logs), language),
                 gr.HTML(value="", visible=False),
                 gr.Button(value=copy["start"], interactive=True),
@@ -865,7 +868,7 @@ def build_demo(space_module: Any):
                 metric_card("—" if last_score is None else f"{last_score:.2f}", "Last valid evaluation", language),
                 learning_figure(last_x, last_y, f"{task_value(task, 'environment')} · stopped") if last_x else None,
                 preview,
-                summary,
+                gr.File(value=summary, label=copy["download"], visible=True),
                 console_panel("\n".join(logs), language),
                 gr.HTML(value="", visible=False),
                 gr.Button(value=copy["start"], interactive=True),
@@ -928,7 +931,7 @@ def build_demo(space_module: Any):
 
         task_info = gr.HTML(task_brief(root, default_task, default_language, space), elem_id="selected-task-detail")
 
-        with gr.Row():
+        with gr.Row(elem_classes="training-layout"):
             with gr.Column(scale=1, min_width=310, elem_classes="control-card"):
                 settings_header = gr.HTML(panel_html(copy["setup"], copy["setup_copy"]))
                 baseline_info = gr.HTML(baseline_card(default_task, default_language))
@@ -936,41 +939,42 @@ def build_demo(space_module: Any):
                 steps_per_epoch = gr.Slider(minimum=initial_epoch_steps[0], maximum=initial_epoch_steps[1], value=initial_epoch_steps[2], step=initial_epoch_steps[3], label=copy["steps_per_epoch"], info=copy["steps_per_epoch_info"])
                 epochs = gr.Slider(minimum=initial_epochs[0], maximum=initial_epochs[1], value=initial_epochs[2], step=initial_epochs[3], label=copy["epochs"], info=copy["epochs_info"])
                 checkpoint_info = gr.HTML(checkpoint_plan(default_task, default_language, initial_epoch_steps[2], initial_epochs[2]))
-                learning_rate = slider_update(copy["lr"], initial_lr)
-                gamma = slider_update(copy["gamma"], initial_gamma)
-                epsilon = slider_update(copy["epsilon"], initial_epsilon)
-                seed = gr.Number(value=42, precision=0, label=copy["seed"])
+                with gr.Accordion(copy["advanced"], open=False, elem_classes="advanced-settings") as advanced:
+                    learning_rate = slider_update(copy["lr"], initial_lr)
+                    gamma = slider_update(copy["gamma"], initial_gamma)
+                    epsilon = slider_update(copy["epsilon"], initial_epsilon)
+                    seed = gr.Number(value=42, precision=0, label=copy["seed"])
                 restore = gr.Button(copy["baseline_restore"], elem_classes="baseline-restore")
                 start = gr.Button(copy["start"], variant="primary", elem_classes="primary-btn")
-                status = gr.HTML(status_card("idle", copy["ready"], copy["ready_detail"], default_language))
-                metric = gr.HTML(metric_card("—", copy["metric_waiting"], default_language))
-            with gr.Column(scale=2, elem_classes="chart-card"):
-                chart_header = gr.HTML(panel_html(copy["curve"], copy["curve_copy"]))
-                wait_state = gr.HTML(value="", visible=False)
-                curve = gr.Plot(show_label=False)
-                console = gr.HTML(console_panel(copy["log_waiting"], default_language), elem_id="live-training-console")
+            with gr.Column(scale=2, elem_classes="results-stack"):
+                with gr.Column(elem_classes="chart-card"):
+                    chart_header = gr.HTML(panel_html(copy["curve"], copy["curve_copy"]))
+                    with gr.Row(elem_classes="result-summary"):
+                        status = gr.HTML(status_card("idle", copy["ready"], copy["ready_detail"], default_language))
+                        metric = gr.HTML(metric_card("—", copy["metric_waiting"], default_language))
+                    wait_state = gr.HTML(value="", visible=False)
+                    curve = gr.Plot(show_label=False)
+                    console = gr.HTML(console_panel(copy["log_waiting"], default_language), elem_id="live-training-console")
 
-        with gr.Row(elem_classes="output-card"):
-            with gr.Column(scale=2):
-                preview_header = gr.HTML(panel_html(copy["preview"], copy["preview_copy"], "artifact-note"))
-                model_selector = gr.Dropdown(
-                    choices=initial_model_choices,
-                    value=initial_model,
-                    label=copy["saved_model"],
-                    info=copy["saved_model_info"] if initial_model_choices else copy["saved_model_empty"],
-                    interactive=bool(initial_model_choices),
-                    allow_custom_value=True,
-                    elem_classes="model-selector",
-                )
-                preview_status = gr.HTML(preview_provenance(default_task, default_language, initial_model))
-                preview = gr.Image(value=initial_preview, show_label=False, interactive=False, elem_classes="policy-preview")
-            with gr.Column(scale=1):
-                artifact = gr.File(label=copy["download"], interactive=False)
+                with gr.Column(elem_classes="preview-card"):
+                    preview_header = gr.HTML(panel_html(copy["preview"], copy["preview_copy"], "artifact-note"))
+                    model_selector = gr.Dropdown(
+                        choices=initial_model_choices,
+                        value=initial_model,
+                        label=copy["saved_model"],
+                        info=copy["saved_model_info"] if initial_model_choices else copy["saved_model_empty"],
+                        interactive=bool(initial_model_choices),
+                        allow_custom_value=True,
+                        elem_classes="model-selector",
+                    )
+                    preview_status = gr.HTML(preview_provenance(default_task, default_language, initial_model))
+                    preview = gr.Image(value=initial_preview, show_label=False, interactive=False, elem_classes="policy-preview")
+                    artifact = gr.File(label=copy["download"], interactive=False, visible=False, height=76, elem_classes="artifact-download")
 
         gr.HTML(f'<div class="footer-note">{html.escape(local_value(space["title"], "English"))} · <a href="{COURSE_URL}" target="_blank">Hands-On Modern RL</a> · WalkingLab</div>')
 
         gallery.select(choose_task, inputs=[language, seed], outputs=[selected, hero, task_info, baseline_info, steps_per_epoch, epochs, checkpoint_info, learning_rate, gamma, epsilon, status, metric, console, preview, artifact, model_selector, preview_status], queue=False, show_progress="hidden")
-        language.change(switch_language, inputs=[language, selected, seed, model_selector, steps_per_epoch, epochs], outputs=[hero, catalog_header, gallery, task_info, settings_header, baseline_info, steps_per_epoch, epochs, checkpoint_info, selected, seed, restore, start, status, metric, chart_header, console, preview_header, artifact, model_selector, preview_status], queue=False, show_progress="hidden")
+        language.change(switch_language, inputs=[language, selected, seed, model_selector, steps_per_epoch, epochs], outputs=[hero, catalog_header, gallery, task_info, settings_header, baseline_info, steps_per_epoch, epochs, checkpoint_info, advanced, selected, seed, restore, start, status, metric, chart_header, console, preview_header, artifact, model_selector, preview_status], queue=False, show_progress="hidden")
         restore.click(restore_baseline, inputs=[selected, language], outputs=[steps_per_epoch, epochs, checkpoint_info, learning_rate, gamma, epsilon, baseline_info], queue=False, show_progress="hidden")
         steps_per_epoch.change(update_checkpoint_plan, inputs=[selected, language, steps_per_epoch, epochs], outputs=[checkpoint_info], queue=False, show_progress="hidden")
         epochs.change(update_checkpoint_plan, inputs=[selected, language, steps_per_epoch, epochs], outputs=[checkpoint_info], queue=False, show_progress="hidden")
@@ -989,19 +993,19 @@ CSS = r"""
 .language-switch>.wrap:not([data-testid]){display:grid!important;grid-template-columns:1fr 1fr!important;gap:5px!important}.language-switch label{display:flex!important;align-items:center!important;justify-content:center!important;min-height:38px!important;margin:0!important;padding:0 12px!important;border:0!important;border-radius:8px!important;background:transparent!important}.language-switch label input{position:absolute!important;opacity:0!important;pointer-events:none!important}.language-switch label span{color:#343b68!important;font-weight:800!important}.language-switch label.selected,.language-switch label:has(input:checked){background:#554ee6!important;box-shadow:0 4px 12px rgba(72,65,201,.28)!important}.language-switch label.selected span,.language-switch label:has(input:checked) span{color:#fff!important}
 .app-shell{margin-bottom:18px}.hero{position:relative;overflow:hidden;padding:28px 34px 30px;border-radius:24px 24px 0 0;color:white;background:radial-gradient(circle at 84% 12%,rgba(139,92,246,.45),transparent 28%),linear-gradient(135deg,#1f255f,#3731a8 56%,#5b3fc5);box-shadow:0 24px 55px rgba(30,37,95,.18)}
 .hero:after{content:"";position:absolute;inset:auto -80px -120px auto;width:280px;height:280px;border:44px solid rgba(255,255,255,.07);border-radius:50%}.brand-lockup{position:relative;z-index:2;display:flex;align-items:center;gap:9px;width:max-content;max-width:calc(100% - 230px);padding:8px 12px;border:1px solid rgba(255,255,255,.28);border-radius:10px;background:rgba(12,17,59,.28);box-shadow:0 8px 24px rgba(10,13,50,.14);font-size:12px;font-weight:900;letter-spacing:.075em}.brand-lockup a{color:#fff!important;text-decoration:none!important}.brand-lockup a:last-child{color:#cfd5ff!important}.brand-lockup span{color:#aeb7ff}.brand-note{position:relative;z-index:1;margin:9px 0 18px!important;color:#dfe3ff!important;font-size:12px!important}.hero-topline{display:flex;gap:12px;align-items:center;margin-bottom:15px}.experiment-badge{display:inline-flex;padding:7px 11px;border:1px solid rgba(255,255,255,.3);border-radius:999px;color:#fff!important;background:rgba(255,255,255,.12);font-size:11px;font-weight:850;letter-spacing:.13em}.hero-course{font-size:13px;color:#d9ddff!important}.hero h1{position:relative;z-index:1;max-width:780px;margin:0 0 12px;color:#fff!important;font-size:clamp(30px,5vw,56px);line-height:1.04;letter-spacing:-.035em}.hero-copy{position:relative;z-index:1;max-width:760px;margin:0;color:#e1e4ff!important;font-size:16px;line-height:1.65}.hero-links{position:relative;z-index:1;display:flex;flex-wrap:wrap;gap:9px;margin-top:22px}.hero-link{display:inline-flex;padding:10px 14px;border:1px solid rgba(255,255,255,.22);border-radius:10px;color:white!important;text-decoration:none!important;background:rgba(255,255,255,.08);font-size:13px;font-weight:750}.hero-link.primary{color:#272b72!important;background:white}.lab-strip{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;overflow:hidden;border:1px solid #dde2ec;border-top:0;border-radius:0 0 18px 18px;background:#dde2ec}.lab-strip span{padding:13px 16px;color:var(--muted);background:#fff;font-size:11px;text-transform:uppercase;letter-spacing:.07em}.lab-strip strong{display:block;margin-top:3px;color:var(--ink);font-size:13px;text-transform:none;letter-spacing:0}
-.catalog-card,.control-card,.chart-card,.output-card>div,.task-brief{border:1px solid #e1e6ef!important;border-radius:17px!important;background:#fff!important;box-shadow:0 14px 34px rgba(31,42,77,.055)!important}.catalog-card{padding:24px!important;margin-bottom:18px!important}.panel-title{margin:0 0 5px!important;color:var(--ink);font-size:18px!important}.panel-copy,.artifact-note{margin:0 0 18px!important;color:var(--muted)!important;font-size:13px!important;line-height:1.55!important}
+.catalog-card,.control-card,.chart-card,.preview-card,.task-brief{border:1px solid #e1e6ef!important;border-radius:17px!important;background:#fff!important;box-shadow:0 14px 34px rgba(31,42,77,.055)!important}.catalog-card{padding:24px!important;margin-bottom:18px!important}.panel-title{margin:0 0 5px!important;color:var(--ink);font-size:18px!important}.panel-copy,.artifact-note{margin:0 0 18px!important;color:var(--muted)!important;font-size:13px!important;line-height:1.55!important}
 .experiment-gallery{margin-top:6px!important;border:0!important;background:transparent!important}.experiment-gallery .grid-wrap{height:auto!important;min-height:0!important}.experiment-gallery .grid-container{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:13px!important}.experiment-gallery button,.experiment-gallery .thumbnail-item{position:relative!important;height:auto!important;aspect-ratio:16/9!important;overflow:hidden!important;border:2px solid transparent!important;border-radius:14px!important;background:#101532!important;transition:transform .16s ease,border-color .16s ease!important}.experiment-gallery button:hover{transform:translateY(-2px);border-color:#7778eb!important}.experiment-gallery img{width:100%!important;height:100%!important;object-fit:cover!important}.experiment-gallery .caption-label{position:absolute!important;z-index:2!important;inset:auto 0 0!important;padding:34px 13px 12px!important;color:#fff!important;background:linear-gradient(transparent,rgba(4,8,28,.92))!important;font-size:12px!important;font-weight:800!important;line-height:1.35!important;white-space:pre-line!important;text-align:left!important}
 .task-brief{display:grid;grid-template-columns:minmax(270px,.9fr) minmax(0,1.7fr);gap:26px;margin:18px 0!important;padding:13px!important;background:linear-gradient(135deg,#fff,#f7f9ff)!important}.task-brief__visual{overflow:hidden;border-radius:12px;background:#101532}.task-brief__visual img{display:block;width:100%;height:100%;min-height:205px;object-fit:cover}.task-brief__body{padding:12px 12px 8px 0}.task-kicker{display:block;margin-bottom:7px;color:#5b5ce2;font-size:10px;font-weight:900;letter-spacing:.13em}.task-brief h3{margin:0 0 5px;color:var(--ink);font-size:23px}.task-brief p{margin:0;color:var(--muted);font-size:13px;line-height:1.55}.task-facts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:14px 0}.task-facts span{padding:9px 11px;border:1px solid #e1e6ef;border-radius:9px;background:rgba(255,255,255,.88);color:var(--ink);font-size:11px}.task-facts b{display:block;margin-bottom:3px;color:#7a879d;font-size:8px;letter-spacing:.12em;text-transform:uppercase}.task-hint{font-weight:650;color:#465166!important}
 .training-guide{display:grid;grid-template-columns:minmax(210px,.62fr) minmax(0,1.8fr);gap:22px;margin:-4px 0 18px;padding:20px 22px;border:1px solid #dfe4f4;border-radius:17px;background:linear-gradient(135deg,#f8f9ff,#fff);box-shadow:0 12px 28px rgba(31,42,77,.045)}.training-guide__intro{padding:5px 2px}.training-guide__intro h3{margin:0 0 5px;color:var(--ink);font-size:18px}.training-guide__intro p,.training-guide article p{margin:0;color:var(--muted);font-size:12px;line-height:1.55}.training-guide__grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.training-guide article{position:relative;padding:14px 14px 13px;border:1px solid #e0e5f0;border-radius:12px;background:#fff}.training-guide article>b{display:block;margin-bottom:8px;color:#5b5ce2;font-size:10px;letter-spacing:.12em}.training-guide article h4{margin:0 0 6px;color:var(--ink);font-size:13px}.training-guide article p{font-size:11px}
 .baseline-preset{margin:0 0 16px;padding:15px;border:1px solid #cfd5ff;border-radius:13px;background:linear-gradient(145deg,#f4f5ff,#fff);box-shadow:0 8px 20px rgba(71,68,190,.07)}.baseline-preset__head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:11px}.baseline-preset__head span{display:block;margin-bottom:3px;color:#5b5ce2;font-size:8px;font-weight:900;letter-spacing:.12em}.baseline-preset__head h3{margin:0;color:var(--ink);font-size:14px}.baseline-preset__head strong{max-width:45%;padding:5px 7px;border-radius:7px;color:#403fa7;background:#e9eaff;font-size:9px;text-align:right}.baseline-preset__facts{display:grid;grid-template-columns:1fr 1fr;gap:7px}.baseline-preset__facts span{padding:8px;border:1px solid #e1e4f2;border-radius:8px;color:#222a40;background:rgba(255,255,255,.9);font-size:10px}.baseline-preset__facts b,.baseline-preset>p b{display:block;margin-bottom:2px;color:#7a8399;font-size:7px;letter-spacing:.09em;text-transform:uppercase}.baseline-preset>p{margin:9px 1px 0!important;color:#566178!important;font-size:10px!important;line-height:1.45!important}.baseline-restore{margin:2px 0 8px!important;border-color:#cfd5ff!important;color:#403fa7!important;background:#f7f7ff!important;font-weight:750!important}
 .checkpoint-plan{margin:-2px 0 13px;padding:11px 12px;border:1px solid #dfe4ee;border-radius:11px;background:#f8f9fc}.checkpoint-plan>span{display:block;margin-bottom:3px;color:#5b5ce2;font-size:8px;font-weight:900;letter-spacing:.09em;text-transform:uppercase}.checkpoint-plan>strong{display:block;color:#2a3348;font-size:11px;line-height:1.45}.checkpoint-plan>p{margin:6px 0 0!important;color:#68748a!important;font-size:9px!important;line-height:1.45!important;overflow-wrap:anywhere}.checkpoint-plan>p b{margin-right:6px;color:#3f485c}
-.control-card,.chart-card{padding:25px!important}.primary-btn{min-height:46px!important;border:0!important;border-radius:10px!important;background:linear-gradient(135deg,#5b5ce2,#7c4dff)!important;font-weight:850!important}.run-state,.live-metric{display:flex;gap:11px;align-items:center;margin-top:10px;padding:14px 15px;border:1px solid #e3e7ef;border-radius:12px;background:#fafbfe}.run-state__dot{width:9px;height:9px;border-radius:50%;background:#8b95a8;box-shadow:0 0 0 5px rgba(139,149,168,.12)}.run-state--running .run-state__dot{background:#8b5cf6;animation:pulse 1.2s infinite}.run-state--complete .run-state__dot{background:#13a36f}.run-state--error .run-state__dot{background:#e05252}.summary-label{display:block;margin-bottom:2px;color:#7b879c;font-size:8px;font-weight:850;letter-spacing:.12em;text-transform:uppercase}.run-state strong,.live-metric strong{display:block;color:var(--ink);font-size:14px}.run-state small,.live-metric small{display:block;margin-top:2px;color:var(--muted);font-size:11px}.metric-reading{display:flex;gap:9px;align-items:baseline}.metric-reading strong{font-size:20px}
+.training-layout{align-items:flex-start!important}.training-layout>.control-card,.training-layout>.results-stack{align-self:flex-start!important}.results-stack{min-width:0!important;gap:18px!important;padding:0!important;border:0!important;background:transparent!important}.control-card,.chart-card,.preview-card{padding:25px!important}.advanced-settings{margin:2px 0 12px!important;overflow:hidden!important;border:1px solid #dfe4ee!important;border-radius:11px!important;background:#fafbfe!important}.advanced-settings>button,.advanced-settings summary{min-height:44px!important;color:#3f485c!important;font-size:12px!important;font-weight:800!important}.result-summary{display:grid!important;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr)!important;gap:10px!important;margin:0 0 10px!important}.result-summary>div{min-width:0!important}.primary-btn{min-height:46px!important;border:0!important;border-radius:10px!important;background:linear-gradient(135deg,#5b5ce2,#7c4dff)!important;font-weight:850!important}.run-state,.live-metric{display:flex;gap:11px;align-items:center;margin-top:10px;padding:14px 15px;border:1px solid #e3e7ef;border-radius:12px;background:#fafbfe}.result-summary .run-state,.result-summary .live-metric{height:100%;margin-top:0}.run-state__dot{width:9px;height:9px;border-radius:50%;background:#8b95a8;box-shadow:0 0 0 5px rgba(139,149,168,.12)}.run-state--running .run-state__dot{background:#8b5cf6;animation:pulse 1.2s infinite}.run-state--complete .run-state__dot{background:#13a36f}.run-state--error .run-state__dot{background:#e05252}.summary-label{display:block;margin-bottom:2px;color:#7b879c;font-size:8px;font-weight:850;letter-spacing:.12em;text-transform:uppercase}.run-state strong,.live-metric strong{display:block;color:var(--ink);font-size:14px}.run-state small,.live-metric small{display:block;margin-top:2px;color:var(--muted);font-size:11px}.metric-reading{display:flex;gap:9px;align-items:baseline}.metric-reading strong{font-size:20px}
 .model-selector{margin:0 0 10px!important}.model-selector input,.model-selector [role="combobox"]{min-height:46px!important;border-radius:10px!important;background:#fff!important}.preview-provenance{display:flex;gap:9px;align-items:flex-start;margin:0 0 12px;padding:10px 12px;border:1px solid #e0e5f0;border-radius:10px;color:#59657a;background:#f8f9fc;font-size:11px;line-height:1.5}.preview-provenance__dot{flex:0 0 auto;width:8px;height:8px;margin-top:4px;border-radius:50%;background:#9ba5b5}.preview-provenance--ready{color:#16664d;border-color:#cfeadf;background:#f2fbf7}.preview-provenance--ready .preview-provenance__dot{background:#13a36f}
 .console-panel{overflow:hidden;margin-top:14px;border:1px solid #29315e;border-radius:12px;background:#11162d}.console-head{padding:9px 13px;border-bottom:1px solid #28305b;color:#dbe1ff;font-size:11px;font-weight:800}.console-dot{display:inline-block;width:7px;height:7px;margin-right:8px;border-radius:50%;background:#31d39b}.console-text{height:300px!important;margin:0!important;padding:13px!important;overflow:auto!important;color:#d5dcf4!important;background:#11162d!important;font:11px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace!important;white-space:pre-wrap!important}.run-wait{display:flex;gap:12px;align-items:center;margin:0 0 13px;padding:13px 15px;border:1px solid #d6d8ff;border-radius:11px;background:#f8f7ff;color:#313774}.run-wait strong,.run-wait small,.run-wait em{display:block}.run-wait small{margin-top:2px;color:#68748a;font-size:11px}.run-wait em{margin-top:4px;color:#5b5ce2;font-size:10px;font-style:normal;font-weight:800}.run-wait__spinner{width:20px;height:20px;border:2px solid #d7d9ff;border-top-color:#5b5ce2;border-radius:50%;animation:spin .75s linear infinite}
-.output-card{margin-top:18px!important}.output-card>div{padding:24px!important}.policy-preview,.policy-preview .image-container,.policy-preview img{min-height:320px!important}.policy-preview img{max-height:520px!important;object-fit:contain!important;background:#0f1430}.footer-note{padding:27px 0 0;text-align:center;color:#8390a6;font-size:11px}.footer-note a{color:#5b5ce2!important;font-weight:750}
+.preview-card{margin-top:0!important}.policy-preview,.policy-preview .image-container,.policy-preview img{min-height:320px!important}.policy-preview img{max-height:520px!important;object-fit:contain!important;background:#0f1430}.artifact-download{height:76px!important;min-height:76px!important;margin-top:8px!important;overflow:hidden!important}.artifact-download [data-testid="status-tracker"]{height:76px!important}.artifact-download .empty{height:50px!important;min-height:50px!important}.footer-note{padding:27px 0 0;text-align:center;color:#8390a6;font-size:11px}.footer-note a{color:#5b5ce2!important;font-weight:750}
 @keyframes spin{to{transform:rotate(360deg)}}@keyframes pulse{50%{box-shadow:0 0 0 8px rgba(139,92,246,.08)}}
-@media(max-width:900px){.lab-strip{grid-template-columns:1fr 1fr}.experiment-gallery .grid-container{grid-template-columns:repeat(2,minmax(0,1fr))!important}.task-brief,.training-guide{grid-template-columns:1fr}.training-guide__grid{grid-template-columns:1fr}.task-brief__body{padding:7px}.language-bar{position:static!important;margin:-58px 12px 16px auto!important}.brand-lockup{max-width:calc(100% - 220px)}.hero{padding-top:24px}}
-@media(max-width:620px){.gradio-container{padding:10px!important}.hero{padding:22px 20px 24px;border-radius:18px 18px 0 0}.brand-lockup{max-width:100%;font-size:10px;letter-spacing:.045em}.experiment-gallery .grid-container{grid-template-columns:1fr!important}.task-facts{grid-template-columns:1fr}.lab-strip{grid-template-columns:1fr}.language-switch{width:190px!important;min-width:190px!important}}
+@media(max-width:900px){.lab-strip{grid-template-columns:1fr 1fr}.experiment-gallery .grid-container{grid-template-columns:repeat(2,minmax(0,1fr))!important}.task-brief,.training-guide{grid-template-columns:1fr}.training-guide__grid{grid-template-columns:1fr}.task-brief__body{padding:7px}.training-layout{flex-direction:column!important}.training-layout>.control-card,.training-layout>.results-stack{width:100%!important;min-width:0!important;flex:1 1 auto!important}.language-bar{position:static!important;margin:-58px 12px 16px auto!important}.brand-lockup{max-width:calc(100% - 220px)}.hero{padding-top:24px}}
+@media(max-width:620px){.gradio-container{padding:10px!important}.hero{padding:22px 20px 24px;border-radius:18px 18px 0 0}.brand-lockup{max-width:100%;font-size:10px;letter-spacing:.045em}.experiment-gallery .grid-container{grid-template-columns:1fr!important}.task-facts,.result-summary{grid-template-columns:1fr!important}.lab-strip{grid-template-columns:1fr}.language-switch{width:190px!important;min-width:190px!important}}
 """
 
 
