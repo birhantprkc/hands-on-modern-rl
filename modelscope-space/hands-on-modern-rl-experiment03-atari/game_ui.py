@@ -53,29 +53,29 @@ TEXT = {
         "ready_runtime": "Ready · preinstalled",
         "hint": "Adjust the parameters below, then start training. The curve and console update throughout the run.",
         "setup": "Experiment setup",
-        "setup_copy": "A learning-oriented baseline is loaded for each game. Shorter budgets are useful smoke tests but may not learn visible behavior.",
+        "setup_copy": "Choose steps per epoch and epoch count. Every epoch ends with evaluation and one saved policy.",
         "selected": "Selected game",
-        "budget": "Training budget",
-        "budget_info": "The recommended learning baseline is loaded by default; lower values are smoke tests",
+        "steps_per_epoch": "Environment steps per epoch",
+        "steps_per_epoch_info": "How many environment interactions to train before evaluation and model saving",
+        "epochs": "Training epochs / saved models",
+        "epochs_info": "One epoch means one fixed step block; each epoch saves one evaluated policy",
         "lr": "Learning rate",
         "gamma": "Discount factor γ",
         "epsilon": "Exploration ε",
         "seed": "Random seed",
         "baseline_title": "Recommended learning baseline",
         "baseline_badge": "DEFAULT PRESET",
-        "baseline_budget": "Budget",
+        "baseline_budget": "Total environment steps",
         "baseline_warmup": "Replay warm-up",
         "baseline_exploration": "Exploration",
         "baseline_time": "xGPU estimate",
-        "baseline_checkpoints": "Checkpoint schedule",
+        "baseline_checkpoints": "Epoch schedule",
         "baseline_expected": "Expected signal",
         "baseline_restore": "Restore recommended baseline",
-        "checkpoint_count": "Saved policy checkpoints",
-        "checkpoint_count_info": "Number of evaluated policies to keep from this run (2–12)",
-        "saved_model": "Policy checkpoint",
-        "saved_model_info": "Every evaluated checkpoint appears here",
-        "saved_model_empty": "No evaluated checkpoints yet. Start a run to save the first policy.",
-        "preview_waiting": "No policy checkpoint is selected. Start training, then choose a saved step here.",
+        "saved_model": "Epoch model",
+        "saved_model_info": "The evaluated policy saved at the end of every epoch appears here",
+        "saved_model_empty": "No epoch models yet. Start training to save the first policy.",
+        "preview_waiting": "No epoch model is selected. Start training, then choose a saved epoch here.",
         "start": "Start training",
         "running_button": "Training…",
         "run_status": "Run status",
@@ -87,20 +87,20 @@ TEXT = {
         "metric": "Latest evaluation",
         "metric_waiting": "Results appear after training starts",
         "curve": "Learning curve",
-        "curve_copy": "The chart updates at each checkpoint. Labels remain in English for readability.",
+        "curve_copy": "The chart updates at the end of every epoch. Labels remain in English for readability.",
         "log": "Live training log",
         "log_waiting": "Waiting for a training run…",
         "preview": "Task preview / learned policy",
-        "preview_copy": "Each run saves a policy at every evaluation checkpoint. Choose a step below to compare its exact learned behavior; non-best replays are generated once when selected.",
+        "preview_copy": "Every epoch ends with evaluation and one saved policy. Choose an epoch below to compare its exact learned behavior; non-best replays are generated once when selected.",
         "download": "Download run summary",
         "wait_title": "Training is active",
         "wait_detail": "Preparing the environment, updating the policy, evaluating it, and rendering the learned result.",
         "guide_title": "How to judge this training run",
-        "guide_copy": "Read these three signals before increasing the training budget.",
+        "guide_copy": "Read these three signals before increasing steps per epoch or the epoch count.",
         "guide_success": "What counts as success",
         "guide_preview": "How to read Preview",
         "guide_time": "Typical time",
-        "guide_success_default": "Training complete confirms that the pipeline finished. Learning is demonstrated when the final evaluation improves over early checkpoints and the learned behavior matches the task goal.",
+        "guide_success_default": "Training complete confirms that the pipeline finished. Learning is demonstrated when later epoch models improve over early ones and the learned behavior matches the task goal.",
         "guide_preview_default": "Before training, Preview shows the task. During or after training it changes to this run's live frames, replay GIF, policy map, or result visualization.",
         "guide_time_default": "Most default recipes take 30 seconds to 5 minutes. First-run downloads, compilation, or 3D rendering can add several minutes.",
     },
@@ -126,29 +126,29 @@ TEXT = {
         "ready_runtime": "就绪 · 已预装",
         "hint": "调整下方参数后启动训练。学习曲线和训练日志会持续更新。",
         "setup": "实验设置",
-        "setup_copy": "每个游戏都会载入以学出有效行为为目标的 baseline；更短预算适合检查流程，但通常不足以学出明显效果。",
+        "setup_copy": "设置每个 epoch 的环境步数和 epoch 数量。每个 epoch 结束时评估一次并保存一个策略。",
         "selected": "已选游戏",
-        "budget": "训练预算",
-        "budget_info": "默认值是推荐学习 baseline；低于该值属于流程测试",
+        "steps_per_epoch": "每个 epoch 的环境步数",
+        "steps_per_epoch_info": "每训练多少个环境交互步后评估并保存模型",
+        "epochs": "训练 epochs / 保存模型数",
+        "epochs_info": "此处一个 epoch 表示一段固定步数；每个 epoch 保存一个已评估策略",
         "lr": "学习率",
         "gamma": "折扣因子 γ",
         "epsilon": "探索率 ε",
         "seed": "随机种子",
         "baseline_title": "推荐学习 Baseline",
         "baseline_badge": "默认配置",
-        "baseline_budget": "训练预算",
+        "baseline_budget": "总环境步数",
         "baseline_warmup": "经验回放预热",
         "baseline_exploration": "探索调度",
         "baseline_time": "xGPU 时间估计",
-        "baseline_checkpoints": "检查点计划",
+        "baseline_checkpoints": "Epoch 计划",
         "baseline_expected": "预期学习信号",
         "baseline_restore": "恢复推荐 Baseline",
-        "checkpoint_count": "保存的策略检查点",
-        "checkpoint_count_info": "本次运行保留的已评估策略数量（2–12）",
-        "saved_model": "策略检查点",
-        "saved_model_info": "每个完成评估的检查点都会显示在这里",
-        "saved_model_empty": "还没有完成评估的策略检查点。开始训练后会保存第一个策略。",
-        "preview_waiting": "尚未选择策略检查点。开始训练后，可在这里选择已保存的步数。",
+        "saved_model": "Epoch 模型",
+        "saved_model_info": "每个 epoch 结束时保存的已评估策略都会显示在这里",
+        "saved_model_empty": "还没有 epoch 模型。开始训练后会保存第一个策略。",
+        "preview_waiting": "尚未选择 epoch 模型。开始训练后，可在这里选择已保存的 epoch。",
         "start": "开始训练",
         "running_button": "训练中…",
         "run_status": "训练状态",
@@ -160,20 +160,20 @@ TEXT = {
         "metric": "最新评估",
         "metric_waiting": "训练开始后显示结果",
         "curve": "学习曲线",
-        "curve_copy": "每个检查点更新一次曲线；图表标记统一使用英文。",
+        "curve_copy": "每个 epoch 结束时更新一次曲线；图表标记统一使用英文。",
         "log": "实时训练日志",
         "log_waiting": "等待训练任务…",
         "preview": "任务预览 / 学习后的策略",
-        "preview_copy": "每次训练都会在各个评估检查点保存策略。可在下方选择不同步数比较真实行为；非最佳策略的回放会在第一次选择时生成并缓存。",
+        "preview_copy": "每个 epoch 结束时评估并保存一个策略。可在下方选择不同 epoch 比较真实行为；非最佳策略的回放会在第一次选择时生成并缓存。",
         "download": "下载运行摘要",
         "wait_title": "训练正在运行",
         "wait_detail": "正在准备环境、更新策略、执行评估并渲染学习结果。",
         "guide_title": "怎样判断本次训练结果",
-        "guide_copy": "增加训练预算前，先看下面三个信号。",
+        "guide_copy": "增加每个 epoch 的步数或 epoch 数量前，先看下面三个信号。",
         "guide_success": "怎样算训练成功",
         "guide_preview": "怎样查看 Preview",
         "guide_time": "大约需要多久",
-        "guide_success_default": "“训练完成”表示流程已经正常结束；最终评估高于早期检查点，并且学习后的行为符合任务目标，才说明策略确实学到了东西。",
+        "guide_success_default": "“训练完成”表示流程已经正常结束；后期 epoch 模型的评估高于早期模型，并且学习后的行为符合任务目标，才说明策略确实学到了东西。",
         "guide_preview_default": "训练前，Preview 显示任务画面；训练中或训练后，它会切换为本次运行的实时帧、回放 GIF、策略图或结果图。",
         "guide_time_default": "默认配方通常需要 30 秒到 5 分钟；首次下载、编译或三维渲染可能额外增加数分钟。",
     },
@@ -342,16 +342,16 @@ def panel_html(title: str, text: str, cls: str = "panel-copy") -> str:
 
 def baseline_card(task: Any, language: str) -> str:
     copy = copy_for(language)
-    budget = int(slider_spec(task, "budget", (100, 10_000, 1_000, 100))[2])
+    steps_per_epoch = int(slider_spec(task, "steps_per_epoch", (1_000, 400_000, 200_000, 1_000))[2])
+    epochs = int(slider_spec(task, "epochs", (1, 12, 5, 1))[2])
+    budget = steps_per_epoch * epochs
     warmup = int(task_value(task, "learning_starts", max(100, budget // 10)))
     initial_epsilon = slider_spec(task, "epsilon", (0, 1, 1, .05))[2]
     final_epsilon = float(task_value(task, "exploration_final_eps", .01))
-    checkpoints = max(2, int(task_value(task, "checkpoints", 6)))
-    checkpoint_interval = max(1, round(budget / checkpoints))
     checkpoint_schedule = (
-        f"{checkpoints} saved policies · approximately every {checkpoint_interval:,} steps"
+        f"{epochs} epochs × {steps_per_epoch:,} steps · one saved model per epoch"
         if language != "中文"
-        else f"保存 {checkpoints} 个策略 · 约每 {checkpoint_interval:,} 步一次"
+        else f"{epochs} 个 epochs × 每个 {steps_per_epoch:,} 步 · 每个 epoch 保存一个模型"
     )
     duration = local_value(task_value(task, "baseline_time", {"en": "runtime varies by xGPU scheduling", "zh": "运行时间取决于 xGPU 调度"}), language)
     outcome = local_value(task_value(task, "baseline_outcome", {"en": "Evaluation should improve over early checkpoints.", "zh": "评估结果应高于早期检查点。"}), language)
@@ -374,10 +374,11 @@ def baseline_card(task: Any, language: str) -> str:
     """
 
 
-def checkpoint_plan(task: Any, language: str, budget: float, checkpoints: float) -> str:
-    total_steps = max(1, int(budget))
-    checkpoint_count = max(2, min(12, int(checkpoints)))
-    steps = sorted({max(1, round(total_steps * index / checkpoint_count)) for index in range(1, checkpoint_count + 1)})
+def checkpoint_plan(task: Any, language: str, steps_per_epoch: float, epochs: float) -> str:
+    epoch_steps = max(1, int(steps_per_epoch))
+    epoch_count = max(1, min(12, int(epochs)))
+    total_steps = epoch_steps * epoch_count
+    steps = [epoch_steps * index for index in range(1, epoch_count + 1)]
     rendered_steps = " · ".join(f"{step:,}" for step in steps)
     recommended = int(slider_spec(task, "budget", (100, 10_000, 1_000, 100))[2])
     mode = (
@@ -386,16 +387,22 @@ def checkpoint_plan(task: Any, language: str, budget: float, checkpoints: float)
         "Baseline 长度训练" if total_steps >= recommended else "短流程验证"
     )
     summary = (
-        f"{total_steps:,} total steps ÷ {len(steps)} saved policies · about every {max(1, round(total_steps / len(steps))):,} steps"
+        f"{epoch_steps:,} steps/epoch × {epoch_count} epochs = {total_steps:,} total steps = {epoch_count} saved models"
         if language != "中文"
-        else f"总计 {total_steps:,} 步 ÷ 保存 {len(steps)} 个策略 · 约每 {max(1, round(total_steps / len(steps))):,} 步一次"
+        else f"每个 epoch {epoch_steps:,} 步 × {epoch_count} 个 epochs = 总计 {total_steps:,} 步 = {epoch_count} 个保存模型"
     )
-    label = "Saved at" if language != "中文" else "保存位置"
+    label = "Models saved at" if language != "中文" else "模型保存位置"
+    definition = (
+        "Here, an epoch is one fixed block of environment interaction followed by evaluation and model saving."
+        if language != "中文"
+        else "此处的 epoch 是一段固定步数的环境交互，结束后执行评估并保存模型。"
+    )
     return f"""
     <section class="checkpoint-plan">
       <span>{html.escape(mode)}</span>
       <strong>{html.escape(summary)}</strong>
       <p><b>{html.escape(label)}</b>{html.escape(rendered_steps)}</p>
+      <p>{html.escape(definition)}</p>
     </section>
     """
 
@@ -429,9 +436,9 @@ def saved_model_choices(records: list[dict], language: str) -> list[tuple[str, s
         checkpoint_count = int(record.get("checkpoint_count") or 0)
         if run_id and checkpoint_index:
             prefix = (
-                f"Run …{run_id[-6:]} · Checkpoint {checkpoint_index}/{checkpoint_count}"
+                f"Run …{run_id[-6:]} · Epoch {checkpoint_index}/{checkpoint_count}"
                 if language != "中文"
-                else f"运行 …{run_id[-6:]} · 检查点 {checkpoint_index}/{checkpoint_count}"
+                else f"运行 …{run_id[-6:]} · Epoch {checkpoint_index}/{checkpoint_count}"
             )
         else:
             ordinal = total - index
@@ -630,8 +637,8 @@ def build_demo(space_module: Any):
         index = max(0, min(int(event.index), len(tasks) - 1))
         task = tasks[index]
         copy = copy_for(language)
-        budget = slider_spec(task, "budget", (100, 10000, 1000, 100))
-        checkpoint_count = max(2, min(12, int(task_value(task, "checkpoints", 6))))
+        epoch_steps = slider_spec(task, "steps_per_epoch", (1_000, 400_000, 200_000, 1_000))
+        epoch_count = slider_spec(task, "epochs", (1, 12, 5, 1))
         lr = slider_spec(task, "learning_rate", (1e-5, .1, 3e-4, 1e-5))
         gamma = slider_spec(task, "gamma", (0, 1, .99, .01))
         epsilon = slider_spec(task, "epsilon", (0, 1, .1, .01))
@@ -643,9 +650,9 @@ def build_demo(space_module: Any):
             hero_html(space, tasks, task, language, runtime_status),
             task_brief(root, task, language, space),
             baseline_card(task, language),
-            gr.Slider(minimum=budget[0], maximum=budget[1], value=budget[2], step=budget[3], label=copy["budget"], info=copy["budget_info"]),
-            gr.Slider(minimum=2, maximum=12, value=checkpoint_count, step=1, label=copy["checkpoint_count"], info=copy["checkpoint_count_info"]),
-            checkpoint_plan(task, language, budget[2], checkpoint_count),
+            gr.Slider(minimum=epoch_steps[0], maximum=epoch_steps[1], value=epoch_steps[2], step=epoch_steps[3], label=copy["steps_per_epoch"], info=copy["steps_per_epoch_info"]),
+            gr.Slider(minimum=epoch_count[0], maximum=epoch_count[1], value=epoch_count[2], step=epoch_count[3], label=copy["epochs"], info=copy["epochs_info"]),
+            checkpoint_plan(task, language, epoch_steps[2], epoch_count[2]),
             gr.Slider(minimum=lr[0], maximum=lr[1], value=lr[2], step=lr[3], label=copy["lr"]),
             gr.Slider(minimum=gamma[0], maximum=gamma[1], value=gamma[2], step=gamma[3], label=copy["gamma"]),
             gr.Slider(minimum=epsilon[0], maximum=epsilon[1], value=epsilon[2], step=epsilon[3], label=copy["epsilon"]),
@@ -658,9 +665,11 @@ def build_demo(space_module: Any):
             preview_provenance(task, language, selected_model),
         )
 
-    def switch_language(language: str, key: str, seed: float, selected_model: str | None, budget: float, checkpoints: float):
+    def switch_language(language: str, key: str, seed: float, selected_model: str | None, steps_per_epoch: float, epochs: float):
         task = get_task(tasks, key)
         copy = copy_for(language)
+        epoch_steps_spec = slider_spec(task, "steps_per_epoch", (1_000, 400_000, 200_000, 1_000))
+        epoch_count_spec = slider_spec(task, "epochs", (1, 12, 5, 1))
         selector, selected_record = model_dropdown(key, language, selected_model)
         selected_model = str(selected_record["model_id"]) if selected_record else None
         return (
@@ -670,8 +679,9 @@ def build_demo(space_module: Any):
             task_brief(root, task, language, space),
             panel_html(copy["setup"], copy["setup_copy"]),
             baseline_card(task, language),
-            gr.Slider(minimum=2, maximum=12, value=checkpoints, step=1, label=copy["checkpoint_count"], info=copy["checkpoint_count_info"]),
-            checkpoint_plan(task, language, budget, checkpoints),
+            gr.Slider(minimum=epoch_steps_spec[0], maximum=epoch_steps_spec[1], value=steps_per_epoch, step=epoch_steps_spec[3], label=copy["steps_per_epoch"], info=copy["steps_per_epoch_info"]),
+            gr.Slider(minimum=epoch_count_spec[0], maximum=epoch_count_spec[1], value=epochs, step=epoch_count_spec[3], label=copy["epochs"], info=copy["epochs_info"]),
+            checkpoint_plan(task, language, steps_per_epoch, epochs),
             gr.Textbox(value=key, label=copy["selected"]),
             gr.Number(value=seed, label=copy["seed"], precision=0),
             gr.Button(value=copy["baseline_restore"]),
@@ -689,30 +699,32 @@ def build_demo(space_module: Any):
     def restore_baseline(key: str, language: str):
         task = get_task(tasks, key)
         copy = copy_for(language)
-        budget = slider_spec(task, "budget", (100, 10_000, 1_000, 100))
-        checkpoint_count = max(2, min(12, int(task_value(task, "checkpoints", 6))))
+        epoch_steps = slider_spec(task, "steps_per_epoch", (1_000, 400_000, 200_000, 1_000))
+        epoch_count = slider_spec(task, "epochs", (1, 12, 5, 1))
         lr = slider_spec(task, "learning_rate", (1e-5, .1, 3e-4, 1e-5))
         gamma = slider_spec(task, "gamma", (0, 1, .99, .01))
         epsilon = slider_spec(task, "epsilon", (0, 1, .1, .01))
         return (
-            gr.Slider(minimum=budget[0], maximum=budget[1], value=budget[2], step=budget[3], label=copy["budget"], info=copy["budget_info"]),
-            gr.Slider(minimum=2, maximum=12, value=checkpoint_count, step=1, label=copy["checkpoint_count"], info=copy["checkpoint_count_info"]),
-            checkpoint_plan(task, language, budget[2], checkpoint_count),
+            gr.Slider(minimum=epoch_steps[0], maximum=epoch_steps[1], value=epoch_steps[2], step=epoch_steps[3], label=copy["steps_per_epoch"], info=copy["steps_per_epoch_info"]),
+            gr.Slider(minimum=epoch_count[0], maximum=epoch_count[1], value=epoch_count[2], step=epoch_count[3], label=copy["epochs"], info=copy["epochs_info"]),
+            checkpoint_plan(task, language, epoch_steps[2], epoch_count[2]),
             slider_update(copy["lr"], lr),
             slider_update(copy["gamma"], gamma),
             slider_update(copy["epsilon"], epsilon),
             baseline_card(task, language),
         )
 
-    def update_checkpoint_plan(key: str, language: str, budget: float, checkpoints: float):
-        return checkpoint_plan(get_task(tasks, key), language, budget, checkpoints)
+    def update_checkpoint_plan(key: str, language: str, steps_per_epoch: float, epochs: float):
+        return checkpoint_plan(get_task(tasks, key), language, steps_per_epoch, epochs)
 
-    def train_with_ui(key: str, budget: float, checkpoints: float, learning_rate: float, gamma: float, epsilon: float, seed: float, selected_model: str | None, language: str):
+    def train_with_ui(key: str, steps_per_epoch: float, epochs: float, learning_rate: float, gamma: float, epsilon: float, seed: float, selected_model: str | None, language: str):
         task = get_task(tasks, key)
         copy = copy_for(language)
+        resolved_epoch_steps = max(1, int(steps_per_epoch))
+        resolved_epochs = max(1, min(12, int(epochs)))
         params = {
-            "budget": int(budget),
-            "checkpoints": max(2, min(12, int(checkpoints))),
+            "budget": resolved_epoch_steps * resolved_epochs,
+            "checkpoints": resolved_epochs,
             "learning_rate": float(learning_rate),
             "gamma": float(gamma),
             "epsilon": float(epsilon),
@@ -720,9 +732,8 @@ def build_demo(space_module: Any):
         }
         device = str(space.get("device", "CPU"))
         logs = [f"0.0s  CONFIG  environment={task_value(task, 'environment')} algorithm={task_value(task, 'algorithm')} device={device}"]
-        logs.append(f"0.0s  CONFIG  budget={params['budget']} seed={params['seed']}")
-        interval = max(1, round(params["budget"] / params["checkpoints"]))
-        logs.append(f"0.0s  CONFIG  checkpoints={params['checkpoints']} interval≈{interval:,} steps")
+        logs.append(f"0.0s  CONFIG  total_budget={params['budget']} seed={params['seed']}")
+        logs.append(f"0.0s  CONFIG  epochs={resolved_epochs} steps_per_epoch={resolved_epoch_steps:,} save_policy=every_epoch")
         recommended_budget = int(slider_spec(task, "budget", (100, 10_000, 1_000, 100))[2])
         if params["budget"] < recommended_budget:
             logs.append(
@@ -784,9 +795,9 @@ def build_demo(space_module: Any):
                 checkpoint_count = int(event_value(event, "checkpoint_count", 0) or 0)
                 checkpoint_note = (
                     (
-                        f"Checkpoint {checkpoint_index}/{checkpoint_count} saved · available after this run finishes"
+                        f"Epoch {checkpoint_index}/{checkpoint_count} model saved · available after this run finishes"
                         if language != "中文"
-                        else f"检查点 {checkpoint_index}/{checkpoint_count} 已保存 · 本次训练结束后可选择回放"
+                        else f"Epoch {checkpoint_index}/{checkpoint_count} 模型已保存 · 本次训练结束后可选择回放"
                     )
                     if checkpoint_index
                     else ("Training a new policy…" if language != "中文" else "正在训练一个新策略……")
@@ -811,7 +822,7 @@ def build_demo(space_module: Any):
                 preview = result_image(root, task, "training complete", last_score, last_x, last_y, "The environment did not expose replay frames; this plot records the learned result.")
             summary = save_summary(root, task, {
                 "status": "complete",
-                "parameters": params,
+                "parameters": {**params, "steps_per_epoch": resolved_epoch_steps, "epochs": resolved_epochs},
                 "score": last_score,
                 "curve": {"x": last_x, "y": last_y},
                 "preview": preview,
@@ -842,7 +853,7 @@ def build_demo(space_module: Any):
             preview = result_image(root, task, "run stopped", last_score, last_x, last_y, f"{type(exc).__name__}: {exc}")
             summary = save_summary(root, task, {
                 "status": "failed",
-                "parameters": params,
+                "parameters": {**params, "steps_per_epoch": resolved_epoch_steps, "epochs": resolved_epochs},
                 "error": f"{type(exc).__name__}: {exc}",
                 "traceback": traceback.format_exc(),
                 "logs": logs,
@@ -897,8 +908,8 @@ def build_demo(space_module: Any):
             return gr.skip(), preview_provenance(task, language, detail=message)
 
     copy = copy_for(default_language)
-    initial_budget = slider_spec(default_task, "budget", (100, 10000, 1000, 100))
-    initial_checkpoints = max(2, min(12, int(task_value(default_task, "checkpoints", 6))))
+    initial_epoch_steps = slider_spec(default_task, "steps_per_epoch", (1_000, 400_000, 200_000, 1_000))
+    initial_epochs = slider_spec(default_task, "epochs", (1, 12, 5, 1))
     initial_lr = slider_spec(default_task, "learning_rate", (1e-5, .1, 3e-4, 1e-5))
     initial_gamma = slider_spec(default_task, "gamma", (0, 1, .99, .01))
     initial_epsilon = slider_spec(default_task, "epsilon", (0, 1, .1, .01))
@@ -922,9 +933,9 @@ def build_demo(space_module: Any):
                 settings_header = gr.HTML(panel_html(copy["setup"], copy["setup_copy"]))
                 baseline_info = gr.HTML(baseline_card(default_task, default_language))
                 selected = gr.Textbox(value=task_value(default_task, "key"), label=copy["selected"], interactive=False, elem_classes="selected-experiment")
-                budget = gr.Slider(minimum=initial_budget[0], maximum=initial_budget[1], value=initial_budget[2], step=initial_budget[3], label=copy["budget"], info=copy["budget_info"])
-                checkpoints = gr.Slider(minimum=2, maximum=12, value=initial_checkpoints, step=1, label=copy["checkpoint_count"], info=copy["checkpoint_count_info"])
-                checkpoint_info = gr.HTML(checkpoint_plan(default_task, default_language, initial_budget[2], initial_checkpoints))
+                steps_per_epoch = gr.Slider(minimum=initial_epoch_steps[0], maximum=initial_epoch_steps[1], value=initial_epoch_steps[2], step=initial_epoch_steps[3], label=copy["steps_per_epoch"], info=copy["steps_per_epoch_info"])
+                epochs = gr.Slider(minimum=initial_epochs[0], maximum=initial_epochs[1], value=initial_epochs[2], step=initial_epochs[3], label=copy["epochs"], info=copy["epochs_info"])
+                checkpoint_info = gr.HTML(checkpoint_plan(default_task, default_language, initial_epoch_steps[2], initial_epochs[2]))
                 learning_rate = slider_update(copy["lr"], initial_lr)
                 gamma = slider_update(copy["gamma"], initial_gamma)
                 epsilon = slider_update(copy["epsilon"], initial_epsilon)
@@ -958,12 +969,12 @@ def build_demo(space_module: Any):
 
         gr.HTML(f'<div class="footer-note">{html.escape(local_value(space["title"], "English"))} · <a href="{COURSE_URL}" target="_blank">Hands-On Modern RL</a> · WalkingLab</div>')
 
-        gallery.select(choose_task, inputs=[language, seed], outputs=[selected, hero, task_info, baseline_info, budget, checkpoints, checkpoint_info, learning_rate, gamma, epsilon, status, metric, console, preview, artifact, model_selector, preview_status], queue=False, show_progress="hidden")
-        language.change(switch_language, inputs=[language, selected, seed, model_selector, budget, checkpoints], outputs=[hero, catalog_header, gallery, task_info, settings_header, baseline_info, checkpoints, checkpoint_info, selected, seed, restore, start, status, metric, chart_header, console, preview_header, artifact, model_selector, preview_status], queue=False, show_progress="hidden")
-        restore.click(restore_baseline, inputs=[selected, language], outputs=[budget, checkpoints, checkpoint_info, learning_rate, gamma, epsilon, baseline_info], queue=False, show_progress="hidden")
-        budget.change(update_checkpoint_plan, inputs=[selected, language, budget, checkpoints], outputs=[checkpoint_info], queue=False, show_progress="hidden")
-        checkpoints.change(update_checkpoint_plan, inputs=[selected, language, budget, checkpoints], outputs=[checkpoint_info], queue=False, show_progress="hidden")
-        start.click(train_with_ui, inputs=[selected, budget, checkpoints, learning_rate, gamma, epsilon, seed, model_selector, language], outputs=[status, metric, curve, preview, artifact, console, wait_state, start, model_selector, preview_status], concurrency_limit=1)
+        gallery.select(choose_task, inputs=[language, seed], outputs=[selected, hero, task_info, baseline_info, steps_per_epoch, epochs, checkpoint_info, learning_rate, gamma, epsilon, status, metric, console, preview, artifact, model_selector, preview_status], queue=False, show_progress="hidden")
+        language.change(switch_language, inputs=[language, selected, seed, model_selector, steps_per_epoch, epochs], outputs=[hero, catalog_header, gallery, task_info, settings_header, baseline_info, steps_per_epoch, epochs, checkpoint_info, selected, seed, restore, start, status, metric, chart_header, console, preview_header, artifact, model_selector, preview_status], queue=False, show_progress="hidden")
+        restore.click(restore_baseline, inputs=[selected, language], outputs=[steps_per_epoch, epochs, checkpoint_info, learning_rate, gamma, epsilon, baseline_info], queue=False, show_progress="hidden")
+        steps_per_epoch.change(update_checkpoint_plan, inputs=[selected, language, steps_per_epoch, epochs], outputs=[checkpoint_info], queue=False, show_progress="hidden")
+        epochs.change(update_checkpoint_plan, inputs=[selected, language, steps_per_epoch, epochs], outputs=[checkpoint_info], queue=False, show_progress="hidden")
+        start.click(train_with_ui, inputs=[selected, steps_per_epoch, epochs, learning_rate, gamma, epsilon, seed, model_selector, language], outputs=[status, metric, curve, preview, artifact, console, wait_state, start, model_selector, preview_status], concurrency_limit=1)
         model_selector.change(select_saved_model, inputs=[selected, model_selector, language], outputs=[preview, preview_status], queue=False, show_progress="hidden")
 
     return demo

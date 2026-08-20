@@ -41,9 +41,11 @@ def task(
     baseline_budget,
     baseline_time,
     baseline_outcome,
+    baseline_epochs=5,
     budget_range=(1_000, 5_000_000, 1_000),
 ):
     learning_starts = min(100_000, max(20_000, baseline_budget // 10))
+    steps_per_epoch = max(1_000, baseline_budget // baseline_epochs)
     return {
         "key": key,
         "title": {"en": title, "zh": title},
@@ -55,10 +57,12 @@ def task(
         "policy": "CnnPolicy",
         "preview": preview,
         "budget": (budget_range[0], budget_range[1], baseline_budget, budget_range[2]),
+        "steps_per_epoch": (1_000, max(400_000, steps_per_epoch), steps_per_epoch, 1_000),
+        "epochs": (1, 12, baseline_epochs, 1),
         "learning_rate": (1e-5, 0.0005, 0.0001, 1e-5),
         "gamma": (0.9, 1.0, 0.99, 0.005),
         "epsilon": (0.1, 1.0, 1.0, 0.05),
-        "baseline_name": "Atari DQN xGPU baseline v3",
+        "baseline_name": "Atari DQN xGPU baseline v4",
         "baseline_time": baseline_time,
         "baseline_outcome": baseline_outcome,
         "learning_starts": learning_starts,
@@ -68,7 +72,7 @@ def task(
         "exploration_fraction": 0.2,
         "exploration_final_eps": 0.01,
         "optimize_memory_usage": True,
-        "checkpoints": 6,
+        "checkpoints": baseline_epochs,
         "device": "cuda",
     }
 
@@ -77,7 +81,7 @@ TASKS = [
     task("pong", "Pong", "ALE/Pong-v5", {"en": "Track the ball and move the paddle to outscore the opponent.", "zh": "跟踪球的位置并移动球拍，以更高比分击败对手。"}, {"en": "Paddle and fire controls", "zh": "球拍移动与发球"}, "assets/pong.gif", baseline_budget=1_000_000, baseline_time={"en": "about 30–90 xGPU minutes", "zh": "约 30–90 个 xGPU 分钟"}, baseline_outcome={"en": "Longer rallies and evaluation reward moving above the random-policy floor; strong positive scores may need several million steps.", "zh": "回合能够明显延长，评估奖励脱离随机策略下限；稳定正分通常还需要数百万步。"}),
     task("breakout", "Breakout", "ALE/Breakout-v5", {"en": "Bounce the ball, clear bricks, and preserve each life.", "zh": "反弹小球、清除砖块并尽量保住生命。"}, {"en": "Paddle and fire controls", "zh": "球拍移动与发球"}, "assets/breakout.gif", baseline_budget=1_000_000, baseline_time={"en": "about 30–90 xGPU minutes", "zh": "约 30–90 个 xGPU 分钟"}, baseline_outcome={"en": "The paddle begins tracking the ball and clears bricks more consistently than an untrained policy.", "zh": "挡板开始追踪小球，清砖表现明显优于未训练策略。"}),
     task("space-invaders", "Space Invaders", "ALE/SpaceInvaders-v5", {"en": "Move, shoot invading rows, and avoid incoming fire.", "zh": "移动并射击入侵队列，同时躲避敌方火力。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/space-invaders.gif", baseline_budget=1_500_000, baseline_time={"en": "about 45–120 xGPU minutes", "zh": "约 45–120 个 xGPU 分钟"}, baseline_outcome={"en": "Sustained firing and useful horizontal control with a score above early checkpoints.", "zh": "能够持续射击并进行有效横向控制，得分高于早期检查点。"}),
-    task("freeway", "Freeway", "ALE/Freeway-v5", {"en": "Time vertical movements to cross lanes of traffic safely.", "zh": "掌握上下移动的时机，安全穿过多条车道。"}, {"en": "Up / down", "zh": "向上、向下"}, "assets/freeway.png", baseline_budget=300_000, baseline_time={"en": "about 10–30 xGPU minutes", "zh": "约 10–30 个 xGPU 分钟"}, baseline_outcome={"en": "Repeated upward crossings and a clearly non-zero evaluation score. This is the fastest recommended first run.", "zh": "能够反复向上穿越车流，评估分数明显大于零；这是最适合作为第一次训练的游戏。"}, budget_range=(1_000, 2_000_000, 1_000)),
+    task("freeway", "Freeway", "ALE/Freeway-v5", {"en": "Time vertical movements to cross lanes of traffic safely.", "zh": "掌握上下移动的时机，安全穿过多条车道。"}, {"en": "Up / down", "zh": "向上、向下"}, "assets/freeway.png", baseline_budget=300_000, baseline_time={"en": "about 10–30 xGPU minutes", "zh": "约 10–30 个 xGPU 分钟"}, baseline_outcome={"en": "Repeated upward crossings and a clearly non-zero evaluation score. This is the fastest recommended first run.", "zh": "能够反复向上穿越车流，评估分数明显大于零；这是最适合作为第一次训练的游戏。"}, baseline_epochs=6, budget_range=(1_000, 2_000_000, 1_000)),
     task("seaquest", "Seaquest", "ALE/Seaquest-v5", {"en": "Rescue divers while managing oxygen, enemies, and ammunition.", "zh": "在管理氧气、敌人和弹药的同时营救潜水员。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/seaquest.gif", baseline_budget=2_000_000, baseline_time={"en": "about 60–180 xGPU minutes", "zh": "约 60–180 个 xGPU 分钟"}, baseline_outcome={"en": "Useful movement and firing with improving score; oxygen management is a harder, longer-horizon behavior.", "zh": "移动和射击开始有效，分数逐步提高；氧气管理属于更难的长时程行为。"}),
     task("qbert", "Q*bert", "ALE/Qbert-v5", {"en": "Plan diagonal jumps to recolor the pyramid without colliding with enemies.", "zh": "规划斜向跳跃改变金字塔颜色，并避开敌人。"}, {"en": "Four diagonal jumps", "zh": "四个斜向跳跃动作"}, "assets/qbert.gif", baseline_budget=1_500_000, baseline_time={"en": "about 45–150 xGPU minutes", "zh": "约 45–150 个 xGPU 分钟"}, baseline_outcome={"en": "Purposeful diagonal movement and more tile changes than early checkpoints.", "zh": "出现有目的的斜向移动，改变的方块数超过早期检查点。"}),
     task("beam-rider", "Beam Rider", "ALE/BeamRider-v5", {"en": "Control horizontal movement and shooting in a fast scrolling arena.", "zh": "在快速滚动的竞技场中控制横向移动和射击。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/beam-rider.gif", baseline_budget=2_000_000, baseline_time={"en": "about 60–180 xGPU minutes", "zh": "约 60–180 个 xGPU 分钟"}, baseline_outcome={"en": "Sustained shooting and horizontal control with reward improving across checkpoints.", "zh": "能够持续射击和横向控制，奖励随检查点逐步提高。"}),

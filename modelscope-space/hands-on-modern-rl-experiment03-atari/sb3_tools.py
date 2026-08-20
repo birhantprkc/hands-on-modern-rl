@@ -179,13 +179,15 @@ def train_sb3(
         if checkpoint_count is not None
         else (2 if smoke_test else int(configured("checkpoints", 6)))
     )
-    checkpoints = max(2, min(12, checkpoints))
+    checkpoints = max(1, min(12, checkpoints))
     eval_episodes = 1 if smoke_test else max(1, int(configured("eval_episodes", 3)))
     resolved_config.update(
         {
             "recommended_budget": recommended_budget,
             "smoke_test": smoke_test,
             "checkpoints": checkpoints,
+            "epochs": checkpoints,
+            "steps_per_epoch": budget / checkpoints,
             "eval_episodes": eval_episodes,
         }
     )
@@ -206,7 +208,11 @@ def train_sb3(
             f" schedule_horizon={budget:,}"
         )
     if smoke_test:
-        initialization_log += f"\nSMOKE_TEST evaluation={checkpoints} checkpoints × 1 episode"
+        initialization_log += f"\nSMOKE_TEST evaluation={checkpoints} epochs × 1 episode"
+    initialization_log += (
+        f"\nTRAINING_PLAN epochs={checkpoints} steps_per_epoch≈{budget / checkpoints:,.0f}"
+        " save_policy=every_epoch"
+    )
     yield {"phase": "training", "step": 0, "x": x, "y": y, "log": initialization_log}
     completed = 0
     evaluation_index = 0
@@ -233,7 +239,7 @@ def train_sb3(
             completed = min(budget, int(model.num_timesteps))
             if completed < target_step:
                 raise RuntimeError(
-                    f"Training paused before the requested progress checkpoint: {completed:,} < {target_step:,}"
+                    f"Training paused before the requested epoch progress boundary: {completed:,} < {target_step:,}"
                 )
             elapsed = max(time.perf_counter() - training_started, 1e-6)
             throughput = completed / elapsed
@@ -251,7 +257,7 @@ def train_sb3(
                     "x": list(x),
                     "y": list(y),
                     "detail": f"{stage} · {completed:,}/{budget:,} environment steps",
-                    "metric_detail": "Awaiting the next evaluation checkpoint",
+                    "metric_detail": "Awaiting the end-of-epoch evaluation",
                     "log": progress_log,
                 }
                 continue
@@ -261,9 +267,9 @@ def train_sb3(
                 "step": completed,
                 "x": list(x),
                 "y": list(y),
-                "detail": f"evaluating checkpoint · {completed:,}/{budget:,} environment steps",
+                "detail": f"evaluating epoch {evaluation_index + 1}/{len(evaluation_steps)} · {completed:,}/{budget:,} environment steps",
                 "metric_detail": f"Running {eval_episodes} deterministic evaluation episode(s)",
-                "log": f"{progress_log}\nEVAL starting checkpoint at step={completed:,}",
+                "log": f"{progress_log}\nEVAL starting epoch {evaluation_index + 1}/{len(evaluation_steps)} at step={completed:,}",
             }
             rewards, lengths = evaluate_policy(
                 model,
@@ -296,6 +302,9 @@ def train_sb3(
                 "total_budget": budget,
                 "checkpoint_index": evaluation_index,
                 "checkpoint_count": len(evaluation_steps),
+                "epoch": evaluation_index,
+                "epochs": len(evaluation_steps),
+                "steps_per_epoch": budget / len(evaluation_steps),
                 "seed": seed,
                 "score": score,
                 "score_std": spread,
@@ -311,7 +320,8 @@ def train_sb3(
                 best_model_path = model_path
             details = format_metrics(callback.latest, completed)
             details += f"\nEVAL step={completed:,} mean_reward={score:.2f} std={spread:.2f} mean_length={np.mean(lengths):.1f}"
-            details += f"\nCHECKPOINT saved {evaluation_index}/{len(evaluation_steps)}: {model_zip.name}"
+            details += f"\nEPOCH {evaluation_index}/{len(evaluation_steps)} complete"
+            details += f"\nCHECKPOINT saved epoch model: {model_zip.name}"
             if completed == best_step:
                 details += "\nCHECKPOINT this is the best policy so far and will be used for the final replay"
             yield {
@@ -330,7 +340,7 @@ def train_sb3(
             }
 
         if best_model_path is None or not best_model_path.with_suffix(".zip").is_file():
-            raise RuntimeError("Training finished without a saved evaluation checkpoint")
+            raise RuntimeError("Training finished without a saved epoch model")
         model = algorithm_cls.load(str(best_model_path.with_suffix(".zip")), env=train_env, device=requested_device)
         record_env = make_record_env()
         raw_preview = Path(record_episode(model, record_env, artifacts, seed))
@@ -358,9 +368,9 @@ def train_sb3(
             "model": str(best_model_zip),
             "model_id": best_model_zip.name,
             "log": (
-                f"Restored best checkpoint from step {best_step:,} with mean reward {best_score:.2f}"
-                f"\nSaved {len(checkpoint_records)} selectable policy checkpoints for run {run_id}"
-                f"\nGenerated the best checkpoint replay: {preview_path.name}"
+                f"Restored best epoch model from step {best_step:,} with mean reward {best_score:.2f}"
+                f"\nSaved {len(checkpoint_records)} selectable epoch policy models for run {run_id}"
+                f"\nGenerated the best epoch replay: {preview_path.name}"
             ),
         }
     finally:
