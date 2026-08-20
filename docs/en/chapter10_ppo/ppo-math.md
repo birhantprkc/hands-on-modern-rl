@@ -1,8 +1,8 @@
 ---
-title: 'Supplement: PPO Mathematical Derivation'
+title: '8.4 Hands-on: PPO Mathematical Derivation'
 ---
 
-# Supplement: PPO Mathematical Derivation
+# 8.4 Hands-on: PPO Mathematical Derivation
 
 In the previous section, we trained LunarLander with SB3's PPO and looked at curves such as reward, entropy, and clip fraction. Now we should answer a more basic question:
 

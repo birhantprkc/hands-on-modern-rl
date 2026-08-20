@@ -1,18 +1,18 @@
 ---
-title: '7.5 Hands-On: BipedalWalker'
+title: '7.6 Hands-On: BipedalWalker'
 ---
 
-# 7.5 Hands-on: BipedalWalker
+# 7.6 Hands-on: BipedalWalker
 
 > **Section goal**: Train `BipedalWalker-v3` with A2C, observe the capabilities and limits of Actor-Critic in high-dimensional continuous control, and see why the next chapter introduces PPO.
 
-> **Learning path**: [7.2 Actor-Critic](./actor-critic) → [7.3 Pendulum Continuous Control](./pendulum) → **7.5 BipedalWalker**
+> **Learning path**: [7.2 Actor-Critic](./actor-critic) → [7.4 Pendulum Continuous Control](./pendulum) → **7.6 BipedalWalker**
 
 > **Code and resources**: [actor_critic_bipedalwalker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/actor_critic_bipedalwalker.py) · [render_bipedalwalker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/render_bipedalwalker.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/requirements.txt)
 
 The previous section's Pendulum had just 1 continuous action and a 3-dimensional state. BipedalWalker raises the complexity by an order of magnitude: a 24-dimensional state (joint angles, angular velocities, ground-contact sensors, etc.) and 4 continuous actions (two hip joints and two knee joints). The goal is to teach a bipedal robot to walk.
 
-## 7.5.1 Environment: BipedalWalker-v3
+## 7.6.1 Environment: BipedalWalker-v3
 
 ```
         O          ← head
@@ -45,7 +45,7 @@ The real difficulty going from Pendulum to BipedalWalker is not just the state d
 | Training   | minutes      | tens of minutes                    |
 | Difficulty | single joint | multi-joint coordination + balance |
 
-## 7.5.2 Running Training
+## 7.6.2 Running Training
 
 Install dependencies:
 
@@ -100,7 +100,7 @@ The training script saves models, checkpoints, and training curves to the `outpu
 | `actor_critic_bipedalwalker_entropy.png` | policy entropy loss curve |
 | `actor_critic_bipedalwalker_loss.png`    | Actor/Critic loss curves  |
 
-## 7.5.3 Training Results: Standing First, Then Struggling to Walk
+## 7.6.3 Training Results: Standing First, Then Struggling to Walk
 
 Results from a single 3M-timestep training run are shown below. A2C's training curve is noisier and more unstable than PPO's — a typical signature of Actor-Critic without clipping.
 
@@ -144,7 +144,7 @@ A key feature of the loss curves is **periodic sharp spikes**. Value loss (red) 
 
 These spikes correspond closely with the violent fluctuations on the reward curve: large policy update → Critic becomes inaccurate → the next Actor update uses bad advantage signals → the policy gets disrupted again. This is the core problem of vanilla Actor-Critic on complex tasks.
 
-## 7.5.4 Three-Phase Replay
+## 7.6.4 Three-Phase Replay
 
 To get an intuitive feel for A2C's learning process, we compare the policy at three different training stages. All three models use identical hyperparameters, differing only in the number of training steps.
 
@@ -183,11 +183,11 @@ Evaluation comparison across the three phases (20-episode average):
 | 2M             | -66.4       | 97.0  | Highly unstable: ~15% of episodes walk, rest fall       |
 | 3M             | 221.8       | 107.6 | Most episodes score 270+, but 10–15% still fall         |
 
-## 7.5.5 A2C vs PPO: Same Task, Different Stability
+## 7.6.5 A2C vs PPO: Same Task, Different Stability
 
-This section and Section 8.5 of Chapter 8 use the identical environment (BipedalWalker-v3), but train with A2C and PPO respectively. Comparing the two experiments:
+This section and Section 8.1 of Chapter 8 use the identical environment (BipedalWalker-v3), but train with A2C and PPO respectively. Comparing the two experiments:
 
-| Metric                 | A2C (this section) | PPO (Section 8.5) |
+| Metric                 | A2C (this section) | PPO (Section 8.1) |
 | ---------------------- | ------------------ | ----------------- |
 | Training steps         | 3M                 | 2M                |
 | 20-episode mean reward | 221.8              | 282.5             |
@@ -207,7 +207,7 @@ This difference is barely noticeable on Pendulum (the task is too simple), but b
 2. **Final performance**: A2C's best episodes reach only 276, while PPO consistently scores 295+. The gap is not in the policy's ceiling but in **consistency**.
 3. **Data efficiency**: A2C used 3M steps yet fell short of PPO's results at 2M steps. PPO's data-reuse mechanism (multi-epoch updates) gives it a clear advantage on complex tasks.
 
-## 7.5.6 Common Failures and Tuning
+## 7.6.6 Common Failures and Tuning
 
 BipedalWalker is more prone to training failures than typical discrete-action environments. If results are unsatisfactory, investigate in the following order.
 

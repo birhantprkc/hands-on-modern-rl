@@ -1,8 +1,8 @@
 ---
-title: 8.4 RL in Long-Horizon Tasks
+title: 8.6 RL in Long-Horizon Tasks
 ---
 
-# 8.4 Long-Horizon Tasks and Planning
+# 8.6 Long-Horizon Tasks and Planning
 
 In the previous sections, we used PPO on BipedalWalker and collected a set of game-project entry points. Those tasks usually have horizons from tens to a few thousand steps, and their reward signals can often be shaped without too much difficulty. Many real tasks are different. A robot in a kitchen may need to open a fridge, take out ingredients, wash, cut, cook, and plate food. An agent in Minecraft may need to collect resources, craft tools, and build shelter from scratch. These are **long-horizon tasks**: the decision sequence may span thousands or tens of thousands of steps, and reward may be almost absent until the end.
 

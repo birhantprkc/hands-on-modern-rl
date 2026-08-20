@@ -1,8 +1,8 @@
-# 7.3 动手：Pendulum 连续控制
+# 7.4 动手：Pendulum 连续控制
 
 > **本节目标**：用 A2C 训练 `Pendulum-v1`，理解连续动作 Actor-Critic 为什么要输出高斯分布，以及 Critic 如何帮助 Actor 在连续控制中稳定学习。
 
-> **学习路径**：[7.1 优势函数](./advantage-function) → [7.2 Actor-Critic](./actor-critic) → **7.3 Pendulum 连续控制**
+> **学习路径**：[7.1 优势函数](./advantage-function) → [7.2 Actor-Critic](./actor-critic) → **7.4 Pendulum 连续控制**
 
 > **本节代码与资源**：[actor_critic_pendulum.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/actor_critic_pendulum.py) · [render_pendulum.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/render_pendulum.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/requirements.txt)
 
@@ -10,7 +10,7 @@
 
 现在问题变了。`Pendulum-v1` 让智能体给摆杆施加连续力矩。这个力矩可以是 -2，也可以是 0.17，还可以是 1.843，动作空间是一整段实数区间 $[-2, 2]$。Actor-Critic 在这里需要解决的是：怎样用一个概率分布表示连续动作。
 
-## 7.3.1 任务直觉：控制连续力矩
+## 7.4.1 任务直觉：控制连续力矩
 
 Pendulum 的场景很简单：一根杆子挂在转轴上，智能体每一步可以给它一个力矩，目标是把杆子摆到正上方，并尽量保持在那里。
 
@@ -38,7 +38,7 @@ $$
 
 所以 Pendulum 的累计回报通常是负数。随机策略常常在 -1200 到 -900 附近；训练得比较好的策略可以继续向 -500、-300 甚至更接近 0 推进。看这类曲线时，不要问“为什么奖励不是正数”，而要看它是否从很低的负值逐渐上升到接近 0。
 
-## 7.3.2 为什么 DQN 不适合这个任务
+## 7.4.2 为什么 DQN 不适合这个任务
 
 先看已经熟悉的 DQN。DQN 学习 $Q(s,a)$，执行时使用：
 
@@ -60,7 +60,7 @@ $$
 
 因此，真正的问题不是“DQN 要不要多几个输出头”，而是：**连续控制需要一个能直接生成连续动作的策略。**
 
-## 7.3.3 连续 Actor：输出高斯分布
+## 7.4.3 连续 Actor：输出高斯分布
 
 离散策略输出的是每个动作的概率，例如：
 
@@ -108,7 +108,7 @@ class ActorCriticContinuous(nn.Module):
 
 第三，`value_head` 是 Critic，输出 $V(s)$。同一个网络前半部分共享特征，后面分成 Actor 头和 Critic 头。这就是本章所说的 Actor-Critic：Actor 决定怎么行动，Critic 判断当前状态大概值多少钱。
 
-## 7.3.4 Critic 如何给 Actor 一个学习信号
+## 7.4.4 Critic 如何给 Actor 一个学习信号
 
 只有 Actor 还不够。我们还需要知道某个动作“比预期好还是比预期差”。Critic 的作用就是提供这个参照。
 
@@ -141,7 +141,7 @@ loss = actor_loss + 0.5 * critic_loss - 0.001 * entropy
 
 `critic_loss` 则让 Critic 的估计靠近 TD 目标。最后的 `entropy` 项鼓励策略保持一点探索，避免标准差过早缩小。
 
-## 7.3.5 运行训练
+## 7.4.5 运行训练
 
 安装依赖：
 
@@ -187,7 +187,7 @@ python code/chapter06_actor_critic/render_pendulum.py \
   --output output/pendulum_actor_critic.gif
 ```
 
-## 7.3.6 实验结果：先摆到高处，再保持稳定
+## 7.4.6 实验结果：先摆到高处，再保持稳定
 
 一次 300k 时间步训练的结果如下。由于 A2C 仍然是 on-policy Actor-Critic，数据用完即丢，单次实验波动会比后面第 8 章的 PPO 更明显；我们重点看滑动平均的趋势，而不是某一个回合的高低。
 
@@ -213,7 +213,7 @@ python code/chapter06_actor_critic/render_pendulum.py \
 
 Pendulum 的学习不像 CartPole 那样很快出现满分，因为这里的动作既要有方向，又要有幅度。力矩太小，摆不上去；力矩太大，越过顶端后又会冲过去。连续控制的难点就在这里：策略不是选择“左/右”，而是在每一步选择一个合适的力度。
 
-## 7.3.7 策略熵：探索怎样逐渐收窄
+## 7.4.7 策略熵：探索怎样逐渐收窄
 
 高斯策略的一个好处是，我们可以直接观察探索强度。标准差 $\sigma$ 越大，动作采样越分散；策略熵越高，说明动作分布越随机。
 
@@ -229,7 +229,7 @@ Pendulum 的学习不像 CartPole 那样很快出现满分，因为这里的动�
 
 本节配置里 `ent_coef=0.0`，不是说熵不重要，而是 Pendulum 的高斯策略本身已经有采样噪声。若换成更难的连续控制任务，适当加入熵正则通常会更稳。
 
-## 7.3.8 损失曲线：Actor 和 Critic 各自在做什么
+## 7.4.8 损失曲线：Actor 和 Critic 各自在做什么
 
 奖励曲线告诉我们“表现是否变好”，损失曲线则帮助我们理解训练是否稳定。
 
@@ -249,7 +249,7 @@ $$
 
 这也是为什么强化学习不能像普通分类任务那样只盯着 loss。更可靠的判断顺序是：先看回合奖励是否上升，再看 Critic loss 是否长期发散，最后看熵和标准差是否过早塌缩。
 
-## 7.3.9 常见失败与调参
+## 7.4.9 常见失败与调参
 
 如果 Pendulum 没有学起来，可以按下面顺序排查。
 

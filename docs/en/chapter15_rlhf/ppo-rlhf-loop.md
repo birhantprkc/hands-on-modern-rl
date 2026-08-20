@@ -1,8 +1,8 @@
 ---
-title: 'Supplement: PPO-RLHF'
+title: '13.9 Supplement: The PPO-RLHF Training Loop'
 ---
 
-# Supplement: PPO-RLHF
+# 13.9 Supplement: The PPO-RLHF Training Loop
 
 ## Reading Guide
 

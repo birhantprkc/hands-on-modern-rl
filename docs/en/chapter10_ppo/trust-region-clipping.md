@@ -1,8 +1,8 @@
 ---
-title: 8.1 Constraint Mechanisms for Policy Updates
+title: 8.2 Constraint Mechanisms for Policy Updates
 ---
 
-# 8.1 TRPO and Trust Regions
+# 8.2 TRPO and Trust Regions
 ## Section Overview
 
 PPO's clipped surrogate objective is:

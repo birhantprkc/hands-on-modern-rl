@@ -1,12 +1,12 @@
 ---
-title: '7.4 Hands-On: Reproducing AlphaGo'
+title: '7.5 Hands-On: Reproducing AlphaGo'
 ---
 
-# 7.4 Hands-on: Reproducing AlphaGo
+# 7.5 Hands-on: Reproducing AlphaGo
 
 > **Section goal**: Implement a policy network, value network, and Monte Carlo tree search on a 6×6 board to reproduce the central decision flow of AlphaGo.
 
-> **Learning path**: [6.2 REINFORCE and Value Baselines](../chapter08_policy_gradient/reinforce) → [7.2 Actor-Critic](./actor-critic) → **7.4 Reproducing AlphaGo**
+> **Learning path**: [6.2 REINFORCE and Value Baselines](../chapter08_policy_gradient/reinforce) → [7.2 Actor-Critic](./actor-critic) → **7.5 Reproducing AlphaGo**
 
 > **Code and resources**: This page presents the board environment, policy network, value network, MCTS, and self-play code in execution order.
 
@@ -27,7 +27,7 @@ territory, captures, and win/loss judgment.
 All key AlphaGo components, policy network, value network, and MCTS, are still present on 6x6.
 :::
 
-## 7.4.1 AlphaGo's Core Components
+## 7.5.1 AlphaGo's Core Components
 
 AlphaGo consists of three core components:
 
@@ -40,7 +40,7 @@ AlphaGo consists of three core components:
 Their relationship is simple: MCTS is the "brain," the policy network provides "intuition" (which branches to prioritize),
 and the value network provides "judgment" (so we do not have to search all the way to the end to evaluate a position).
 
-## 7.4.2 The 6x6 Board Environment
+## 7.5.2 The 6x6 Board Environment
 
 We will use a minimal Go environment that implements only the most essential rules:
 placing stones, capturing, and determining the winner (area scoring).
@@ -207,7 +207,7 @@ class MiniGo:
 
 Even though this environment is simplified, it still keeps the essence of Go: moves, captures, ko, territory, and komi.
 
-## 7.4.3 Policy Network and Value Network
+## 7.5.3 Policy Network and Value Network
 
 AlphaGo uses two networks. They take the same input (the board state), but produce different outputs:
 
@@ -292,7 +292,7 @@ class AlphaGoNet(nn.Module):
 This dual-head design is the same idea as the [Actor-Critic](./actor-critic) model in Section 7.2:
 shared feature extraction, a policy head for decisions, and a value head for evaluation.
 
-## 7.4.4 Monte Carlo Tree Search
+## 7.5.4 Monte Carlo Tree Search
 
 MCTS is AlphaGo's "thinking" process. Before making a move, it simulates many continuations and aggregates the results into a more reliable policy.
 The core loop is:
@@ -410,7 +410,7 @@ class MCTS:
 Pay attention to `-value` in `backpropagate`. This is the key to zero-sum games:
 what benefits Black harms White by the same amount. So as the perspective alternates each ply, the value must flip sign.
 
-## 7.4.5 Self-Play Training
+## 7.5.5 Self-Play Training
 
 AlphaGo's most revolutionary idea is **self-play**: let the AI play against itself, and use the game outcomes to train itself.
 If it wins, it reinforces the moves it played; if it loses, it weakens them.
@@ -550,7 +550,7 @@ Instead, it **learns to imitate the search policy produced by MCTS**.
 Because MCTS aggregates many simulations, its policy signal is much more reliable than a single sampled trajectory.
 You can view this as a naturally provided low-variance baseline.
 
-## 7.4.6 Human vs. AI Play
+## 7.5.6 Human vs. AI Play
 
 ```python
 def human_vs_ai(model, mcts, human_color=BLACK):
@@ -607,7 +607,7 @@ def env_to_string(board):
 For the interactive portion above, the prompts are kept in Chinese to match the original minimal demo.
 When integrating it into your own project, it is straightforward to translate the CLI messages.
 
-## 7.4.7 AlphaGo and the Concepts in This Chapter
+## 7.5.7 AlphaGo and the Concepts in This Chapter
 
 Let's map each AlphaGo component back to what we have learned in this chapter:
 
@@ -624,7 +624,7 @@ The policy network (Actor) provides search priors; the value network (Critic) ev
 This "Actor gives priors + Critic gives evaluations + search does the integration" template was later generalized by AlphaZero
 to chess and shogi, and it influenced many subsequent RL algorithm designs.
 
-## 7.4.8 Open-Source Projects and Datasets
+## 7.5.8 Open-Source Projects and Datasets
 
 The code above is intentionally minimal and written for understanding the ideas.
 If you want a version that is truly practical, here are well-known open-source projects and datasets.

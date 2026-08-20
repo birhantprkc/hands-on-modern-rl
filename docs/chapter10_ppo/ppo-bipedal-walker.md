@@ -1,4 +1,4 @@
-# 8. PPO：稳定的 Actor-Critic
+# 8.1 动手：PPO 控制 BipedalWalker
 
 ## 为什么需要 PPO
 
@@ -30,8 +30,6 @@
 
 ---
 
-## 8.1 动手：PPO 控制 BipedalWalker
-
 > **本节目标**：训练 PPO 控制二足机器人在随机地形上行走，理解连续动作空间下的策略学习与离散动作的本质区别。
 
 > **学习路径**：**8.1 PPO 控制 BipedalWalker** → [8.2 信任域约束与 PPO-Clip](./trust-region-clipping) → [8.3 GAE 优势估计](./gae-reward-model)
@@ -40,14 +38,14 @@
 
 前面几章我们已经用 CartPole 和 LunarLander 看过离散动作任务：策略只需要在几个动作里选一个。但现实中的控制问题——机器人关节扭矩、汽车油门刹车、无人机旋翼转速——通常都是**连续动作空间**。PPO 的一个核心优势是原生处理连续动作：策略网络直接输出高斯分布的均值和标准差，从中采样得到连续动作，不需要把动作空间离散化。BipedalWalker-v3 就是这样一个连续控制任务。
 
-## 8.5.1 运行 BipedalWalker 训练
+## 8.1.1 运行 BipedalWalker 训练
 
 BipedalWalker 的任务是控制一个二足机器人在随机生成的地形上行走。状态有 24 维（包括激光雷达测距、关节角度和速度），动作是 4 维连续向量（两条腿的髋关节和膝关节扭矩）。它比 LunarLander 更适合作为本章主实验，因为这里不再是从几个离散动作中选择，而是要直接学习连续控制信号。
 
 ![BipedalWalker 的二足机器人需要在随机地形上稳定行走](./images/bipedalwalker_demo.gif)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>图 7.1-1：BipedalWalker 的目标是让二足机器人学会在地形上行走，而不是摔倒。</em>
+  <em>图 8.1-1：BipedalWalker 的目标是让二足机器人学会在地形上行走，而不是摔倒。</em>
 </div>
 
 安装依赖：
@@ -84,7 +82,7 @@ model = PPO(
 
 `batch_size` 设为 256，因为连续动作空间下策略更新的方差更大，更大的批量有助于稳定梯度估计。`ent_coef` 设为 0.005，因为高斯策略本身就有持续的探索能力（每次采样都有随机性），不需要额外加太多熵正则化。并行环境使用 8 个，因为 BipedalWalker 的 episode 更长（最多 1600 步），更多并行环境能保持采样吞吐量。
 
-## 8.5.2 查看训练曲线
+## 8.1.2 查看训练曲线
 
 本实验使用 **Stable-Baselines3（SB3）** 的 PPO 实现。SB3 是目前最主流的 RL 工具库之一，PPO 是其中使用最广泛的算法。我们的训练配置：8 个并行 `DummyVecEnv` 环境，`MlpPolicy`（多层感知机），学习率 `3e-4`，`batch_size=256`，`clip_range=0.2`，总训练 2M 步。训练脚本会在 `output/` 目录下生成 4 张独立的训练指标图。
 
@@ -97,7 +95,7 @@ PPO 训练过程中有 4 个关键指标，每一个都从不同角度反映策�
 ![PPO BipedalWalker-v3 回合奖励曲线：从 -110 逐步上升到 250 附近，浅蓝色为原始值，深蓝色为 50 回合滑动平均](./images/ppo_bipedal_walker_reward.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>图 7.1-2：回合奖励曲线。浅蓝色为每局原始值，深蓝色为 50 回合滑动平均。绿色虚线为 solved 标准线（300 分）。</em>
+  <em>图 8.1-2：回合奖励曲线。浅蓝色为每局原始值，深蓝色为 50 回合滑动平均。绿色虚线为 solved 标准线（300 分）。</em>
 </div>
 
 曲线的整体走势分为三个阶段：
@@ -115,7 +113,7 @@ PPO 训练过程中有 4 个关键指标，每一个都从不同角度反映策�
 ![PPO BipedalWalker-v3 策略熵曲线：Y 轴为 SB3 记录的负熵，数值从 -5.8 逐渐上升到 -3.5，对应实际熵从 5.8 下降到 3.5](./images/ppo_bipedal_walker_entropy.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>图 7.1-3：策略熵（SB3 记录的负值）随训练步数的变化。曲线上升 = 实际熵下降 = 策略越来越确定。</em>
+  <em>图 8.1-3：策略熵（SB3 记录的负值）随训练步数的变化。曲线上升 = 实际熵下降 = 策略越来越确定。</em>
 </div>
 
 注意看 Y 轴：数值是**负数**，从 0 跌到 -5.8 再慢慢回升到 -3.5。这是 Stable-Baselines3 的记录惯例——它内部存的是 `entropy_loss = -H(π)`，即负熵。要读出真实的策略熵，把 Y 轴数值取反即可。
@@ -135,7 +133,7 @@ PPO 训练过程中有 4 个关键指标，每一个都从不同角度反映策�
 ![PPO BipedalWalker-v3 裁剪比例曲线：从训练初期的波动逐步收敛到 0.1 附近](./images/ppo_bipedal_walker_clip.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>图 7.1-4：裁剪比例随训练步数的变化。灰色虚线为 clip_range=0.2 参考线。</em>
+  <em>图 8.1-4：裁剪比例随训练步数的变化。灰色虚线为 clip_range=0.2 参考线。</em>
 </div>
 
 裁剪比例直接反映**策略更新有多激进**：
@@ -155,7 +153,7 @@ KL 散度 $D_{KL}(\pi_{old} \| \pi_{new})$ 衡量新旧策略的差异。PPO 的
 ![PPO BipedalWalker-v3 近似 KL 散度曲线：大部分时间低于 0.016，整体平稳](./images/ppo_bipedal_walker_kl.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>图 7.1-5：近似 KL 散度随训练步数的变化。KL 越小 = 新旧策略越接近 = 更新越安全。</em>
+  <em>图 8.1-5：近似 KL 散度随训练步数的变化。KL 越小 = 新旧策略越接近 = 更新越安全。</em>
 </div>
 
 从图上看，KL 散度始终低于 0.016，整个训练过程中没有出现大幅飙升。这说明 PPO 的裁剪机制在 BipedalWalker 上工作良好——每次策略更新都把新旧策略的差异控制在一个安全的范围内。
@@ -177,7 +175,7 @@ KL 散度如果突然飙升到 0.05 以上，就说明某次更新把策略推�
 
 奖励跳水几乎总是伴随着裁剪比例飙升和 KL 散度突增。这三个指标同时异常，就说明策略更新幅度过大，需要减小学习率或增大 `n_steps`（让每次 rollout 收集更多数据来稳定梯度估计）。
 
-## 8.5.3 成功行走的判定标准
+## 8.1.3 成功行走的判定标准
 
 BipedalWalker-v3 的奖励由几个部分组成：
 
@@ -229,7 +227,7 @@ print(f"最差一轮: {np.min(returns):.1f}")
 最差一轮: -124.7
 ```
 
-## 8.5.4 训练三阶段回放
+## 8.1.4 训练三阶段回放
 
 为了直观感受 PPO 的学习过程，我们对比同一训练配置下三个不同阶段的策略表现。三个模型使用完全相同的超参数，区别只在训练步数。
 
@@ -270,7 +268,7 @@ python code/chapter07_ppo/render_bipedal_walker.py \
 
 PPO 在连续控制任务上的学习轨迹：先学会"不摔倒"（100k），再经历不稳定的"偶尔能走"（500k），最后形成"稳定行走"（2M）。500k 步时的双模态表现特别值得注意——同一个模型在不同回合可能得到 100+ 或 -100 的奖励，这说明策略正处于跨越行为阈值的关键阶段。这个过程比离散控制任务更慢，但阶段边界更清晰，因为连续动作空间的策略空间更大，每个阶段都需要积累更多数据才能突破。
 
-## 8.5.5 状态、动作与连续策略
+## 8.1.5 状态、动作与连续策略
 
 BipedalWalker 的 24 维状态可以分成几组：
 
@@ -309,7 +307,7 @@ BipedalWalker 的学习过程通常经历三个阶段：
 
 这三个阶段不是严格划分的，不同训练 run 的边界会偏移。但整体趋势是：先学会"不摔倒"，再学会"迈步"，最后学会"高效行走"。
 
-## 8.5.6 常见失败与调参
+## 8.1.6 常见失败与调参
 
 BipedalWalker 比常见离散动作环境更容易训练失败。如果结果不理想，按以下顺序排查。
 
@@ -346,7 +344,7 @@ model = PPO(
 | `clip_range`    | `0.2`    | 太大步态突变导致摔倒，太小训练停滞                   |
 | `gamma`         | `0.99`   | 太低只关注短期不摔，忽略长期行走效率                 |
 
-## 8.5.7 为什么选择 BipedalWalker
+## 8.1.7 为什么选择 BipedalWalker
 
 BipedalWalker 在教学上有几个关键优点：
 

@@ -1,14 +1,14 @@
-# 7.5 动手：BipedalWalker 双足行走
+# 7.6 动手：BipedalWalker 双足行走
 
 > **本节目标**：用 A2C 训练 `BipedalWalker-v3`，观察 Actor-Critic 处理高维连续控制的能力与局限——并理解为什么下一章需要 PPO。
 
-> **学习路径**：[7.2 Actor-Critic](./actor-critic) → [7.3 Pendulum 连续控制](./pendulum) → **7.5 BipedalWalker 双足行走**
+> **学习路径**：[7.2 Actor-Critic](./actor-critic) → [7.4 Pendulum 连续控制](./pendulum) → **7.6 BipedalWalker 双足行走**
 
 > **本节代码与资源**：[actor_critic_bipedalwalker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/actor_critic_bipedalwalker.py) · [render_bipedalwalker.py](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/render_bipedalwalker.py) · [requirements.txt](https://github.com/walkinglabs/hands-on-modern-rl/blob/main/code/chapter06_actor_critic/requirements.txt)
 
 上一节的 Pendulum 只有 1 维连续动作、3 维状态。BipedalWalker 把复杂度提升了一个量级：24 维状态（关节角度、角速度、地面接触传感器等），4 维连续动作（髋关节和膝关节各两个），目标是让一个双足机器人学会走路。
 
-## 7.5.1 BipedalWalker-v3 环境
+## 7.6.1 BipedalWalker-v3 环境
 
 ```
         O          ← 头部
@@ -41,7 +41,7 @@ BipedalWalker 的核心挑战是**协调**：4 个关节需要同时以正确的
 | 训练时间 | 几分钟     | 几十分钟              |
 | 难点     | 单关节控制 | 多关节协调 + 动态平衡 |
 
-## 7.5.2 运行训练
+## 7.6.2 运行训练
 
 安装依赖：
 
@@ -96,7 +96,7 @@ model = A2C(
 | `actor_critic_bipedalwalker_entropy.png` | 策略熵损失曲线        |
 | `actor_critic_bipedalwalker_loss.png`    | Actor/Critic 损失曲线 |
 
-## 7.5.3 训练结果：先站稳，再学习行走
+## 7.6.3 训练结果：先站稳，再学习行走
 
 一次 3M 时间步训练的结果如下。A2C 的训练曲线比 PPO 更 noisy、更不稳定——这正是 Actor-Critic 不加裁剪时的典型表现。
 
@@ -114,7 +114,7 @@ model = A2C(
 - **1M-2M 步**：奖励剧烈波动。策略开始尝试迈步，但极不稳定——有些回合能拿到 200+ 分，有些仍然摔倒得 -120 分。滑动平均在 0-100 之间来回震荡。这是 A2C 最明显的特征：没有裁剪机制约束策略更新，每次更新都可能把策略推到一个完全不同的状态。
 - **2M-3M 步**：策略逐步收敛到"大多数时候能走"的状态。滑动平均在 100-150 附近，但原始值波动极大（从 -80 到 +200）。
 
-与第 7.3 节 Pendulum 的奖励曲线相比，BipedalWalker 的波动明显更剧烈。Pendulum 的滑动平均趋势相对平滑，而 BipedalWalker 的曲线像过山车——这正是"策略更新没有被约束"在高维连续控制中的后果。
+与第 7.4 节 Pendulum 的奖励曲线相比，BipedalWalker 的波动明显更剧烈。Pendulum 的滑动平均趋势相对平滑，而 BipedalWalker 的曲线像过山车——这正是"策略更新没有被约束"在高维连续控制中的后果。
 
 ### 策略熵
 
@@ -140,7 +140,7 @@ model = A2C(
 
 这些 spike 与奖励曲线上的剧烈波动高度对应：策略大幅更新 → Critic 失准 → 下一次 Actor 更新基于错误的 advantage 信号 → 策略又被打乱。这是 vanilla Actor-Critic 在复杂任务上的核心问题。
 
-## 7.5.4 三阶段回放
+## 7.6.4 三阶段回放
 
 为了直观感受 A2C 的学习过程，我们对比三个不同阶段的策略表现。三个模型使用完全相同的超参数，区别只在训练步数。
 
@@ -179,11 +179,11 @@ python code/chapter06_actor_critic/render_bipedalwalker.py \
 | 2M       | -66.4    | 97.0   | 极不稳定：约 15% 回合能走，其余摔倒  |
 | 3M       | 221.8    | 107.6  | 大多数回合 270+，但仍有 10-15% 摔倒  |
 
-## 7.5.5 A2C 与 PPO：同一个任务，不同的稳定性
+## 7.6.5 A2C 与 PPO：同一个任务，不同的稳定性
 
-本节和第 8 章 8.5 节使用了完全相同的环境（BipedalWalker-v3），但分别用 A2C 和 PPO 训练。对比两个实验的结果：
+本节和第 8 章 8.1 节使用了完全相同的环境（BipedalWalker-v3），但分别用 A2C 和 PPO 训练。对比两个实验的结果：
 
-| 指标            | A2C（本节） | PPO（8.5 节） |
+| 指标            | A2C（本节） | PPO（8.1 节） |
 | --------------- | ----------- | ------------- |
 | 训练步数        | 3M          | 2M            |
 | 20 回合平均奖励 | 221.8       | 282.5         |
@@ -203,7 +203,7 @@ python code/chapter06_actor_critic/render_bipedalwalker.py \
 2. **最终性能**：A2C 的最好回合只能到 276 分，PPO 能稳定在 295+。差距不在策略上限，而在**一致性**。
 3. **数据效率**：A2C 用了 3M 步还没达到 PPO 2M 步的效果。PPO 复用数据的机制（多 epoch 更新）在复杂任务上优势明显。
 
-## 7.5.6 常见失败与调参
+## 7.6.6 常见失败与调参
 
 BipedalWalker 比常见离散动作环境更容易训练失败。如果结果不理想，按以下顺序排查。
 

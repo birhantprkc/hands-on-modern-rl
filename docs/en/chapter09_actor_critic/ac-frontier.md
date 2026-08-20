@@ -1,8 +1,8 @@
 ---
-title: 'Supplement: Actor-Critic at the Frontier'
+title: '7.7 Hands-on: Actor-Critic Frontier Applications'
 ---
 
-# Supplement: Actor-Critic at the Frontier
+# 7.7 Hands-on: Actor-Critic Frontier Applications
 
 The experiments we ran earlier all lived in teaching environments such as CartPole and LunarLander: tens of state dimensions, a handful of action dimensions, and training finishes in minutes on a CPU. But the real value of the Actor-Critic (AC) architecture is this:
 
@@ -276,7 +276,7 @@ It is an engineering platform that scales the Actor-Critic setup from "single-ma
 
 What they share is the same core: **the Actor + Critic architecture**. What differs are the details of the training algorithm (V-trace vs entropy-regularized SAC vs standard PPO), the scale of training (single machine vs thousands of GPUs), and the deployment target (games vs real robots). Actor-Critic can scale from CartPole to these industrial applications precisely because the division of labor, "one network decides, one network evaluates," becomes even more valuable as scale grows.
 
-In the next section, let's run an Actor-Critic experiment on Pendulum ourselves: [Hands-on: Pendulum swing-up control](./pendulum).
+For a hands-on Actor-Critic experiment, see [Section 7.4: Pendulum Continuous Control](./pendulum).
 
 ---
 

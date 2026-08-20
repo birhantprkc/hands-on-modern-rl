@@ -1,4 +1,4 @@
-# 9. Off-Policy 与 Model-Based RL
+# 9.1 确定性策略梯度与 DDPG
 
 上一章我们学了 PPO——它通过裁剪目标函数解决了 Actor-Critic 的训练不稳定问题，成为了目前最常用的强化学习算法之一。在 BipedalWalker 实验中，我们看到 PPO 可以成功训练二足机器人行走。但 PPO 有一个明显的短板：**它是 on-policy 的，样本效率很低**。
 
@@ -34,8 +34,6 @@ On-policy 意味着你只能用"当前策略刚刚采集的数据"来更新。�
 - [9.4 搜索与世界模型](./search-world-models)：基于模型 RL 的极致——把模型直接嵌入决策循环，搜索 + 神经网络估值结合，AlphaZero/MuZero/Dreamer 走通了这条路线。
 
 ---
-
-## 9.1 确定性策略梯度与 DDPG
 
 ### 本节导读
 

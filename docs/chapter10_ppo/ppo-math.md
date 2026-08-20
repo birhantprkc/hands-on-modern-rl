@@ -1,4 +1,4 @@
-# 加餐：PPO 数学推导
+# 8.4 动手：PPO 数学推导
 
 前面我们用 PPO 训练了 BipedalWalker，看到了 reward、entropy、clip fraction 这些曲线，也理解了信任域约束和裁剪机制的直觉。本节回答一个更基础的问题：**PPO 到底是什么？为什么它最后会写成一个 loss？**
 

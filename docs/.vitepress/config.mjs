@@ -1762,16 +1762,24 @@ const enSidebar = {
               link: '/en/chapter09_actor_critic/actor-critic'
             },
             {
-              text: '7.3 Hands-on: Pendulum Continuous Control',
+              text: '7.3 Critic Training Details',
+              link: '/en/chapter09_actor_critic/critic-training'
+            },
+            {
+              text: '7.4 Hands-on: Pendulum Continuous Control',
               link: '/en/chapter09_actor_critic/pendulum'
             },
             {
-              text: '7.4 Hands-on: Reproducing AlphaGo',
+              text: '7.5 Hands-on: Reproducing AlphaGo',
               link: '/en/chapter09_actor_critic/alphago'
             },
             {
-              text: '7.5 Hands-on: BipedalWalker',
+              text: '7.6 Hands-on: BipedalWalker',
               link: '/en/chapter09_actor_critic/bipedalwalker'
+            },
+            {
+              text: '7.7 Hands-on: Actor-Critic Frontier Applications',
+              link: '/en/chapter09_actor_critic/ac-frontier'
             }
           ]
         },

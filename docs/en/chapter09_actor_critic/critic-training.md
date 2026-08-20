@@ -1,8 +1,8 @@
 ---
-title: 'Supplement: Training the Critic'
+title: '7.3 Critic Training Details'
 ---
 
-# Supplement: Training the Critic
+# 7.3 Critic Training Details
 
 In the previous section, we defined the advantage function $A(s,a) \approx \delta = r + \gamma V(s') - V(s)$ and introduced the Critic network as an estimator of $V(s)$. This section expands on the three classic value-estimation methods from Chapter 4 -- [DP, MC, and TD](../chapter03_mdp/dp-mc-td) -- and shows how each one trains the Critic in practice.
 
