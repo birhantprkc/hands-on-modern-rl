@@ -394,7 +394,7 @@ Tongyi DeepResearch 的数据合成管线 [^tongyi_dr] 是其核心创新之一�
 
 ## 第五层：先定义“好的研究”
 
-> 本节聚焦 Deep Research 场景特有的评估维度。更广泛的 Agentic 评测体系（包括工具调用、端到端任务、综合能力的 benchmark 全景和评测系统搭建）见 [附录 A.4：评测基准](../appendix_industrial_training/evaluation-badcase)。
+> 本节聚焦 Deep Research 场景特有的评估维度。更广泛的 Agentic 评测体系（包括工具调用、端到端任务、综合能力的 benchmark 全景和评测系统搭建）见 [附录 A.4 评估模型改进](../appendix_industrial_training/evaluation-badcase)。
 
 Deep Research Agent 的"好"远不止是最终答案的正确性。一个优秀的 Deep Research 结果需要同时满足四个层次：
 

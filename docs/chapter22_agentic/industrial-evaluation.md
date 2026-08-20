@@ -1015,7 +1015,7 @@ FRONTEND_HACKING_RULES = [
 
 2. **构造任务。** 简单任务可以用 TaskCraft 式的自动化方法生成，中等难度任务用 Evol-Instruct 的进化操作逐步提升复杂度，困难任务用 HardGen 从失败 case 中反向合成。复杂任务也可以从真实用户需求中提取。每个任务标注验证类型：有确定答案的用精确匹配，可执行的用沙箱验证，开放式的用 JADE 式的动态 Rubric。
 
-3. **去污染。** 确保评测集中的任务没有出现在训练数据中。可以用 n-gram 重叠或语义相似度检测泄露。这一步和[附录 B 的去污染方法](/appendix_industrial_training/evaluation-badcase)一致。
+3. **去污染。** 确保评测集中的任务没有出现在训练数据中。可以用 n-gram 重叠或语义相似度检测泄露。这一步和[附录 A.4 的去污染方法](/appendix_industrial_training/evaluation-badcase)一致。
 
 4. **用 ABC 清单审查。** 检查任务是否有歧义，评测方法是否高估或低估 Agent 能力，是否存在可以被钻空子的漏洞。
 
@@ -1167,7 +1167,7 @@ $$
 
 **回归验证。** 重新跑 SWE-bench，确认两件事：通过率是否提升（预期从 35% 上升），之前通过的 case 是否退步。
 
-这个闭环和[附录 B 的评测体系](/appendix_industrial_training/evaluation-badcase)一脉相承，只是从 LLM 评测扩展到了 Agent 评测。Agent 评测的特殊之处在于需要管理沙箱环境和工具执行状态，Pipeline 的工程复杂度更高。
+这个闭环和[附录 A.4 的评测体系](/appendix_industrial_training/evaluation-badcase)一脉相承，只是从 LLM 评测扩展到了 Agent 评测。Agent 评测的特殊之处在于需要管理沙箱环境和工具执行状态，Pipeline 的工程复杂度更高。
 
 <details>
 <summary>思考题：如果你的 Agent 在 BFCL 上得了 95 分，但在 SWE-bench 上只有 15%，这说明什么？</summary>

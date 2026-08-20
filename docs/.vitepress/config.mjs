@@ -1338,7 +1338,7 @@ const zhSidebar = {
               link: '/chapter30_alignment_failures/classical-failures'
             },
             {
-              text: '25.2 RLVR 的假性提升',
+              text: '25.2 RLVR 的假性收益',
               link: '/chapter30_alignment_failures/modern-incidents'
             },
             {

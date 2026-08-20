@@ -492,7 +492,7 @@ AReaL 论文报告，在 agentic 任务上对 Llama-3-8B 训练：
 - 极长任务（> 1 小时）：异步是唯一可行方案
   :::
 
-更深入的工程细节见[附录 B.1：RL 训练系统](../appendix_industrial_training/rl-infrastructure)。
+更深入的工程细节见[附录 A.2 轨迹生成与策略更新](../appendix_industrial_training/rl-infrastructure)。
 
 ## 评测基准
 
