@@ -53,13 +53,15 @@ EXPERIMENTS = [
     },
     {
         "slug": "hands-on-modern-rl-experiment03-atari",
-        "title": "Experiment 03 · Atari CPU Arcade",
+        "title": "Experiment 03 · Atari xGPU Arcade",
         "summary": "Train DQN from ALE pixels, evaluate checkpoints, and replay the learned Atari policy.",
-        "resource": "CPU",
+        "resource": "xGPU",
         "kind": "runtime",
         "task": "freeway",
         "budget": 2_000,
-        "full_budget": "20,000+ environment steps for a visible Freeway learning curve",
+        "learning_rate": "1e-4",
+        "epsilon": "1.0",
+        "full_budget": "300,000 environment steps for the recommended Freeway xGPU baseline",
     },
     {
         "slug": "hands-on-modern-rl-experiment04-board-selfplay",
@@ -288,7 +290,7 @@ for key, item in tasks.items():
 
 TASK_KEY = "{spec['task']}"
 TRAINING_BUDGET = {spec['budget']}
-LEARNING_RATE = 3e-4
+LEARNING_RATE = {spec.get('learning_rate', '3e-4')}
 GAMMA = {spec.get('gamma', '0.99')}
 EPSILON = {spec.get('epsilon', '0.10')}
 SEED = 42

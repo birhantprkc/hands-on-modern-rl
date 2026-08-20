@@ -12,7 +12,7 @@ from sb3_tools import save_gif, train_sb3
 ROOT = Path(__file__).resolve().parent
 
 SPACE = {
-    "title": {"en": "Atari CPU Training Arcade", "zh": "Atari CPU 在线训练街机厅"},
+    "title": {"en": "Atari xGPU Training Arcade", "zh": "Atari xGPU 在线训练街机厅"},
     "description": {
         "en": "Train DQN agents from Atari pixels, inspect checkpoint rewards, and render this run's learned policy inside the original ALE emulator.",
         "zh": "让 DQN 从 Atari 像素画面中学习，观察检查点评估，并在 ALE 模拟器中生成本次策略回放。",
@@ -21,8 +21,9 @@ SPACE = {
     "training_guide": {
         "success": {"en": "The evaluation reward should rise above early checkpoints, and the replay should sustain useful play or improve the game score. Training complete only confirms the run ended normally.", "zh": "评估奖励应高于早期检查点，回放中应能持续做出有效动作或提高游戏得分；“训练完成”只表示运行正常结束。"},
         "preview": {"en": "The first clip shows the selected Atari game. The completed run replaces it with a replay rendered by this run's learned DQN policy.", "zh": "初始画面展示所选 Atari 游戏；训练完成后会替换为本次 DQN 策略在模拟器中生成的回放。"},
-        "time": {"en": "The recommended baselines prioritize learned behavior over a short demo and can take tens of minutes to several hours on CPU. The estimate shown beside each game is a planning range, not a timeout.", "zh": "推荐 baseline 优先保证能学到行为，因此在 CPU 上可能需要几十分钟到数小时。每个游戏旁的时间是规划区间，不是超时限制。"},
+        "time": {"en": "The recommended baselines prioritize learned behavior over a short demo and can still take tens of minutes on xGPU because ALE environment stepping and replay evaluation remain CPU-bound. The estimate beside each game is a planning range, not a timeout.", "zh": "推荐 baseline 优先保证能学到行为。即使使用 xGPU，ALE 环境步进和回放评估仍受 CPU 限制，完整训练仍可能需要几十分钟。每个游戏旁的时间是规划区间，不是超时限制。"},
     },
+    "device": "xGPU · CUDA DQN",
     "course_url": "https://walkinglabs.github.io/hands-on-modern-rl/chapter07_dqn/dqn-family",
     "source_url": "https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment03-atari/file/view/master/space_runtime.py",
     "notebook_url": "https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/"
@@ -58,7 +59,7 @@ def task(
         "learning_rate": (1e-5, 0.0005, 0.0001, 1e-5),
         "gamma": (0.9, 1.0, 0.99, 0.005),
         "epsilon": (0.1, 1.0, 1.0, 0.05),
-        "baseline_name": "Atari DQN CPU baseline v1",
+        "baseline_name": "Atari DQN xGPU baseline v2",
         "baseline_time": baseline_time,
         "baseline_outcome": baseline_outcome,
         "learning_starts": learning_starts,
@@ -69,18 +70,19 @@ def task(
         "exploration_final_eps": 0.01,
         "optimize_memory_usage": True,
         "checkpoints": 6,
+        "device": "cuda",
     }
 
 
 TASKS = [
-    task("pong", "Pong", "ALE/Pong-v5", {"en": "Track the ball and move the paddle to outscore the opponent.", "zh": "跟踪球的位置并移动球拍，以更高比分击败对手。"}, {"en": "Paddle and fire controls", "zh": "球拍移动与发球"}, "assets/pong.gif", baseline_budget=1_000_000, baseline_time={"en": "about 1–3 CPU hours", "zh": "约 1–3 个 CPU 小时"}, baseline_outcome={"en": "Longer rallies and evaluation reward moving above the random-policy floor; strong positive scores may need several million steps.", "zh": "回合能够明显延长，评估奖励脱离随机策略下限；稳定正分通常还需要数百万步。"}),
-    task("breakout", "Breakout", "ALE/Breakout-v5", {"en": "Bounce the ball, clear bricks, and preserve each life.", "zh": "反弹小球、清除砖块并尽量保住生命。"}, {"en": "Paddle and fire controls", "zh": "球拍移动与发球"}, "assets/breakout.gif", baseline_budget=1_000_000, baseline_time={"en": "about 1–3 CPU hours", "zh": "约 1–3 个 CPU 小时"}, baseline_outcome={"en": "The paddle begins tracking the ball and clears bricks more consistently than an untrained policy.", "zh": "挡板开始追踪小球，清砖表现明显优于未训练策略。"}),
-    task("space-invaders", "Space Invaders", "ALE/SpaceInvaders-v5", {"en": "Move, shoot invading rows, and avoid incoming fire.", "zh": "移动并射击入侵队列，同时躲避敌方火力。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/space-invaders.gif", baseline_budget=1_500_000, baseline_time={"en": "about 2–4 CPU hours", "zh": "约 2–4 个 CPU 小时"}, baseline_outcome={"en": "Sustained firing and useful horizontal control with a score above early checkpoints.", "zh": "能够持续射击并进行有效横向控制，得分高于早期检查点。"}),
-    task("freeway", "Freeway", "ALE/Freeway-v5", {"en": "Time vertical movements to cross lanes of traffic safely.", "zh": "掌握上下移动的时机，安全穿过多条车道。"}, {"en": "Up / down", "zh": "向上、向下"}, "assets/freeway.png", baseline_budget=300_000, baseline_time={"en": "about 20–60 CPU minutes", "zh": "约 20–60 个 CPU 分钟"}, baseline_outcome={"en": "Repeated upward crossings and a clearly non-zero evaluation score. This is the fastest recommended first run.", "zh": "能够反复向上穿越车流，评估分数明显大于零；这是最适合作为第一次训练的游戏。"}, budget_range=(1_000, 2_000_000, 1_000)),
-    task("seaquest", "Seaquest", "ALE/Seaquest-v5", {"en": "Rescue divers while managing oxygen, enemies, and ammunition.", "zh": "在管理氧气、敌人和弹药的同时营救潜水员。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/seaquest.gif", baseline_budget=2_000_000, baseline_time={"en": "about 3–6 CPU hours", "zh": "约 3–6 个 CPU 小时"}, baseline_outcome={"en": "Useful movement and firing with improving score; oxygen management is a harder, longer-horizon behavior.", "zh": "移动和射击开始有效，分数逐步提高；氧气管理属于更难的长时程行为。"}),
-    task("qbert", "Q*bert", "ALE/Qbert-v5", {"en": "Plan diagonal jumps to recolor the pyramid without colliding with enemies.", "zh": "规划斜向跳跃改变金字塔颜色，并避开敌人。"}, {"en": "Four diagonal jumps", "zh": "四个斜向跳跃动作"}, "assets/qbert.gif", baseline_budget=1_500_000, baseline_time={"en": "about 2–5 CPU hours", "zh": "约 2–5 个 CPU 小时"}, baseline_outcome={"en": "Purposeful diagonal movement and more tile changes than early checkpoints.", "zh": "出现有目的的斜向移动，改变的方块数超过早期检查点。"}),
-    task("beam-rider", "Beam Rider", "ALE/BeamRider-v5", {"en": "Control horizontal movement and shooting in a fast scrolling arena.", "zh": "在快速滚动的竞技场中控制横向移动和射击。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/beam-rider.gif", baseline_budget=2_000_000, baseline_time={"en": "about 3–6 CPU hours", "zh": "约 3–6 个 CPU 小时"}, baseline_outcome={"en": "Sustained shooting and horizontal control with reward improving across checkpoints.", "zh": "能够持续射击和横向控制，奖励随检查点逐步提高。"}),
-    task("enduro", "Enduro", "ALE/Enduro-v5", {"en": "Steer and accelerate through traffic over a long racing horizon.", "zh": "在长时间赛车过程中控制方向、加速并穿过车流。"}, {"en": "Steer / accelerate / brake", "zh": "转向、加速、刹车"}, "assets/enduro.gif", baseline_budget=2_000_000, baseline_time={"en": "about 3–6 CPU hours", "zh": "约 3–6 个 CPU 小时"}, baseline_outcome={"en": "Forward driving with fewer immediate collisions; strong overtaking behavior needs a longer run.", "zh": "能够持续向前行驶并减少即时碰撞；稳定超车仍需要更长训练。"}),
+    task("pong", "Pong", "ALE/Pong-v5", {"en": "Track the ball and move the paddle to outscore the opponent.", "zh": "跟踪球的位置并移动球拍，以更高比分击败对手。"}, {"en": "Paddle and fire controls", "zh": "球拍移动与发球"}, "assets/pong.gif", baseline_budget=1_000_000, baseline_time={"en": "about 30–90 xGPU minutes", "zh": "约 30–90 个 xGPU 分钟"}, baseline_outcome={"en": "Longer rallies and evaluation reward moving above the random-policy floor; strong positive scores may need several million steps.", "zh": "回合能够明显延长，评估奖励脱离随机策略下限；稳定正分通常还需要数百万步。"}),
+    task("breakout", "Breakout", "ALE/Breakout-v5", {"en": "Bounce the ball, clear bricks, and preserve each life.", "zh": "反弹小球、清除砖块并尽量保住生命。"}, {"en": "Paddle and fire controls", "zh": "球拍移动与发球"}, "assets/breakout.gif", baseline_budget=1_000_000, baseline_time={"en": "about 30–90 xGPU minutes", "zh": "约 30–90 个 xGPU 分钟"}, baseline_outcome={"en": "The paddle begins tracking the ball and clears bricks more consistently than an untrained policy.", "zh": "挡板开始追踪小球，清砖表现明显优于未训练策略。"}),
+    task("space-invaders", "Space Invaders", "ALE/SpaceInvaders-v5", {"en": "Move, shoot invading rows, and avoid incoming fire.", "zh": "移动并射击入侵队列，同时躲避敌方火力。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/space-invaders.gif", baseline_budget=1_500_000, baseline_time={"en": "about 45–120 xGPU minutes", "zh": "约 45–120 个 xGPU 分钟"}, baseline_outcome={"en": "Sustained firing and useful horizontal control with a score above early checkpoints.", "zh": "能够持续射击并进行有效横向控制，得分高于早期检查点。"}),
+    task("freeway", "Freeway", "ALE/Freeway-v5", {"en": "Time vertical movements to cross lanes of traffic safely.", "zh": "掌握上下移动的时机，安全穿过多条车道。"}, {"en": "Up / down", "zh": "向上、向下"}, "assets/freeway.png", baseline_budget=300_000, baseline_time={"en": "about 10–30 xGPU minutes", "zh": "约 10–30 个 xGPU 分钟"}, baseline_outcome={"en": "Repeated upward crossings and a clearly non-zero evaluation score. This is the fastest recommended first run.", "zh": "能够反复向上穿越车流，评估分数明显大于零；这是最适合作为第一次训练的游戏。"}, budget_range=(1_000, 2_000_000, 1_000)),
+    task("seaquest", "Seaquest", "ALE/Seaquest-v5", {"en": "Rescue divers while managing oxygen, enemies, and ammunition.", "zh": "在管理氧气、敌人和弹药的同时营救潜水员。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/seaquest.gif", baseline_budget=2_000_000, baseline_time={"en": "about 60–180 xGPU minutes", "zh": "约 60–180 个 xGPU 分钟"}, baseline_outcome={"en": "Useful movement and firing with improving score; oxygen management is a harder, longer-horizon behavior.", "zh": "移动和射击开始有效，分数逐步提高；氧气管理属于更难的长时程行为。"}),
+    task("qbert", "Q*bert", "ALE/Qbert-v5", {"en": "Plan diagonal jumps to recolor the pyramid without colliding with enemies.", "zh": "规划斜向跳跃改变金字塔颜色，并避开敌人。"}, {"en": "Four diagonal jumps", "zh": "四个斜向跳跃动作"}, "assets/qbert.gif", baseline_budget=1_500_000, baseline_time={"en": "about 45–150 xGPU minutes", "zh": "约 45–150 个 xGPU 分钟"}, baseline_outcome={"en": "Purposeful diagonal movement and more tile changes than early checkpoints.", "zh": "出现有目的的斜向移动，改变的方块数超过早期检查点。"}),
+    task("beam-rider", "Beam Rider", "ALE/BeamRider-v5", {"en": "Control horizontal movement and shooting in a fast scrolling arena.", "zh": "在快速滚动的竞技场中控制横向移动和射击。"}, {"en": "Move / fire", "zh": "移动、射击"}, "assets/beam-rider.gif", baseline_budget=2_000_000, baseline_time={"en": "about 60–180 xGPU minutes", "zh": "约 60–180 个 xGPU 分钟"}, baseline_outcome={"en": "Sustained shooting and horizontal control with reward improving across checkpoints.", "zh": "能够持续射击和横向控制，奖励随检查点逐步提高。"}),
+    task("enduro", "Enduro", "ALE/Enduro-v5", {"en": "Steer and accelerate through traffic over a long racing horizon.", "zh": "在长时间赛车过程中控制方向、加速并穿过车流。"}, {"en": "Steer / accelerate / brake", "zh": "转向、加速、刹车"}, "assets/enduro.gif", baseline_budget=2_000_000, baseline_time={"en": "about 60–180 xGPU minutes", "zh": "约 60–180 个 xGPU 分钟"}, baseline_outcome={"en": "Forward driving with fewer immediate collisions; strong overtaking behavior needs a longer run.", "zh": "能够持续向前行驶并减少即时碰撞；稳定超车仍需要更长训练。"}),
 ]
 
 
@@ -88,12 +90,16 @@ def runtime_status():
     try:
         import ale_py
         import gymnasium as gym
+        import torch
+
+        if not torch.cuda.is_available():
+            return f"ALE {ale_py.__version__} · waiting for xGPU"
 
         gym.register_envs(ale_py)
         env = gym.make("ALE/Pong-v5", render_mode="rgb_array", frameskip=4)
         env.reset(seed=0)
         env.close()
-        return f"ALE {ale_py.__version__} · ROM READY"
+        return f"ALE {ale_py.__version__} · {torch.cuda.get_device_name(0)} · ROM READY"
     except Exception as exc:
         return f"startup check pending · {type(exc).__name__}"
 
@@ -248,6 +254,13 @@ def render_preview(model_id: str):
 
 
 def run(key: str, budget: int, learning_rate: float, gamma: float, epsilon: float, seed: int):
+    import torch
+
+    if not torch.cuda.is_available():
+        raise RuntimeError(
+            "This experiment requires a ModelScope xGPU, but CUDA is not visible. "
+            "Restart the Studio after selecting an xGPU cloud resource."
+        )
     task = next(item for item in TASKS if item["key"] == key)
     environment = task["environment"]
     yield from train_sb3(

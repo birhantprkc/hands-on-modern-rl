@@ -61,7 +61,7 @@ WalkingLab 与 ModelScope 合作，为经典强化学习实验提供在线训练
 | 01 · CartPole PPO           | CPU  | [运行 Notebook](https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment01-cartpole.ipynb)           | [打开创空间](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment01-cartpole)           |
 | Gymnasium 训练合集          | CPU  | [运行 Notebook](https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment-gymnasium.ipynb)            | [打开创空间](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment-gymnasium)            |
 | 02 · ViZDoom                | CPU  | [运行 Notebook](https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment02-vizdoom.ipynb)            | [打开创空间](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment02-vizdoom)            |
-| 03 · Atari / ALE            | CPU  | [运行 Notebook](https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment03-atari.ipynb)              | [打开创空间](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment03-atari)              |
+| 03 · Atari / ALE            | xGPU | [运行 Notebook](https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment03-atari.ipynb)              | [打开创空间](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment03-atari)              |
 | 04 · 棋盘游戏与自博弈       | CPU  | [运行 Notebook](https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment04-board-selfplay.ipynb)     | [打开创空间](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment04-board-selfplay)     |
 | 05 · 多智能体游戏           | CPU  | [运行 Notebook](https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment05-multiagent-games.ipynb)   | [打开创空间](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment05-multiagent-games)   |
 | 06 · MiniGrid 探索          | CPU  | [运行 Notebook](https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment06-minigrid-adventure.ipynb) | [打开创空间](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment06-minigrid-adventure) |
@@ -71,7 +71,7 @@ WalkingLab 与 ModelScope 合作，为经典强化学习实验提供在线训练
 | 11 · Unity ML-Agents        | xGPU | [运行 Notebook](https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment11-unity-mlagents.ipynb)     | [打开创空间](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment11-unity-mlagents)     |
 | 12 · AI2-THOR               | xGPU | [运行 Notebook](https://modelscope.cn/notebook/share/github/walkinglabs/hands-on-modern-rl/blob/main/code/online-experiments/hands-on-modern-rl-experiment12-ai2thor-embodied.ipynb)   | [打开创空间](https://modelscope.cn/studios/walkinglab/hands-on-modern-rl-experiment12-ai2thor-embodied)   |
 
-CPU 实验可使用普通 Notebook 运行；实验 08、10、11、12 需要调度 ModelScope xGPU Notebook，训练单元会在开始前检查 CUDA。
+CPU 实验可使用普通 Notebook 运行；实验 03、08、10、11、12 需要调度 ModelScope xGPU Notebook，训练单元会在开始前检查 CUDA。
 
 ## 本书特色
 

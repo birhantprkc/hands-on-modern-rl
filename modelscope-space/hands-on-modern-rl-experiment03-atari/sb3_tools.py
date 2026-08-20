@@ -83,22 +83,25 @@ def train_sb3(
 
     train_env = make_train_env()
     eval_env = make_eval_env()
-    kwargs = {
-        "learning_rate": learning_rate,
-        "gamma": gamma,
-        "seed": seed,
-        "verbose": 0,
-        "device": "cpu",
-    }
-    resolved_config: dict[str, Any] = {
-        "learning_rate": learning_rate,
-        "gamma": gamma,
-    }
 
     def configured(name: str, default: Any) -> Any:
         if isinstance(task, dict):
             return task.get(name, default)
         return getattr(task, name, default)
+
+    requested_device = str(configured("device", "auto"))
+    kwargs = {
+        "learning_rate": learning_rate,
+        "gamma": gamma,
+        "seed": seed,
+        "verbose": 0,
+        "device": requested_device,
+    }
+    resolved_config: dict[str, Any] = {
+        "learning_rate": learning_rate,
+        "gamma": gamma,
+        "device": requested_device,
+    }
 
     policy = getattr(task, "policy", task.get("policy", "MlpPolicy") if isinstance(task, dict) else "MlpPolicy")
     if algorithm_name == "DQN":
@@ -163,6 +166,8 @@ def train_sb3(
 
     callback = MetricsCallback()
     model = algorithm_cls(policy, train_env, **kwargs)
+    resolved_device = str(model.device)
+    resolved_config["resolved_device"] = resolved_device
     budget_spec = configured("budget", (1, max(1, budget), budget, 1))
     recommended_budget = int(budget_spec[2]) if isinstance(budget_spec, (list, tuple)) and len(budget_spec) >= 3 else budget
     smoke_test = budget < recommended_budget
@@ -177,10 +182,12 @@ def train_sb3(
             "eval_episodes": eval_episodes,
         }
     )
-    chunk = max(1, budget // checkpoints)
+    evaluation_steps = sorted({max(1, round(budget * index / checkpoints)) for index in range(1, checkpoints + 1)})
+    progress_chunk = min(10_000, max(1_000, budget // 100)) if budget >= 1_000 else max(1, budget // 10)
+    resolved_config["progress_chunk"] = progress_chunk
     x: list[float] = []
     y: list[float] = []
-    initialization_log = f"Initialized {algorithm_name} with {policy} on CPU"
+    initialization_log = f"Initialized {algorithm_name} with {policy} on {resolved_device.upper()}"
     if algorithm_name == "DQN":
         initialization_log += (
             f"\nBASELINE replay_buffer={resolved_config['buffer_size']:,}"
@@ -193,6 +200,8 @@ def train_sb3(
         initialization_log += "\nSMOKE_TEST reduced evaluation=2 checkpoints × 1 episode"
     yield {"phase": "training", "step": 0, "x": x, "y": y, "log": initialization_log}
     completed = 0
+    evaluation_index = 0
+    training_started = time.perf_counter()
     best_score = float("-inf")
     best_step = 0
     artifacts = root / "artifacts"
@@ -200,9 +209,40 @@ def train_sb3(
     best_checkpoint = artifacts / f".best-checkpoint-{time.time_ns()}"
     try:
         while completed < budget:
-            current = min(chunk, budget - completed)
+            next_evaluation = evaluation_steps[evaluation_index]
+            current = min(progress_chunk, next_evaluation - completed, budget - completed)
             model.learn(total_timesteps=current, reset_num_timesteps=False, callback=callback, progress_bar=False)
             completed += current
+            elapsed = max(time.perf_counter() - training_started, 1e-6)
+            throughput = completed / elapsed
+            eta_seconds = max(0.0, (budget - completed) / max(throughput, 1e-6))
+            stage = "replay warm-up" if completed < resolved_config.get("learning_starts", 0) else "gradient updates"
+            progress_log = (
+                f"PROGRESS step={completed:,}/{budget:,} phase={stage} "
+                f"fps={throughput:.1f} eta={eta_seconds / 60:.1f}min"
+            )
+
+            if completed < next_evaluation:
+                yield {
+                    "phase": "training",
+                    "step": completed,
+                    "x": list(x),
+                    "y": list(y),
+                    "detail": f"{stage} · {completed:,}/{budget:,} environment steps",
+                    "metric_detail": "Awaiting the next evaluation checkpoint",
+                    "log": progress_log,
+                }
+                continue
+
+            yield {
+                "phase": "evaluating",
+                "step": completed,
+                "x": list(x),
+                "y": list(y),
+                "detail": f"evaluating checkpoint · {completed:,}/{budget:,} environment steps",
+                "metric_detail": f"Running {eval_episodes} deterministic evaluation episode(s)",
+                "log": f"{progress_log}\nEVAL starting checkpoint at step={completed:,}",
+            }
             rewards, lengths = evaluate_policy(
                 model,
                 eval_env,
@@ -214,6 +254,7 @@ def train_sb3(
             score = float(np.mean(rewards))
             spread = float(np.std(rewards))
             x.append(float(completed)); y.append(score)
+            evaluation_index += 1
             if score > best_score:
                 best_score = score
                 best_step = completed
@@ -234,7 +275,7 @@ def train_sb3(
             }
 
         if best_checkpoint.with_suffix(".zip").is_file():
-            model = algorithm_cls.load(str(best_checkpoint.with_suffix(".zip")), env=train_env, device="cpu")
+            model = algorithm_cls.load(str(best_checkpoint.with_suffix(".zip")), env=train_env, device=requested_device)
         task_key = str(getattr(task, "key", task.get("key")))
         run_token = str(time.time_ns())
         model_stem = f"{task_key}-model-{run_token}"

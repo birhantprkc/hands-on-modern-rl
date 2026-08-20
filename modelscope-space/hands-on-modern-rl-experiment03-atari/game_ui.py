@@ -66,7 +66,7 @@ TEXT = {
         "baseline_budget": "Budget",
         "baseline_warmup": "Replay warm-up",
         "baseline_exploration": "Exploration",
-        "baseline_time": "CPU estimate",
+        "baseline_time": "xGPU estimate",
         "baseline_expected": "Expected signal",
         "baseline_restore": "Restore recommended baseline",
         "saved_model": "Trained model",
@@ -136,7 +136,7 @@ TEXT = {
         "baseline_budget": "训练预算",
         "baseline_warmup": "经验回放预热",
         "baseline_exploration": "探索调度",
-        "baseline_time": "CPU 时间估计",
+        "baseline_time": "xGPU 时间估计",
         "baseline_expected": "预期学习信号",
         "baseline_restore": "恢复推荐 Baseline",
         "saved_model": "已训练模型",
@@ -340,9 +340,9 @@ def baseline_card(task: Any, language: str) -> str:
     warmup = int(task_value(task, "learning_starts", max(100, budget // 10)))
     initial_epsilon = slider_spec(task, "epsilon", (0, 1, 1, .05))[2]
     final_epsilon = float(task_value(task, "exploration_final_eps", .01))
-    duration = local_value(task_value(task, "baseline_time", {"en": "runtime varies by CPU", "zh": "运行时间取决于 CPU"}), language)
+    duration = local_value(task_value(task, "baseline_time", {"en": "runtime varies by xGPU scheduling", "zh": "运行时间取决于 xGPU 调度"}), language)
     outcome = local_value(task_value(task, "baseline_outcome", {"en": "Evaluation should improve over early checkpoints.", "zh": "评估结果应高于早期检查点。"}), language)
-    name = str(task_value(task, "baseline_name", "Atari DQN CPU baseline"))
+    name = str(task_value(task, "baseline_name", "Atari DQN xGPU baseline"))
     return f"""
     <section class="baseline-preset">
       <div class="baseline-preset__head">
