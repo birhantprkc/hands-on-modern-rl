@@ -220,24 +220,30 @@ $$R_{\text{audio}}(r, a) = 0.8 \cdot \mathbb{1}[a = a^*] + 0.2 \cdot \mathbb{1}[
   <em>图 2：格式奖励消融实验。有格式奖励的模型（青色）更快收敛到更高奖励，且在后期训练中更稳定。来源：<a href="https://arxiv.org/abs/2511.15848" target="_blank" rel="noopener noreferrer">Step-Audio-R1 技术报告</a></em>
 </div>
 
+![推理长度坍缩](./images/reasoning-collapse.png)
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>图 3：推理长度坍缩。没有格式奖励时，推理 token 数从约 3000 跌到 1500 以下；有格式奖励时维持在 2300-2800。来源：<a href="https://arxiv.org/abs/2511.15848" target="_blank" rel="noopener noreferrer">Step-Audio-R1 技术报告</a></em>
+</div>
+
 0.8 + 0.2 的拆分有明确的实验依据：去掉 0.2 的格式奖励后，推理 token 数从 2800 跌到 1500，MMAU 准确率从 77.7 掉到 76.5。RL 优化器天然倾向"最省 token"的策略，也就是跳过推理直接给答案，必须显式奖励思考行为才能保住推理链。这与第 23 章视觉幻觉一节的结论一致：奖励只考核结果时，模型会找到绕开过程的路径。
 
 ::: details MGRD 的数据筛选：pass@8 ∈ [3, 6]
 RL 数据集只有 5000 条，但筛选极严。用上一轮模型对每个问题采样 $k=8$ 次，只保留 pass@8 ∈ [3, 6] 的题：太简单的题（pass@8 > 6）学不到东西，太难的题（pass@8 < 3）多半本身有歧义。
 
-三种数据策略的对比：
+![数据选择策略对比](./images/data-selection-reward.png)
 
-- **数据策略 — 全失败题（pass@8 = 0）**
-  - 最终 reward: 0.45-0.70，方差大
-  - 推理长度稳定性: 跌到 1800 token
-- **数据策略 — 中等难度（pass@8 ∈ [3,6]）**
-  - 最终 reward: 0.75-0.80，稳定
-  - 推理长度稳定性: 维持 2300-2800 token
-- **数据策略 — 200K 无筛选（10× 放量）**
-  - 最终 reward: 无提升
-  - 推理长度稳定性: 推理长度不稳定
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>图 4：数据选择策略对比。中等难度问题（pass@8 ∈ [3,6]）达到更高且更稳定的奖励，全失败问题在迭代 50 后崩溃。来源：<a href="https://arxiv.org/abs/2511.15848" target="_blank" rel="noopener noreferrer">Step-Audio-R1 技术报告</a></em>
+</div>
 
-数据质量高于数据数量：盲目扩大音频 RL 数据反而引入歧义噪声。
+![数据选择对推理长度的影响](./images/data-selection-tokens.png)
+
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>图 5：数据选择对推理长度的影响。中等难度问题维持 2300-2800 token 的推理链，全失败问题逐步下降到 1800-2000 token。来源：<a href="https://arxiv.org/abs/2511.15848" target="_blank" rel="noopener noreferrer">Step-Audio-R1 技术报告</a></em>
+</div>
+
+三种数据策略的对比：全失败题（pass@8 = 0）最终 reward 只有 0.45-0.70，方差大，推理长度跌到 1800 token；中等难度（pass@8 ∈ [3,6]）最终 reward 达到 0.75-0.80，稳定，推理长度维持 2300-2800 token；200K 无筛选（10× 放量）无提升，推理长度不稳定。数据质量高于数据数量：盲目扩大音频 RL 数据反而引入歧义噪声。
 :::
 
 ### 结果与实时推理
@@ -293,12 +299,6 @@ sequenceDiagram
     Note over L,A: 全程 < 1 s 首 packet
 ```
 
-![推理长度坍缩](./images/reasoning-collapse.png)
-
-<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>图 3：推理长度坍缩。没有格式奖励时，推理 token 数从约 3000 跌到 1500 以下；有格式奖励时维持在 2300-2800。来源：<a href="https://arxiv.org/abs/2511.15848" target="_blank" rel="noopener noreferrer">Step-Audio-R1 技术报告</a></em>
-</div>
-
 支撑这种并行的就是**双脑（Dual-Brain）架构**：
 
 ```mermaid
@@ -319,7 +319,7 @@ graph TB
 ```
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>图 4：Mind-Paced Speaking 双脑架构。构思脑负责音频编码与推理，表达脑负责韵律建模与语音合成。两脑解耦后，构思与语音合成可以流水化执行。来源：<a href="https://arxiv.org/abs/2510.09592" target="_blank" rel="noopener noreferrer">Mind-Paced Speaking 论文</a></em>
+  <em>图 6：Mind-Paced Speaking 双脑架构。构思脑负责音频编码与推理，表达脑负责韵律建模与语音合成。两脑解耦后，构思与语音合成可以流水化执行。来源：<a href="https://arxiv.org/abs/2510.09592" target="_blank" rel="noopener noreferrer">Mind-Paced Speaking 论文</a></em>
 </div>
 
 这套实时结构来自 [Mind-Paced Speaking](https://arxiv.org/abs/2510.09592)。构思脑（Formulation Brain）由音频编码器加 LLM 组成，输出 `<think>...</think>` 推理和文本回复；表达脑（Articulation Brain）把文本回复转成带韵律、情感、音色的 codec token，再解码为波形。两脑解耦后，构思与语音合成可以流水化执行。Step-Audio-R1 论文报告，Realtime 版本在 Big Bench Audio speech-to-speech 上达到 96.1 分，首包延迟为 0.92 秒；同一评测中的 GPT Realtime 0825 为 83 分、0.98 秒，Gemini 2.5 Flash Native Audio 为 92 分、0.63 秒。
@@ -406,7 +406,7 @@ RLVR 训练中最明显的退化是**韵律扁平化**：回答更短、更机�
 ![Step-Audio-R1.5 基准排名](./images/step-audio-r1.5-ranking.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>图 5：Step-Audio-R1.5 在 8 项语音到文本基准上的综合排名。R1.5 平均分 77.97，高于 R1 的 72.50。来源：<a href="https://arxiv.org/abs/2604.25719" target="_blank" rel="noopener noreferrer">Step-Audio-R1.5 技术报告</a></em>
+  <em>图 7：Step-Audio-R1.5 在 8 项语音到文本基准上的综合排名。R1.5 平均分 77.97，高于 R1 的 72.50。来源：<a href="https://arxiv.org/abs/2604.25719" target="_blank" rel="noopener noreferrer">Step-Audio-R1.5 技术报告</a></em>
 </div>
 
 论文在 AudioMultiChallenge、Big Bench Audio、MMSU、MMAU 等八项语音到文本基准上统一评测。R1.5 的平均分为 77.97，高于 R1 的 72.50；提升主要来自多轮交互与长上下文任务，同时保留了原有分析能力。这里的结论比“所有传统基准都不掉分”更准确：RLHF 改善了总体平衡，但不同单项仍有升降。

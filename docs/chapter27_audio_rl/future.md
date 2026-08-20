@@ -16,18 +16,6 @@ flowchart LR
     G --> H["裁剪策略更新"]
 ```
 
-![数据选择策略对比](./images/data-selection-reward.png)
-
-<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>图 1：数据选择策略对比。中等难度问题（pass@8 ∈ [3,6]）达到更高且更稳定的奖励，全失败问题在迭代 50 后崩溃。来源：<a href="https://arxiv.org/abs/2511.15848" target="_blank" rel="noopener noreferrer">Step-Audio-R1 技术报告</a></em>
-</div>
-
-![数据选择对推理长度的影响](./images/data-selection-tokens.png)
-
-<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>图 2：数据选择对推理长度的影响。中等难度问题维持 2300-2800 token 的推理链，全失败问题逐步下降到 1800-2000 token。来源：<a href="https://arxiv.org/abs/2511.15848" target="_blank" rel="noopener noreferrer">Step-Audio-R1 技术报告</a></em>
-</div>
-
 ## 动手：最小音频 GRPO 训练
 
 本节用一个最小流程展示音频 RL 的核心机制。真实训练需要分布式 rollout、推理服务、奖励服务和检查点管理；下面省略这些系统模块，只保留奖励设计与策略更新之间的接口。
