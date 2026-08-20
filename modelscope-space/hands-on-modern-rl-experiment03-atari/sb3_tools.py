@@ -163,8 +163,20 @@ def train_sb3(
 
     callback = MetricsCallback()
     model = algorithm_cls(policy, train_env, **kwargs)
-    checkpoints = int(getattr(task, "checkpoints", task.get("checkpoints", 6) if isinstance(task, dict) else 6))
+    budget_spec = configured("budget", (1, max(1, budget), budget, 1))
+    recommended_budget = int(budget_spec[2]) if isinstance(budget_spec, (list, tuple)) and len(budget_spec) >= 3 else budget
+    smoke_test = budget < recommended_budget
+    checkpoints = 2 if smoke_test else int(configured("checkpoints", 6))
     checkpoints = max(2, min(12, checkpoints))
+    eval_episodes = 1 if smoke_test else max(1, int(configured("eval_episodes", 3)))
+    resolved_config.update(
+        {
+            "recommended_budget": recommended_budget,
+            "smoke_test": smoke_test,
+            "checkpoints": checkpoints,
+            "eval_episodes": eval_episodes,
+        }
+    )
     chunk = max(1, budget // checkpoints)
     x: list[float] = []
     y: list[float] = []
@@ -177,6 +189,8 @@ def train_sb3(
             f" exploration={resolved_config['exploration_initial_eps']:.2f}→{resolved_config['exploration_final_eps']:.2f}"
             " train_reward=clipped eval_reward=raw"
         )
+    if smoke_test:
+        initialization_log += "\nSMOKE_TEST reduced evaluation=2 checkpoints × 1 episode"
     yield {"phase": "training", "step": 0, "x": x, "y": y, "log": initialization_log}
     completed = 0
     best_score = float("-inf")
@@ -189,7 +203,14 @@ def train_sb3(
             current = min(chunk, budget - completed)
             model.learn(total_timesteps=current, reset_num_timesteps=False, callback=callback, progress_bar=False)
             completed += current
-            rewards, lengths = evaluate_policy(model, eval_env, n_eval_episodes=3, deterministic=True, return_episode_rewards=True, warn=False)
+            rewards, lengths = evaluate_policy(
+                model,
+                eval_env,
+                n_eval_episodes=eval_episodes,
+                deterministic=True,
+                return_episode_rewards=True,
+                warn=False,
+            )
             score = float(np.mean(rewards))
             spread = float(np.std(rewards))
             x.append(float(completed)); y.append(score)
