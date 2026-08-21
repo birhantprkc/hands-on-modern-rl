@@ -249,9 +249,13 @@ Thinking Machines Lab 的复现实验也是这样：先做 off-policy reasoning 
 
 这也解释了为什么 OPD 比普通蒸馏更"挑老师"。off-policy SFT 可以强行把 student 拉去看 teacher 轨迹；OPD 则是在 student 自己的地形上做局部导航——如果当前位置附近没有通向 teacher 模式的梯度，再大的 teacher 也只是站在远处报答案。
 
-### 多教师 OPD：专项能力为什么不能直接相加
+### 多教师 OPD：工业界如何把专项模型合回一个模型
 
-单个 teacher 的可教性解决之后，还会遇到另一个问题：怎样把多个领域 teacher 的能力合进同一个 student。Open-MOPD 用一个受控实验研究了这个问题。实验从 SmolLM3-3B-Base 出发，先得到同时覆盖数学、代码和指令遵循的 MixSFT 模型，再分别训练三个领域 RL teacher，最后让一个共享 student 接受三位 teacher 的逐 token 反馈。每条样本的领域标签已知，因此数学题固定交给数学 teacher，代码题固定交给代码 teacher，路由本身没有歧义。[^open_mopd]
+先看一种已经出现在公开模型报告中的工业后训练流程。数学、代码、闭卷问答和写作使用的数据、奖励与训练难度不同，团队先为每个领域分别训练 RL teacher，使专项能力充分收敛。产品发布时通常仍希望得到一个通用模型；同时部署所有 teacher 会增加模型服务与路由成本，只部署其中一个又会丢失其他领域的能力。
+
+MiniCPM5-1B 公开的训练流程就是一个具体例子：先做 SFT，再训练数学、代码、闭卷问答和写作等领域的 RL teacher，最后通过 OPD 把这些 teacher 的能力蒸馏回一个发布模型。[^minicpm5_opd] 因此，多教师 OPD 在工业系统中承担的是**能力整合**：teacher 只在后训练阶段为各自领域的 student 轨迹提供逐 token 信号，线上推理仍然部署一个统一的 student。
+
+有了多个 teacher，单个 teacher 的可教性只是起点。所有领域现在共同更新一个 student，训练系统还要决定每种能力应当获得多少更新。Open-MOPD 用一个受控实验研究了这个问题。实验从 SmolLM3-3B-Base 出发，先得到同时覆盖数学、代码和指令遵循的 MixSFT 模型，再分别训练三个领域 RL teacher，最后让一个共享 student 接受三位 teacher 的逐 token 反馈。每条样本的领域标签已知，因此数学题固定交给数学 teacher，代码题固定交给代码 teacher，路由本身没有歧义。[^open_mopd]
 
 先看一个具体数字。训练批次中，数学、代码和指令遵循 prompt 的比例为 39.8%、39.8% 和 20.3%。数学与代码回答平均约有 10,500 个 token，指令遵循回答平均只有 409 个 token。换成真正参与梯度计算的回答 token 后，三个领域的份额变成 49.7%、49.3% 和 0.99%。看起来占了五分之一的指令遵循数据，实际只拿到约百分之一的 token 级训练预算。
 
@@ -273,7 +277,9 @@ Open-MOPD 还检查了一个更直接的猜测：不同 teacher 是否在同一 
 
 论文用 RouteOPD 作为按领域分别部署模型的参照。朴素 M-OPD 的共享 student 总分比 RouteOPD 低 3.50 分，Open-MOPD 把这项**能力整合差距**缩小到 0.31 分。若以 MixSFT 到领域 RouteRL 的提升空间为 100%，朴素 M-OPD 恢复了 35.6%，Open-MOPD 恢复了 83.4%。前一个数字比较共享 student 与分领域 OPD 模型，后一个数字衡量领域 RL 能力有多少被合进了共享 student，两者描述的是不同参照系。
 
-作者将 Open-MOPD 定位为首个完整开源的多教师 OPD recipe：它开放了从混合 SFT、三个领域 RL teacher 到多教师 OPD 的端到端训练流程，以及代码、模型、数据、训练轨迹和评测套件。它把工业系统中已经出现的多专家 OPD 路线变成了可以逐项复查的公开实验。更重要的结论是：多教师 OPD 的“多”增加了一个新的控制对象——**各领域实际获得了多少优化预算**。只统计 prompt 数量，无法回答这个问题；还要同时观察回答 token 份额、师生差距和一次 rollout 之后的策略漂移。
+作者将 Open-MOPD 定位为首个完整开源的多教师 OPD recipe：它开放了从混合 SFT、三个领域 RL teacher 到多教师 OPD 的端到端流程，以及代码、模型、数据、训练轨迹和评测套件。这使工业模型报告中的“训练多个专家，再合回一个发布模型”成为可以逐项复查的公开实验。
+
+这项研究补出了工业配方中容易被忽略的一步：多教师 OPD 还要控制**各领域实际获得的优化预算**。只统计 prompt 数量无法衡量这项预算；训练系统还要同时观察回答 token 份额、剩余师生差距，以及一次 rollout 之后的策略漂移。
 
 ### Overlap token 才是主战场
 
@@ -384,7 +390,142 @@ for prompts in dataloader:
     optimizer.step()
 ```
 
-真实系统还会加 KL 到 reference、长度控制、重复惩罚、prompt 难度采样和 eval gating。OPD 不是"一个公式就完事"，它是把 teacher log-prob 接到现有 RL 训练基础设施里。
+### 从单 teacher 扩展到多 teacher 打分
+
+现在把同一段逻辑扩展到多教师 OPD。假设一个 batch 里有数学、代码和指令遵循三类轨迹，每条轨迹都带有已知的领域标签。打分时不需要让三位 teacher 同时评价每条轨迹；领域标签直接选择对应的 teacher。这就是 Open-MOPD 实验采用的 hard routing。
+
+下面的 `samples` 来自 student 的 batch rollout。为了把路由过程写清楚，代码逐条处理轨迹；实际训练会先按 `domain` 分组，再把同一领域的轨迹批量送给对应的 teacher server。
+
+```python
+# 这里假设三个 Transformers teacher 已经加载；生产环境通常使用独立推理服务
+teachers = {
+    "math": math_teacher,
+    "code": code_teacher,
+    "if": instruction_teacher,
+}
+
+# 每条 full_ids 都是“prompt + student 回答”，形状为 [1, sequence_length]
+samples = [
+    {"domain": "math", "full_ids": math_ids, "prompt_len": math_prompt_len},
+    {"domain": "code", "full_ids": code_ids, "prompt_len": code_prompt_len},
+    {"domain": "if", "full_ids": if_ids, "prompt_len": if_prompt_len},
+]
+
+
+@torch.no_grad()
+def score_with_routed_teachers(samples, student, teachers):
+    scored = []
+
+    for sample in samples:
+        domain = sample["domain"]
+        teacher = teachers[domain]  # hard routing：每条轨迹只选一位 teacher
+        full_ids = sample["full_ids"]
+        prompt_len = sample["prompt_len"]
+
+        student_ids = full_ids.to(student.device)
+        teacher_ids = full_ids.to(teacher.device)
+        student_logps = next_token_logps(student, student_ids)
+        teacher_logps = next_token_logps(teacher, teacher_ids).to(student_logps.device)
+
+        # next_token_logps 的第 prompt_len-1 位开始预测回答 token
+        response_slice = slice(prompt_len - 1, None)
+        rewards = (teacher_logps - student_logps)[0, response_slice]
+
+        scored.append(
+            {
+                "domain": domain,
+                "rewards": rewards,
+                "num_tokens": rewards.numel(),
+            }
+        )
+
+    return scored
+
+
+scored = score_with_routed_teachers(samples, student, teachers)
+```
+
+#### 为什么切片从 `prompt_len - 1` 开始
+
+假设 prompt 有 3 个 token，回答有 2 个 token。把原序列和 `next_token_logps` 按预测目标对齐，可以看到两者相差一个位置：
+
+| 原序列位置          | 0      | 1      | 2      | 3        | 4        |
+| ------------------- | ------ | ------ | ------ | -------- | -------- |
+| `full_ids`          | `P0`   | `P1`   | `P2`   | `R0`     | `R1`     |
+| token 类型          | prompt | prompt | prompt | response | response |
+| 对应的 `logps` 位置 | —      | 0      | 1      | **2**    | **3**    |
+| 该位置预测的 token  | —      | `P1`   | `P2`   | **`R0`** | **`R1`** |
+| reward 切片         | —      | 丢弃   | 丢弃   | **保留** | **保留** |
+
+第一个回答 token `R0` 位于 `full_ids[3]`，但它由位置 2 的 logits 预测，因此它的分数保存在 `logps[:, 2]`。这里 `prompt_len = 3`，所以回答对应的 log-prob 从 `prompt_len - 1 = 2` 开始。
+
+第二个下标表达式同时选择 batch 维和 token 维：
+
+```text
+(teacher_logps - student_logps)[0, 2:]
+                                 │  └─ 保留 logps 的位置 2、3、……
+                                 └──── 取 batch 中第 0 条轨迹
+```
+
+因此，`[0, response_slice]` 中的 `0` 表示第一条 batch 样本，`response_slice` 表示这条样本的回答 token 区间。若一次处理整个等长 batch，可以把第一个下标改成 `:`；prompt 长度不同时，需要为每条样本建立独立的 response mask。
+
+到这里已经完成了朴素 M-OPD 的多教师打分。`teachers[domain]` 负责路由，`rewards` 保存被选中 teacher 给出的逐 token 信号。三位 teacher 的输出不会在同一条样本上求平均，每位 teacher 只负责自己的领域。
+
+Open-MOPD 还要根据当前 batch 的打分结果调整领域预算。对每个领域，我们计算两个量：回答 token 占整个 batch 的比例 `token_share`，以及逐 token 奖励绝对值的均值 `mean_abs_reward`。前者反映序列长度造成的预算差异，后者近似该领域尚未消除的师生差距。
+
+```python
+def compute_domain_weights(scored):
+    total_tokens = sum(item["num_tokens"] for item in scored)
+    stats = {}
+
+    for domain in {item["domain"] for item in scored}:
+        domain_rewards = torch.cat(
+            [item["rewards"] for item in scored if item["domain"] == domain]
+        )
+        stats[domain] = {
+            "token_share": domain_rewards.numel() / total_tokens,
+            "mean_abs_reward": domain_rewards.abs().mean(),
+        }
+
+    target_share = 1.0 / len(stats)
+    mean_gap = torch.stack(
+        [stat["mean_abs_reward"] for stat in stats.values()]
+    ).mean().clamp_min(1e-6)
+
+    raw_weights = {}
+    for domain, stat in stats.items():
+        share_weight = target_share / stat["token_share"]
+        gap_factor = torch.clamp(
+            stat["mean_abs_reward"] / mean_gap,
+            min=0.05,
+            max=20.0,
+        )
+        raw_weights[domain] = share_weight * gap_factor
+
+    # 保持加权前后 batch 的平均 reward 尺度接近
+    normalizer = sum(
+        stats[domain]["token_share"] * weight
+        for domain, weight in raw_weights.items()
+    )
+    return {
+        domain: weight / normalizer
+        for domain, weight in raw_weights.items()
+    }, stats
+
+
+domain_weights, domain_stats = compute_domain_weights(scored)
+
+for item in scored:
+    item["weighted_rewards"] = (
+        item["rewards"] * domain_weights[item["domain"]]
+    )
+```
+
+这段代码把 Open-MOPD 的前两项修复落成了具体变量：`share_weight` 补偿长短回答的 token 份额差异，`gap_factor` 让预算跟随仍未收敛的领域。`weighted_rewards` 随后进入归一化和策略梯度更新。
+
+还剩第三项 reward refresh。一次 rollout 被用于多次 PPO 内部更新时，teacher log-prob 可以缓存；每次更新前要重新计算当前 `student_logps`，再据此刷新 `rewards`、领域统计和权重。否则，上面的 `mean_abs_reward` 衡量的是旧 student 与 teacher 的差距。
+
+这里沿用前面的 sampled-token log-prob 差值，以便看清路由与预算计算。完整 Open-MOPD 还会使用 top-$k$ 近似、PPO clipping、reference KL、长度控制和 eval gating，并把同一领域的轨迹合成 batch 发送给 teacher server。
 
 ## OPD 和相邻路线的关系
 
@@ -843,6 +984,8 @@ OPD 的核心是一个训练范式选择：
 [^tml_opd]: Lu K, Thinking Machines Lab. [On-Policy Distillation](https://thinkingmachines.ai/blog/on-policy-distillation/), 2025.（工程化 OPD 复现与 Tinker 实现，包含 Qwen3 对比和 personalization 实验）
 
 [^rethinking_opd]: Li Y, Zuo Y, He B, et al. [Rethinking On-Policy Distillation of Large Language Models: Phenomenology, Mechanism, and Recipe](https://arxiv.org/abs/2604.13016), arXiv 2026.（分析 OPD 成功条件、token-level 机制和失败恢复策略）
+
+[^minicpm5_opd]: OpenBMB. [MiniCPM5-1B Training Recipe](https://github.com/OpenBMB/MiniCPM#training-recipe), 2026.（公开 SFT、分领域 RL teacher、OPD 三阶段后训练流程；OPD 将多个专项 teacher 蒸馏回一个发布模型）
 
 [^open_mopd]: Gao H, Chi H, Yan Y, et al. [Open-MOPD: Diagnosing and Fixing Capability Imbalance in Multi-Teacher On-Policy Distillation](https://arxiv.org/abs/2608.19098), arXiv 2026；[项目页](https://bytedtsinghua-sia.github.io/Open-MOPD/)。（清华大学 AIR/SIA-Lab 与字节跳动 Seed 提出的首个完整开源多教师 OPD recipe，诊断跨领域 token 预算失衡并给出动态平衡方法）
 

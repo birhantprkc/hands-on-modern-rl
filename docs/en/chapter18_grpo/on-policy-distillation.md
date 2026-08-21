@@ -253,9 +253,13 @@ The 2026 mechanism analysis reframes OPD from "ability transfer" into a problem 
 
 This also explains why OPD is more selective about teachers than ordinary distillation. Off-policy SFT can force the student to look at teacher trajectories. OPD performs local navigation on the student's own terrain: if there is no gradient near the current position leading toward the teacher's mode, even a much larger teacher can only report the answer from far away.
 
-### Multi-Teacher OPD: Why Specialized Capabilities Do Not Simply Add Up
+### Multi-Teacher OPD: How Industry Consolidates Specialists into One Model
 
-Once a single teacher is locally teachable, a further problem appears: how can several domain teachers be consolidated into one student? Open-MOPD studies this question in a controlled experiment. Starting from SmolLM3-3B-Base, it first trains a MixSFT model covering mathematics, code, and instruction following, then trains three domain RL teachers, and finally lets one shared student receive token-level feedback from all three. Every sample has a known domain label, so math samples always use the math teacher, code samples use the code teacher, and routing itself is unambiguous.[^open_mopd]
+Consider a post-training pipeline already described in public model reports. Mathematics, code, closed-book question answering, and writing require different data, rewards, and training regimes, so a team first trains a separate RL teacher for each domain. A product release still usually needs one general model. Serving every teacher adds model-serving and routing costs, while serving only one discards the capabilities learned by the others.
+
+MiniCPM5-1B provides a concrete example. Its public recipe performs SFT, trains RL teachers for mathematics, code, closed-book question answering, writing, and related domains, and then uses OPD to distill those teachers back into one release model.[^minicpm5_opd] Multi-teacher OPD therefore serves as a **capability-integration** stage in industrial systems: teachers provide token-level signals on student trajectories from their domains during post-training, while online inference still deploys one unified student.
+
+With several teachers, local teachability of each individual teacher is only the starting point. All domains now update the same student, so the training system must also decide how many updates each capability should receive. Open-MOPD studies this problem in a controlled experiment. Starting from SmolLM3-3B-Base, it first trains a MixSFT model covering mathematics, code, and instruction following, then trains three domain RL teachers, and finally lets one shared student receive token-level feedback from all three. Every sample has a known domain label, so math samples always use the math teacher, code samples use the code teacher, and routing itself is unambiguous.[^open_mopd]
 
 Consider the training budget numerically. Math, code, and instruction-following prompts account for 39.8%, 39.8%, and 20.3% of the batch. Math and code responses average about 10,500 tokens, while instruction-following responses average only 409. After counting response tokens that actually contribute gradients, the three shares become 49.7%, 49.3%, and 0.99%. Instruction following appears in one fifth of the prompts but receives only about one percent of the token-level training budget.
 
@@ -277,7 +281,9 @@ The third treatment concerns the student term in the OPD reward. Teacher log-pro
 
 The paper uses RouteOPD, which retains separate domain models, as a reference. The shared student from naive M-OPD trails RouteOPD by 3.50 points; Open-MOPD reduces this **capability integration gap** to 0.31 points. If the improvement from MixSFT to domain RouteRL is treated as 100% available headroom, naive M-OPD recovers 35.6%, while Open-MOPD recovers 83.4%. The first metric compares a shared student with routed domain OPD models, whereas the second measures how much domain RL capability enters the shared student.
 
-The authors position Open-MOPD as the first fully open-source multi-teacher OPD recipe. It releases the end-to-end path from mixed SFT and three domain RL teachers to multi-teacher OPD, together with code, models, data, training trajectories, and evaluation suites. It turns a multi-expert OPD route previously seen in industrial systems into an experiment whose components can be inspected independently. Its broader lesson is that adding more teachers creates a new control variable: **the optimization budget actually received by each domain**. Prompt counts alone do not measure it; response-token share, the remaining teacher-student gap, and policy drift after rollout must all be tracked.
+The authors position Open-MOPD as the first fully open-source multi-teacher OPD recipe. It releases the end-to-end path from mixed SFT and three domain RL teachers to multi-teacher OPD, together with code, models, data, training trajectories, and evaluation suites. This turns the industrial pattern of “train several specialists, then consolidate them into one release model” into an experiment whose components can be inspected independently.
+
+The study makes one easily overlooked part of that industrial recipe explicit: multi-teacher OPD must control **the optimization budget actually received by each domain**. Prompt counts alone do not measure this budget. The training system must also track response-token share, the remaining teacher-student gap, and policy drift after rollout.
 
 ### Overlap Tokens Are the Main Battlefield
 
@@ -390,7 +396,142 @@ for prompts in dataloader:
     optimizer.step()
 ```
 
-Real systems also add KL to a reference model, length control, repetition penalties, prompt difficulty sampling, and eval gating. OPD is not "one formula and done"; it connects teacher log-probs to existing RL training infrastructure.
+### Extending Scoring from One Teacher to Multiple Teachers
+
+We can now extend the same logic to multi-teacher OPD. Suppose one batch contains math, code, and instruction-following trajectories, each with a known domain label. Scoring does not require all three teachers to evaluate every trajectory. The domain label directly selects the corresponding teacher. This is the hard routing used in the Open-MOPD experiment.
+
+The `samples` below come from a student batch rollout. The code processes trajectories one at a time to make routing explicit. A training system would first group them by `domain`, then send each domain batch to the corresponding teacher server.
+
+```python
+# Assume three Transformers teachers are loaded; production usually uses separate services.
+teachers = {
+    "math": math_teacher,
+    "code": code_teacher,
+    "if": instruction_teacher,
+}
+
+# Each full_ids contains "prompt + student response" with shape [1, sequence_length].
+samples = [
+    {"domain": "math", "full_ids": math_ids, "prompt_len": math_prompt_len},
+    {"domain": "code", "full_ids": code_ids, "prompt_len": code_prompt_len},
+    {"domain": "if", "full_ids": if_ids, "prompt_len": if_prompt_len},
+]
+
+
+@torch.no_grad()
+def score_with_routed_teachers(samples, student, teachers):
+    scored = []
+
+    for sample in samples:
+        domain = sample["domain"]
+        teacher = teachers[domain]  # Hard routing: one teacher per trajectory.
+        full_ids = sample["full_ids"]
+        prompt_len = sample["prompt_len"]
+
+        student_ids = full_ids.to(student.device)
+        teacher_ids = full_ids.to(teacher.device)
+        student_logps = next_token_logps(student, student_ids)
+        teacher_logps = next_token_logps(teacher, teacher_ids).to(student_logps.device)
+
+        # Position prompt_len-1 predicts the first response token.
+        response_slice = slice(prompt_len - 1, None)
+        rewards = (teacher_logps - student_logps)[0, response_slice]
+
+        scored.append(
+            {
+                "domain": domain,
+                "rewards": rewards,
+                "num_tokens": rewards.numel(),
+            }
+        )
+
+    return scored
+
+
+scored = score_with_routed_teachers(samples, student, teachers)
+```
+
+#### Why the Slice Starts at `prompt_len - 1`
+
+Suppose the prompt contains three tokens and the response contains two. Aligning the original sequence with `next_token_logps` by prediction target reveals a one-position shift:
+
+| Original position              | 0      | 1       | 2       | 3        | 4        |
+| ------------------------------ | ------ | ------- | ------- | -------- | -------- |
+| `full_ids`                     | `P0`   | `P1`    | `P2`    | `R0`     | `R1`     |
+| Token type                     | prompt | prompt  | prompt  | response | response |
+| Corresponding `logps` position | —      | 0       | 1       | **2**    | **3**    |
+| Token predicted there          | —      | `P1`    | `P2`    | **`R0`** | **`R1`** |
+| Reward slice                   | —      | discard | discard | **keep** | **keep** |
+
+The first response token `R0` is stored at `full_ids[3]`, but it is predicted by the logits at position 2, so its score is stored in `logps[:, 2]`. Here `prompt_len = 3`, which means response log-probabilities begin at `prompt_len - 1 = 2`.
+
+The second indexing expression selects both the batch dimension and the token dimension:
+
+```text
+(teacher_logps - student_logps)[0, 2:]
+                                 │  └─ keep logps positions 2, 3, ...
+                                 └──── select trajectory 0 in the batch
+```
+
+Thus, in `[0, response_slice]`, `0` means the first batch sample and `response_slice` means the response-token interval for that sample. When processing a full equal-length batch, the first index can be changed to `:`. When prompt lengths differ, each sample needs its own response mask.
+
+This completes naive M-OPD multi-teacher scoring. `teachers[domain]` performs routing, and `rewards` stores the per-token signal from the selected teacher. The three teacher outputs are not averaged on the same sample; each teacher is responsible only for its own domain.
+
+Open-MOPD also adjusts domain budgets using the scores from the current batch. For every domain, we compute `token_share`, the fraction of response tokens in the full batch, and `mean_abs_reward`, the mean absolute per-token reward. The first captures budget differences caused by sequence length; the second approximates the remaining teacher-student gap for that domain.
+
+```python
+def compute_domain_weights(scored):
+    total_tokens = sum(item["num_tokens"] for item in scored)
+    stats = {}
+
+    for domain in {item["domain"] for item in scored}:
+        domain_rewards = torch.cat(
+            [item["rewards"] for item in scored if item["domain"] == domain]
+        )
+        stats[domain] = {
+            "token_share": domain_rewards.numel() / total_tokens,
+            "mean_abs_reward": domain_rewards.abs().mean(),
+        }
+
+    target_share = 1.0 / len(stats)
+    mean_gap = torch.stack(
+        [stat["mean_abs_reward"] for stat in stats.values()]
+    ).mean().clamp_min(1e-6)
+
+    raw_weights = {}
+    for domain, stat in stats.items():
+        share_weight = target_share / stat["token_share"]
+        gap_factor = torch.clamp(
+            stat["mean_abs_reward"] / mean_gap,
+            min=0.05,
+            max=20.0,
+        )
+        raw_weights[domain] = share_weight * gap_factor
+
+    # Keep the average batch reward scale close to its unweighted value.
+    normalizer = sum(
+        stats[domain]["token_share"] * weight
+        for domain, weight in raw_weights.items()
+    )
+    return {
+        domain: weight / normalizer
+        for domain, weight in raw_weights.items()
+    }, stats
+
+
+domain_weights, domain_stats = compute_domain_weights(scored)
+
+for item in scored:
+    item["weighted_rewards"] = (
+        item["rewards"] * domain_weights[item["domain"]]
+    )
+```
+
+This code maps Open-MOPD's first two corrections to concrete variables. `share_weight` compensates for token-share differences between long and short responses, while `gap_factor` directs budget toward domains that have not converged. The resulting `weighted_rewards` then enter normalization and the policy-gradient update.
+
+The third correction is reward refresh. When one rollout is reused for several PPO inner updates, teacher log-probabilities can be cached. Before every update, the system must recompute the current `student_logps`, then refresh `rewards`, domain statistics, and weights. Otherwise, `mean_abs_reward` measures the gap between the teacher and an outdated student.
+
+This example retains the sampled-token log-prob difference from the preceding minimal implementation so that routing and budget computation remain visible. Full Open-MOPD additionally uses a top-$k$ approximation, PPO clipping, reference KL, length control, and eval gating, and batches trajectories from the same domain before sending them to a teacher server.
 
 ## OPD and Neighboring Methods
 
@@ -849,6 +990,8 @@ From the main thread of this chapter, DPO, GRPO, RLVR, and OPD are all answering
 [^tml_opd]: Lu K, Thinking Machines Lab. [On-Policy Distillation](https://thinkingmachines.ai/blog/on-policy-distillation/), 2025. Engineering OPD reproduction and Tinker implementation, including Qwen3 comparisons and personalization experiments.
 
 [^rethinking_opd]: Li Y, Zuo Y, He B, et al. [Rethinking On-Policy Distillation of Large Language Models: Phenomenology, Mechanism, and Recipe](https://arxiv.org/abs/2604.13016), arXiv 2026. Analyzes OPD success conditions, token-level mechanisms, and failure recovery strategies.
+
+[^minicpm5_opd]: OpenBMB. [MiniCPM5-1B Training Recipe](https://github.com/OpenBMB/MiniCPM#training-recipe), 2026. Describes the SFT, domain RL teacher, and OPD post-training stages; OPD distills multiple specialized teachers back into one release model.
 
 [^open_mopd]: Gao H, Chi H, Yan Y, et al. [Open-MOPD: Diagnosing and Fixing Capability Imbalance in Multi-Teacher On-Policy Distillation](https://arxiv.org/abs/2608.19098), arXiv 2026; [project page](https://bytedtsinghua-sia.github.io/Open-MOPD/). The first fully open-source multi-teacher OPD recipe from Tsinghua AIR/SIA-Lab and ByteDance Seed; it diagnoses cross-domain token-budget imbalance and introduces dynamic balancing mechanisms.
 
