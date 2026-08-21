@@ -303,7 +303,7 @@ OPD 的诱人之处是每个 token 都有 reward，但长思维链会暴露一�
 
 ### 先理解 logits、probability 和 logps
 
-先看一个只有三个候选 token 的例子。模型读完“`x + 3 = 7`，所以 `x =`”之后，要为下一个 token 打分。假设它对 `4`、`5` 和换行符给出的原始分数如下：
+模型预测下一个 token 时，先输出 logits，再转成概率和 log-prob：
 
 | 候选 token       |   `4` |   `5` |  `\n` |
 | ---------------- | ----: | ----: | ----: |
@@ -311,56 +311,18 @@ OPD 的诱人之处是每个 token 都有 reward，但长思维链会暴露一�
 | softmax 后的概率 |  0.67 |  0.24 |  0.09 |
 | log probability  | -0.41 | -1.41 | -2.41 |
 
-第一行数值叫 **logits**。它们是模型直接输出的相对分数，可以是任意实数，还不是概率。softmax 把整张词表上的 logits 转成总和为 1 的概率分布：
-
-$$
-p(v)=\operatorname{softmax}(z)_v
-$$
-
-其中，$z$ 表示这一位置的 logits，$v$ 表示词表里的某个候选 token。例子中，token `4` 的概率约为 0.67。
-
-再对概率取自然对数，就得到 **log probability**，代码里简称 `logp`；一批位置上的 log probability 组成 `logps`。整个变化过程可以写成：
-
-```text
-logits [2.0, 1.0, 0.0]
-          │ softmax
-          ▼
-概率   [0.67, 0.24, 0.09]
-          │ log
-          ▼
-logps  [-0.41, -1.41, -2.41]
-```
-
-概率不超过 1，所以 log-prob 通常不大于 0。数值越接近 0，模型越认可这个 token：`-0.41` 对应的概率高于 `-2.41`。
-
-使用 log-prob 还有一个计算上的好处。一段回答的联合概率原本要连乘每个 token 的概率；取对数后，连乘变成求和。teacher 与 student 的 log-prob 之差也可以写成一个概率比值：
-
-$$
-\log p_{\text{teacher}}(y_t)-\log p_{\text{student}}(y_t)
-=\log\frac{p_{\text{teacher}}(y_t)}{p_{\text{student}}(y_t)}
-$$
-
-这个值为正，表示 teacher 比 student 更认可实际生成的 token $y_t$；这个值为负，表示 teacher 给出的概率更低。
+`logps` 是 log probabilities 的缩写，即“一组 token 的对数概率”。数值越接近 0，模型越认可该 token；teacher logp 减 student logp 为正，表示 teacher 更认可它。
 
 ### `full_ids` 是什么
 
-语言模型接收的是数字。tokenizer 先把文字切成较小的 token，再给每个 token 查一个数字编号，这个编号叫 token ID。
-
-下面用一道题演示。为了让过程容易观察，假设 tokenizer 把题目和回答切成五个 token；表中的 ID 只是演示数字，不代表某个真实 tokenizer 的固定编号。
+tokenizer 把文字切成 token，并给每个 token 一个数字编号。`full_ids` 保存“题目 + 模型回答”的全部编号。
 
 | 文字片段 | `2+2` | `答案` | `是` |      `4` |     `。` |
 | -------- | ----: | -----: | ---: | -------: | -------: |
 | token ID |    18 |     42 |    9 |       27 |        6 |
 | 来源     |  题目 |   题目 | 题目 | 模型回答 | 模型回答 |
 
-把题目和模型回答接在一起，就得到完整序列：
-
-```python
-full_ids = torch.tensor([[18, 42, 9, 27, 6]])
-prompt_len = 3
-```
-
-变量名里的 `full` 表示“题目 + 完整回答”，`ids` 表示这些 token 的数字编号。batch 是一次放在一起计算的一组样本；外面的两层方括号表示这个 batch 中有 1 条完整序列。前三个 ID 属于题目，所以 `prompt_len = 3`；后两个 ID 属于 student 生成的回答。
+因此，`full_ids = [[18, 42, 9, 27, 6]]`。前三个 token 是题目，所以 `prompt_len = 3`。表中的 ID 只是演示数字。
 
 ```python
 import torch
@@ -402,8 +364,14 @@ def next_token_logps(model, input_ids):
     logps[:, i] 是位置 i 的 logits 预测的 token i+1 的 log-prob。
     """
     logits = model(input_ids).logits
+
+    # log_softmax 一步完成 softmax 和取对数
     logps = torch.log_softmax(logits[:, :-1], dim=-1)
+
+    # gather 只取实际出现的下一个 token；生成 4 时，只取 4 的 log-prob
     next_ids = input_ids[:, 1:]
+
+    # 输出形状：[batch_size, sequence_length - 1]
     return logps.gather(-1, next_ids.unsqueeze(-1)).squeeze(-1)
 
 with torch.no_grad():
@@ -414,6 +382,7 @@ with torch.no_grad():
 gen_mask = torch.zeros_like(student_logps, dtype=torch.bool)
 gen_mask[:, prompt_len - 1 :] = True  # 只看生成部分
 
+# 正值：teacher 更认可；负值：teacher 更不认可
 token_rewards = teacher_logps - student_logps
 generated_ids = full_ids[:, 1:][gen_mask]
 generated_rewards = token_rewards[gen_mask]
@@ -422,14 +391,6 @@ for tok_id, reward in zip(generated_ids[:32], generated_rewards[:32]):
     token = tokenizer.decode([tok_id.item()])
     print(f"{token!r:12s} reward={reward.item():+.3f}")
 ```
-
-设计要点：
-
-- `torch.log_softmax()` 一步完成 softmax 和取对数，直接得到词表中每个候选 token 的 log-prob。
-- `gather()` 根据 `next_ids` 选出序列里实际出现的下一个 token。上面的三候选例子若实际生成 `4`，它保留 `-0.41`，丢弃 `5` 和换行符的分数。
-- `next_token_logps()` 的输出形状是 `[batch_size, sequence_length - 1]`。它同时用于 student 和 teacher；这套 log-prob 计算也被 GRPO 等 RL 算法复用。
-- `token_rewards = teacher_logps - student_logps`：这就是 OPD 的 per-token reward。正值表示 teacher 比 student 更认可这个 token，负值表示 teacher 不认可。
-- 这段代码只做了"打分"部分。如果要变成训练循环，核心只差三件事：batch rollout、reward 归一化/裁剪、policy gradient 更新。
 
 训练循环的伪代码：
 
@@ -511,77 +472,24 @@ scored = score_with_routed_teachers(samples, student, teachers)
 
 #### 为什么切片从 `prompt_len - 1` 开始
 
-继续使用上面的“`2+2 答案是 4。`”。题目有 3 个 token，回答有 2 个 token。把原序列和 `next_token_logps` 按预测目标对齐，可以看到两者相差一个位置：
+`full_ids` 是“题目 + 模型回答”的 token 编号。继续使用“`2+2 答案是 4。`”：
 
-| 原序列位置          | 0      | 1      | 2      | 3        | 4        |
-| ------------------- | ------ | ------ | ------ | -------- | -------- |
-| 文字 token          | `2+2`  | `答案` | `是`   | **`4`**  | **`。`** |
-| `full_ids`          | 18     | 42     | 9      | **27**   | **6**    |
-| token 类型          | prompt | prompt | prompt | response | response |
-| 对应的 `logps` 位置 | —      | 0      | 1      | **2**    | **3**    |
-| 该位置预测的 token  | —      | `答案` | `是`   | **`4`**  | **`。`** |
-| reward 切片         | —      | 丢弃   | 丢弃   | **保留** | **保留** |
+| `logps` 位置 | 0      | 1    | **2**    | **3**    |
+| ------------ | ------ | ---- | -------- | -------- |
+| 预测的 token | `答案` | `是` | **`4`**  | **`。`** |
+| token 来源   | 题目   | 题目 | **回答** | **回答** |
+| reward       | 丢弃   | 丢弃 | **保留** | **保留** |
 
-第一个回答 token `4` 的 ID 是 27，位于 `full_ids[0, 3]`。Python 从 0 开始数：第一个下标 `0` 表示 batch 中第 1 条样本，第二个下标 `3` 表示这条样本的第 4 个 token。
+`logps[i]` 预测下一个 token，所以回答中的 `4` 虽然位于完整序列的位置 3，分数却在 `logps[2]`。题目有 3 个 token，因此回答从 `prompt_len - 1 = 2` 开始。
 
-模型在读完位置 2 的 `是` 之后预测下一个 token，因此 `4` 的分数保存在 `logps[:, 2]`。这里的 `:` 表示取 batch 中所有样本，`2` 表示第 3 个 log-prob 位置。因为 `prompt_len = 3`，回答对应的 log-prob 从 `prompt_len - 1 = 2` 开始。
-
-这里的 reward 可以先理解为 teacher 给每个 token 的分数：正数提高 student 以后生成这个 token 的倾向，负数降低这种倾向。
-
-现在就能说明 reward 为什么有“丢弃”和“保留”。题目中的“`2+2 答案是`”由数据集提供，student 没有生成这些 token。OPD 要评价的是 student 写出的回答，因此只让回答 token 的 reward 进入训练。
-
-`logps` 的位置 0 和 1 分别在预测题目里的“`答案`”和“`是`”。即使能算出 teacher 与 student 在这些位置上的差值，它们评价的仍然是题目文字，所以丢弃。位置 2 和 3 预测的是 student 生成的“`4`”和“`。`”，这两个 reward 才保留。
-
-在一张已经印好题目的试卷上，题目由试卷提供，学生只写回答，评分也只计入学生写出的部分。
-
-第二个下标表达式同时选择 batch 维和 token 维：
+题目由数据集提供，模型只生成回答，所以训练时丢弃题目 reward，只保留回答 reward：
 
 ```text
-(teacher_logps - student_logps)[0, 2:]
-                                 │  └─ 保留 logps 的位置 2、3、……
-                                 └──── 取 batch 中第 0 条样本
+all_rewards       = [[-0.20, +0.30, +0.70, -0.10]]
+all_rewards[0, 2:] = [               +0.70, -0.10]
 ```
 
-现在代入一组具体分数，实际执行一次切片：
-
-```python
-# 四个位置依次预测“答案”“是”“4”“。”
-teacher_logps = torch.tensor([[-1.20, -0.40, -0.10, -0.30]])
-student_logps = torch.tensor([[-1.00, -0.70, -0.80, -0.20]])
-
-all_rewards = teacher_logps - student_logps
-response_rewards = all_rewards[0, 2:]
-
-print("all_rewards =", all_rewards)
-print("all_rewards.shape =", all_rewards.shape)
-print("response_rewards =", response_rewards)
-print("response_rewards.shape =", response_rewards.shape)
-```
-
-输出为：
-
-```text
-all_rewards = tensor([[-0.2000,  0.3000,  0.7000, -0.1000]])
-all_rewards.shape = torch.Size([1, 4])
-response_rewards = tensor([ 0.7000, -0.1000])
-response_rewards.shape = torch.Size([2])
-```
-
-把这些数字放回 token 位置，可以看到切片实际删除了什么：
-
-| `logps` 位置       |      0 |     1 |         2 |         3 |
-| ------------------ | -----: | ----: | --------: | --------: |
-| 该位置预测的 token | `答案` |  `是` |       `4` |      `。` |
-| teacher log-prob   |  -1.20 | -0.40 |     -0.10 |     -0.30 |
-| student log-prob   |  -1.00 | -0.70 |     -0.80 |     -0.20 |
-| 相减后的 reward    |  -0.20 | +0.30 | **+0.70** | **-0.10** |
-| `[0, 2:]` 的结果   |   丢弃 |  丢弃 |  **保留** |  **保留** |
-
-`all_rewards` 外面的两层方括号对应形状 `[1, 4]`：batch 中有 1 条样本，这条样本有 4 个 next-token reward。下标 `0` 先取出这条样本，张量从二维的 `[[...]]` 变成一维的 `[...]`；切片 `2:` 再删除位置 0 和 1，只留下位置 2、3，也就是“`4`”和“`。`”的 reward。
-
-最终得到的 `tensor([0.7000, -0.1000])` 有两个元素。“`4`”的 `+0.70` 表示 teacher 比 student 更认可这个 token；“`。`”的 `-0.10` 表示 teacher 给它的概率略低。题目对应的 `-0.20` 和 `+0.30` 已被切片移除，不参与回答部分的训练。
-
-若一次处理整个等长 batch，可以把第一个下标改成 `:`。prompt 长度不同时，需要为每条样本准备一排 True/False 标记，指出哪些位置属于回答；这排标记叫 response mask。
+`[0, 2:]` 的意思是：取第 0 条样本，再取位置 2 之后的值。
 
 到这里已经完成了朴素 M-OPD 的多教师打分。`teachers[domain]` 负责路由，`rewards` 保存被选中 teacher 给出的逐 token 信号。三位 teacher 的输出不会在同一条样本上求平均，每位 teacher 只负责自己的领域。
 
