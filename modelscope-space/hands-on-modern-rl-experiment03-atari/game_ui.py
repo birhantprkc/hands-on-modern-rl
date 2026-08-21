@@ -635,6 +635,22 @@ def build_demo(space_module: Any):
             selected_record,
         )
 
+    def refresh_model_dropdown(key: str, language: str, current_model: str | None):
+        """Expose newly saved epoch models without changing the user's selection."""
+        records, choices, _, _ = model_state(key, language)
+        available = {str(record["model_id"]) for record in records}
+        preserved = str(current_model) if current_model and str(current_model) in available else None
+        copy = copy_for(language)
+        return gr.Dropdown(
+            choices=choices,
+            value=preserved,
+            label=copy["saved_model"],
+            info=copy["saved_model_info"] if choices else copy["saved_model_empty"],
+            interactive=bool(choices),
+            allow_custom_value=True,
+            elem_classes="model-selector",
+        )
+
     def choose_task(language: str, seed: float, event: gr.SelectData):
         index = max(0, min(int(event.index), len(tasks) - 1))
         task = tasks[index]
@@ -753,19 +769,26 @@ def build_demo(space_module: Any):
         saved_models: list[str] = []
         preview = preview_path(root, task)
         wait = waiting_panel(language)
-        selector, selected_record = model_dropdown(key, language, selected_model, interactive=False)
-        selected_model = str(selected_record["model_id"]) if selected_record else None
         yield (
             status_card("running", copy["running"], "Environment initialization", language),
             metric_card("—", "Preparing runtime", language),
             None,
-            preview,
+            gr.skip(),
             gr.File(value=None, label=copy["download"], visible=False),
             console_panel("\n".join(logs), language),
             gr.HTML(value=wait, visible=True),
             gr.Button(value=copy["running_button"], interactive=False),
-            selector,
-            preview_provenance(task, language, detail=("Training a new policy…" if language != "中文" else "正在训练一个新策略……")),
+            gr.skip(),
+            preview_provenance(
+                task,
+                language,
+                selected_model,
+                detail=(
+                    "Training a new policy · each finished epoch becomes selectable immediately below"
+                    if language != "中文"
+                    else "正在训练新策略 · 每个 epoch 完成后会立即出现在下方选择框中"
+                ),
+            ),
         )
         try:
             for event in space_module.run(key, **params):
@@ -792,34 +815,34 @@ def build_demo(space_module: Any):
                     last_model = Path(str(event_model)).name
                     if last_model not in saved_models:
                         saved_models.append(last_model)
-                    selector, selected_record = model_dropdown(key, language, last_model, interactive=False)
-                    selected_model = str(selected_record["model_id"]) if selected_record else last_model
                 checkpoint_index = int(event_value(event, "checkpoint_index", 0) or 0)
                 checkpoint_count = int(event_value(event, "checkpoint_count", 0) or 0)
                 checkpoint_note = (
                     (
-                        f"Epoch {checkpoint_index}/{checkpoint_count} model saved · available after this run finishes"
+                        f"Epoch {checkpoint_index}/{checkpoint_count} model saved · selectable now"
                         if language != "中文"
-                        else f"Epoch {checkpoint_index}/{checkpoint_count} 模型已保存 · 本次训练结束后可选择回放"
+                        else f"Epoch {checkpoint_index}/{checkpoint_count} 模型已保存 · 现在即可选择回放"
                     )
                     if checkpoint_index
                     else ("Training a new policy…" if language != "中文" else "正在训练一个新策略……")
                 )
                 phase = str(event_value(event, "phase", "training"))
                 detail = str(event_value(event, "detail", f"{int(event_value(event, 'step', 0)):,}/{params['budget']:,}"))
+                if checkpoint_index:
+                    detail = checkpoint_note
                 metric_detail = str(event_value(event, "metric_detail", "Mean evaluation score"))
                 curve = learning_figure(last_x, last_y, f"{task_value(task, 'environment')} · {task_value(task, 'algorithm')}") if last_x else None
                 yield (
                     status_card("running", copy["running"], detail, language),
                     metric_card("—" if last_score is None else f"{last_score:.2f}", metric_detail, language),
                     curve,
-                    preview,
+                    gr.skip(),
                     gr.File(value=None, label=copy["download"], visible=False),
                     console_panel("\n".join(logs), language),
                     gr.HTML(value=wait, visible=True),
                     gr.Button(value=copy["running_button"], interactive=False),
-                    selector,
-                    preview_provenance(task, language, selected_model, detail=checkpoint_note),
+                    f"{last_model}:{time.time_ns()}" if event_model and last_model else gr.skip(),
+                    gr.skip(),
                 )
             if preview == preview_path(root, task):
                 preview = result_image(root, task, "training complete", last_score, last_x, last_y, "The environment did not expose replay frames; this plot records the learned result.")
@@ -836,19 +859,17 @@ def build_demo(space_module: Any):
             })
             logs.append(f"{time.perf_counter() - started:7.1f}s  DONE    training, evaluation, and visualization complete")
             curve = learning_figure(last_x, last_y, f"{task_value(task, 'environment')} · {task_value(task, 'algorithm')}") if last_x else None
-            selector, selected_record = model_dropdown(key, language, last_model)
-            selected_model = str(selected_record["model_id"]) if selected_record else last_model
             yield (
                 status_card("complete", copy["complete"], f"{time.perf_counter() - started:.1f}s elapsed", language),
                 metric_card("—" if last_score is None else f"{last_score:.2f}", "Final evaluation score", language),
                 curve,
-                preview,
+                gr.skip(),
                 gr.File(value=summary, label=copy["download"], visible=True),
                 console_panel("\n".join(logs), language),
                 gr.HTML(value="", visible=False),
                 gr.Button(value=copy["start"], interactive=True),
-                selector,
-                preview_provenance(task, language, selected_model),
+                f"{last_model}:complete:{time.time_ns()}" if last_model else f"complete:{time.time_ns()}",
+                gr.skip(),
             )
         except Exception as exc:
             logs.append(f"{time.perf_counter() - started:7.1f}s  ERROR   {type(exc).__name__}: {exc}")
@@ -861,8 +882,6 @@ def build_demo(space_module: Any):
                 "traceback": traceback.format_exc(),
                 "logs": logs,
             })
-            selector, selected_record = model_dropdown(key, language, selected_model)
-            selected_model = str(selected_record["model_id"]) if selected_record else None
             yield (
                 status_card("error", copy["failed"], str(exc), language),
                 metric_card("—" if last_score is None else f"{last_score:.2f}", "Last valid evaluation", language),
@@ -872,7 +891,7 @@ def build_demo(space_module: Any):
                 console_panel("\n".join(logs), language),
                 gr.HTML(value="", visible=False),
                 gr.Button(value=copy["start"], interactive=True),
-                selector,
+                f"failed:{time.time_ns()}",
                 preview_provenance(task, language, selected_model, detail=(f"Training stopped: {type(exc).__name__}: {exc}" if language != "中文" else f"训练停止：{type(exc).__name__}: {exc}")),
             )
 
@@ -970,6 +989,7 @@ def build_demo(space_module: Any):
                     preview_status = gr.HTML(preview_provenance(default_task, default_language, initial_model))
                     preview = gr.Image(value=initial_preview, show_label=False, interactive=False, elem_classes="policy-preview")
                     artifact = gr.File(label=copy["download"], interactive=False, visible=False, height=76, elem_classes="artifact-download")
+                    checkpoint_signal = gr.Textbox(value="", visible=False)
 
         gr.HTML(f'<div class="footer-note">{html.escape(local_value(space["title"], "English"))} · <a href="{COURSE_URL}" target="_blank">Hands-On Modern RL</a> · WalkingLab</div>')
 
@@ -978,8 +998,9 @@ def build_demo(space_module: Any):
         restore.click(restore_baseline, inputs=[selected, language], outputs=[steps_per_epoch, epochs, checkpoint_info, learning_rate, gamma, epsilon, baseline_info], queue=False, show_progress="hidden")
         steps_per_epoch.change(update_checkpoint_plan, inputs=[selected, language, steps_per_epoch, epochs], outputs=[checkpoint_info], queue=False, show_progress="hidden")
         epochs.change(update_checkpoint_plan, inputs=[selected, language, steps_per_epoch, epochs], outputs=[checkpoint_info], queue=False, show_progress="hidden")
-        start.click(train_with_ui, inputs=[selected, steps_per_epoch, epochs, learning_rate, gamma, epsilon, seed, model_selector, language], outputs=[status, metric, curve, preview, artifact, console, wait_state, start, model_selector, preview_status], concurrency_limit=1)
-        model_selector.change(select_saved_model, inputs=[selected, model_selector, language], outputs=[preview, preview_status], queue=False, show_progress="hidden")
+        start.click(train_with_ui, inputs=[selected, steps_per_epoch, epochs, learning_rate, gamma, epsilon, seed, model_selector, language], outputs=[status, metric, curve, preview, artifact, console, wait_state, start, checkpoint_signal, preview_status], concurrency_limit=1)
+        checkpoint_signal.change(refresh_model_dropdown, inputs=[selected, language, model_selector], outputs=[model_selector], queue=False, show_progress="hidden")
+        model_selector.input(select_saved_model, inputs=[selected, model_selector, language], outputs=[preview, preview_status], queue=False, show_progress="hidden")
 
     return demo
 
