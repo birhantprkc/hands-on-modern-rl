@@ -392,16 +392,36 @@ $\varepsilon$-贪婪策略带来一个重要性质：**实际走的策略和 Q �
   <em>图源：<a href="https://gymnasium.farama.org/environments/toy_text/cliff_walking/" target="_blank" rel="noopener noreferrer">Gymnasium Documentation - Cliff Walking</a>，原环境改编自 Sutton and Barto, <em>Reinforcement Learning: An Introduction</em>, Example 6.6。</em>
 </p>
 
-**Q-Learning**（Off-policy）更新时使用 $\max_{a'} Q(s',a')$，假设未来始终采取最优动作，因此学到的策略是沿悬崖的最短路径。
+两种算法在悬崖行走中的表现差异，源于它们更新公式中一个关键的不同。
 
-**SARSA**（On-policy）的更新目标为 $r + \gamma Q(s', a')$，其中 $a'$ 由当前行为策略（$\varepsilon$-贪婪）实际选出。由于 SARSA 在更新中考虑了探索导致的失误风险，它倾向于学习远离悬崖的安全路径，即使路径更长。
+**Q-Learning：**
+
+Q-Learning的更新公式为：
+
+$$
+Q(s,a) \leftarrow Q(s,a) + \alpha\left[ r + \gamma \max_{a'} Q(s',a') - Q(s,a) \right]
+$$
+
+目标（Target）是： $r + \gamma \max_{a'} Q(s',a')$
+
+无论当前实际执行的动作 $a'$ 是什么，Q-Learning 都直接选取下一状态 $s'$ 中 Q 值最大的那个动作来计算目标。它假设下一步会"完美"执行最优动作，因此学到的策略是沿悬崖的最短路径，并不考虑探索时可能掉入悬崖的风险。
+
+**SARSA：**
+
+SARSA的更新公式为：
+
+$$
+Q(s,a) \leftarrow Q(s,a) + \alpha\left[ r + \gamma Q(s',a') - Q(s,a) \right]
+$$
+
+目标（Target）是： $r + \gamma Q(s',a')$
+
+这里的 $a'$ 是由当前的 $\varepsilon$-贪婪策略真实采样选出。SARSA 用"已经发生的下一步"来更新当前步，因此在更新中考虑了探索导致的失误风险，它倾向于学习远离悬崖的安全路径，即使路径更长。
 
 两种算法的差异源于对"未来策略"的不同假设：
 
 - Q-Learning 估计的是**最优策略**的价值，与当前行为策略的探索无关；
 - SARSA 估计的是**当前行为策略**的价值，因此会规避探索带来的风险。
-
-这不是谁更好的问题，而是它们回答的问题不同。Q-Learning 回答"如果抛开探索时的随机性，理想最优是什么"；SARSA 回答"带着当前的探索噪声，怎么走最安全"。
 
 <span id="limitations"></span>
 
