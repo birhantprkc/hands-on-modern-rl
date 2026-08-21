@@ -6,20 +6,15 @@
 
 <img src="./images/cwm-vs-deepswe.svg" alt="CWM 与 DeepSWE 从共同的软件执行环境出发，分别学习环境规律和训练长程代码智能体">
 
-## 20.2.1 先理解 CWM 学的是什么
+## CWM 的学习对象
 
-[CWM 论文](https://arxiv.org/abs/2510.02387)发布了一个 32B dense decoder-only 模型。它先读取 Python 解释器和 Agentic Docker 环境中的“观察—动作”轨迹，再在可验证代码、数学和多轮软件工程环境中做推理 RL。这里的 world model 首先表现为模型权重中学到的执行规律，并不等同于一个已经取代真实测试的独立转移模型。
+[CWM 论文](https://arxiv.org/abs/2510.02387)发布了一个 32B dense decoder-only 模型。它先读取 Python 解释器和 Agentic Docker 环境中的“观察与动作”轨迹，再在可验证代码、数学和多轮软件工程环境中做推理 RL。这里的 world model 首先表现为模型权重中学到的执行规律，并不等同于一个已经取代真实测试的独立转移模型。
 
 ### 用 MDP 记号整理交互轨迹
 
-为了理解一条软件 Agent 轨迹，可以先用 MDP 记号整理四类对象：
+为了理解一条软件 Agent 轨迹，可以先用 MDP 记号整理四类对象：状态 $s_t$ 是仓库代码、当前修改历史与测试结果；动作 $a_t$ 是模型的下一步，如读文件、改代码、跑测试；转移 $T(s_{t+1} \mid s_t, a_t)$ 描述代码执行后状态的变化；奖励 $r_t$ 包含中间状态的每步反馈与测试通过的最终 reward。
 
-- **MDP 元素 — 状态 $s_t$:** 仓库代码 + 当前修改历史 + 测试结果
-- **MDP 元素 — 动作 $a_t$:** 模型的下一步（读文件、改代码、跑测试）
-- **MDP 元素 — 转移 $T(s_{t+1} | s_t, a_t)$:** 代码执行——文件改动后状态如何变化
-- **MDP 元素 — 奖励 $r_t$:** 每步的反馈（中间状态）+ 最终 reward（测试通过）
-
-### 教学推演：显式预测下一状态
+### 显式预测下一状态
 
 CWM 的论文重点是用环境轨迹中期训练同一个语言模型。原稿还提出了一个更显式的 model-based RL 扩展：另外训练转移模型 $\hat{T}$ 来预测下一状态。下面保留这个公式和实现思路，并明确把它当作教学推演：
 
@@ -56,15 +51,15 @@ $$\hat{T}(s_{t+1} | s_t, a_t) \approx T(s_{t+1} | s_t, a_t)$$
 
 **优势一：速度快**
 
-如果预测模型足够准确，一次前向计算可能比安装依赖、构建仓库和运行完整测试更快。不过原稿中的“100—1000 倍”不是 CWM 论文给出的通用实测值；速度取决于模型规模、测试耗时和批处理方式。
+如果预测模型足够准确，一次前向计算可能比安装依赖、构建仓库和运行完整测试更快。不过原稿中的“100 到 1000 倍”不是 CWM 论文给出的通用实测值；速度取决于模型规模、测试耗时和批处理方式。
 
 **优势二：可以模拟失败**
 
-World model 可以模拟"如果这样改，会发生什么"——policy 可以在 world model 里大量探索失败模式，学习避免。
+World model 可以模拟"如果这样改，会发生什么"，policy 可以在 world model 里大量探索失败模式，学习避免。
 
 **优势三：数据效率高**
 
-World model 学到代码执行的"规律"——这些规律可以泛化到新任务。
+World model 学到代码执行的"规律"，这些规律可以泛化到新任务。
 
 ### 为什么它仍不能替代真实执行
 
@@ -80,7 +75,7 @@ World model 是个 LLM，会错。如果它预测错了"代码执行结果"，po
 
 **局限三：训练成本**
 
-训练 world model 本身需要大量 trajectory 数据和算力——比直接训练 policy 复杂。
+训练 world model 本身需要大量 trajectory 数据和算力，比直接训练 policy 复杂。
 
 ### CWM 与 model-based RL 的关系
 
@@ -88,7 +83,7 @@ CWM 为软件 world modeling 提供了开放权重研究载体。把它进一步
 
 参考：[第 8 章长程任务中的模型规划](../chapter10_ppo/rl-long-horizon-planning)和[24.3 VLA 与具身世界模型](../chapter28_vla/embodied-intelligence/model-based-rl/)。
 
-## 20.2.2 再看 DeepSWE 怎样训练长程 Agent
+## DeepSWE 的长程训练
 
 [DeepSWE-Preview](https://www.together.ai/blog/deepswe) 由 Agentica 与 Together AI 合作训练。项目从 Qwen3-32B 出发，在约 4,500 个 R2E-Gym 软件工程任务上运行六天、使用 64 张 H100，通过 rLLM 进行纯 RL 训练。官方报告的 SWE-bench Verified 结果是 42.2% Pass@1；加入测试时扩展后约为 59%。
 
@@ -96,7 +91,7 @@ CWM 为软件 world modeling 提供了开放权重研究载体。把它进一步
 
 DeepSWE 说明，只要环境、rollout 基础设施与可验证奖励足够稳定，长程软件 Agent 可以仅靠 RL 获得显著提升。官方材料还介绍了 trajectory-level 与 step-level GRPO/PPO 的系统支持，以及为测试时扩展训练的验证器。
 
-原稿把三个常见的长程 RL 方案——步骤 shaping、value model 和分层策略——写成了 DeepSWE 的正式结构。下面保留这些公式和代码，作为理解信用分配的**备选教学方案**，不再归因于 DeepSWE 的公开配方。
+原稿把三个常见的长程 RL 方案，即步骤 shaping、value model 和分层策略，写成了 DeepSWE 的正式结构。下面保留这些公式和代码，作为理解信用分配的**备选教学方案**，不再归因于 DeepSWE 的公开配方。
 
 **备选方案一：Step-level Reward Shaping**
 
@@ -122,7 +117,7 @@ def deep_swe_reward(trajectory, final_test_result):
 
 **备选方案二：Value Model**
 
-可以重新引入 value model（与 VAPO 思路相关）——[参考第 15 章 VAPO](../chapter18_grpo/grpo-family)。
+可以重新引入 value model（与 VAPO 思路相关），参考[第 15 章 VAPO](../chapter18_grpo/grpo-family)。
 
 Value model $V_\phi(s_t)$ 估计当前状态的"未来 reward 期望"。这让 RL 可以用 GAE 做 credit assignment：
 
@@ -139,7 +134,7 @@ $$\hat{A}_t = \delta_t + (\gamma\lambda)\delta_{t+1} + \ldots$$
 
 高层用稀疏 reward（最终测试），低层用密集 reward（每步 shaping）。
 
-### 先看公开训练主线
+### 公开训练主线
 
 ```text
 ┌──────────────────────────────────────────────────────────┐
@@ -167,12 +162,7 @@ $$\hat{A}_t = \delta_t + (\gamma\lambda)\delta_{t+1} + \ldots$$
 
 ### DeepSWE 的成绩
 
-下面保留原稿记录的对比项，同时把 DeepSWE 的公开口径改正。不同系统的采样预算和 scaffold 不同，数字只能在注明设置后比较：
-
-- **模型 — Meta SWE-RL:** 41.0%
-- **DeepSWE-Preview（Agentica × Together AI）**：42.2% Pass@1；约 59%（测试时扩展）
-- **模型 — SWE-Lancer（OpenAI）:** 45.0%
-- **模型 — Claude Opus 4.5 + 工具:** 60%+
+下面保留原稿记录的对比项，同时把 DeepSWE 的公开口径改正。不同系统的采样预算和 scaffold 不同，数字只能在注明设置后比较：Simple GRPO 以 Meta SWE-RL 为代表，开源且简单，SWE-bench Verified 为 41.0%；DeepSWE-Preview（Agentica 与 Together AI）为 42.2% Pass@1，测试时扩展后约 59%；SWE-Lancer（OpenAI）为 45.0%；Claude Opus 4.5 加工具在 60% 以上。
 
 DeepSWE 从训练前约 23% 提升到约 42% Pass@1，说明可执行环境中的纯 RL 能显著改善长程代码 Agent。测试时多采样后的更高分数应单独标注，不能与单次采样混为一列。
 
@@ -180,7 +170,7 @@ DeepSWE 从训练前约 23% 提升到约 42% Pass@1，说明可执行环境中�
 
 DeepSWE 的公开主线不能概括为“字节 VAPO 在 SWE 上的延伸”：项目团队与训练配方都不同。Value model 仍然是值得比较的基线，因为它能估计中间状态的未来回报；是否需要 critic，应由同环境、同 rollout 预算下的实验决定。
 
-## 20.2.3 教学扩展：把候选搜索接进来
+## 候选搜索的教学扩展
 
 DeepSWE 的公开结果包含多候选生成与 verifier 选择形式的测试时扩展。原稿进一步给出了 MCTS 与 Beam Search 两段伪代码。它们适合用来理解“怎样比较多个候选未来”，但不是 CWM 或 DeepSWE 已公开实现的逐字复现。
 
@@ -244,26 +234,9 @@ def deep_swe_beam_search(issue, model, value_model, K=4):
 
 Beam Search 展示了用更多推理算力换取候选覆盖率的基本方式，与 [第 16 章 Test-time Compute Scaling](../chapter19_reasoning/test-time-scaling) 相连。是否提升最终准确率，取决于候选多样性与 value model 的排序质量。
 
-## 20.2.4 怎样公平比较这些路线
+## 四类路线的公平比较
 
-原稿试图用一条分数链比较四种方案，但其中“CWM 约 45%”和“DeepSWE 50%”与原始材料不一致。下面保留四类观察对象，并改成可由一手来源核对的口径：
-
-- **方案 — Simple GRPO**
-  - 代表: Meta SWE-RL
-  - 特点: 开源、简单
-  - SWE-bench Verified: 41.0%
-- **方案 — + World Model**
-  - 代表: Code World Model
-  - 特点: 环境轨迹中期训练 + 多任务 RL
-  - SWE-bench Verified: 65.8%（论文报告，含测试时扩展）
-- **方案 — + Value + Search**
-  - 代表: DeepSWE
-  - 特点: R2E-Gym 长程纯 RL + 测试时扩展
-  - SWE-bench Verified: 42.2% Pass@1；约 59%（测试时扩展）
-- **方案 — + 多 agent 协作**
-  - 代表: 商业 Agent 工作流
-  - 特点: 训练与编排细节通常不公开
-  - SWE-bench Verified: 需按具体模型版本与评测日志记录
+原稿试图用一条分数链比较四种方案，但其中“CWM 约 45%”和“DeepSWE 50%”与原始材料不一致。下面保留四类观察对象，并改成可由一手来源核对的口径：Simple GRPO 以 Meta SWE-RL 为代表，开源且简单，SWE-bench Verified 为 41.0%；加上 World Model 以 Code World Model 为代表，用环境轨迹中期训练加多任务 RL，论文报告 65.8%（含测试时扩展）；加上 Value 与 Search 以 DeepSWE 为代表，用 R2E-Gym 长程纯 RL 加测试时扩展，为 42.2% Pass@1，扩展后约 59%；多 agent 协作以商业 Agent 工作流为代表，训练与编排细节通常不公开，分数需按具体模型版本与评测日志记录。
 
 这些分数不能推出“算法越复杂，性能必然越高”。模型规模、训练任务、工具接口、最大步数、测试时采样数和 verifier 都会影响结果。公平实验至少要固定基座模型、环境、单题预算和 Pass@k 口径。
 
@@ -277,4 +250,4 @@ Beam Search 展示了用更多推理算力换取候选覆盖率的基本方式�
 
 两项工作共同说明，长程任务首先需要稳定、可重置、可并行的执行环境。更复杂的算法只有在同一环境与预算下证明收益后，才能归因于算法本身。
 
-下一节我们看 Self-play SWE-RL——**让模型自己生成训练数据**，进一步降低对人工数据的依赖。
+下一节看 Self-play SWE-RL，让模型自己生成训练数据，进一步降低对人工数据的依赖。

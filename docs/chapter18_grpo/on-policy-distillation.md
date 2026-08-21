@@ -249,6 +249,32 @@ Thinking Machines Lab 的复现实验也是这样：先做 off-policy reasoning 
 
 这也解释了为什么 OPD 比普通蒸馏更"挑老师"。off-policy SFT 可以强行把 student 拉去看 teacher 轨迹；OPD 则是在 student 自己的地形上做局部导航——如果当前位置附近没有通向 teacher 模式的梯度，再大的 teacher 也只是站在远处报答案。
 
+### 多教师 OPD：专项能力为什么不能直接相加
+
+单个 teacher 的可教性解决之后，还会遇到另一个问题：怎样把多个领域 teacher 的能力合进同一个 student。Open-MOPD 用一个受控实验研究了这个问题。实验从 SmolLM3-3B-Base 出发，先得到同时覆盖数学、代码和指令遵循的 MixSFT 模型，再分别训练三个领域 RL teacher，最后让一个共享 student 接受三位 teacher 的逐 token 反馈。每条样本的领域标签已知，因此数学题固定交给数学 teacher，代码题固定交给代码 teacher，路由本身没有歧义。[^open_mopd]
+
+先看一个具体数字。训练批次中，数学、代码和指令遵循 prompt 的比例为 39.8%、39.8% 和 20.3%。数学与代码回答平均约有 10,500 个 token，指令遵循回答平均只有 409 个 token。换成真正参与梯度计算的回答 token 后，三个领域的份额变成 49.7%、49.3% 和 0.99%。看起来占了五分之一的指令遵循数据，实际只拿到约百分之一的 token 级训练预算。
+
+这就是多教师 OPD 中的**能力失衡**。每条样本都路由给了正确的 teacher，多个领域仍然在争用同一个 student 的参数和有限更新次数。长回答天然产生更多 token，于是数学和代码会主导梯度；短回答对应的能力很早就停止增长。
+
+Open-MOPD 还检查了一个更直接的猜测：不同 teacher 是否在同一 token 上给出互相冲突的信号。实验中，teacher 分歧的均值只有 0.126 nat，超过 1 nat 的 token 占 0.62%。屏蔽高分歧 token 或改用多个 teacher 的共识信号，反而让总分下降 0.52 到 0.83 分。这组干预表明，在该实验设置里，teacher 分歧可以测到，却没有构成主要瓶颈。
+
+真正的优化预算失衡来自三个环节：
+
+| 环节     | 失衡怎样产生                                                                                      | Open-MOPD 的处理                                                      |
+| -------- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| 回答长度 | 长回答贡献更多梯度 token，短任务获得的更新很少                                                    | 按领域重加权，使每个领域先获得相同的 token 预算                       |
+| 收敛速度 | 各领域的师生差距缩小速度不同，固定权重会继续训练已经接近 teacher 的领域                           | 根据各领域平均绝对 token 奖励估计剩余差距，把更多预算给尚未收敛的领域 |
+| 多步更新 | 一批 rollout 被拆成多次 PPO 更新后，student 已经变化，采样时缓存的 student-dependent 奖励逐渐过时 | 每次内部更新前重新计算当前 student 对应的 token 奖励                  |
+
+第二项处理需要再解释一步。若某个领域当前的 teacher 与 student 已经很接近，它的平均绝对 token 奖励会变小；另一个领域仍有较大差距时，奖励幅度会更大。Open-MOPD 用这个量动态调整领域权重，使训练预算跟随尚未迁移完的能力，而不是只跟随静态数据比例。
+
+第三项处理针对 OPD 奖励里的 student 项。teacher 的 log-prob 可以缓存，因为 teacher 保持冻结；student 每完成一次参数更新，当前 log-prob 就会改变。继续使用 rollout 时计算的旧奖励，会让后续 PPO 更新依据过时的师生差异。Open-MOPD 在每次内部更新前刷新 student-dependent reward，使密集反馈重新对应当前策略。
+
+论文用 RouteOPD 作为按领域分别部署模型的参照。朴素 M-OPD 的共享 student 总分比 RouteOPD 低 3.50 分，Open-MOPD 把这项**能力整合差距**缩小到 0.31 分。若以 MixSFT 到领域 RouteRL 的提升空间为 100%，朴素 M-OPD 恢复了 35.6%，Open-MOPD 恢复了 83.4%。前一个数字比较共享 student 与分领域 OPD 模型，后一个数字衡量领域 RL 能力有多少被合进了共享 student，两者描述的是不同参照系。
+
+作者将 Open-MOPD 定位为首个完整开源的多教师 OPD recipe：它开放了从混合 SFT、三个领域 RL teacher 到多教师 OPD 的端到端训练流程，以及代码、模型、数据、训练轨迹和评测套件。它把工业系统中已经出现的多专家 OPD 路线变成了可以逐项复查的公开实验。更重要的结论是：多教师 OPD 的“多”增加了一个新的控制对象——**各领域实际获得了多少优化预算**。只统计 prompt 数量，无法回答这个问题；还要同时观察回答 token 份额、师生差距和一次 rollout 之后的策略漂移。
+
 ### Overlap token 才是主战场
 
 论文里最有启发的实验是把 token 集合拆开：只在 student 和 teacher 都认为高概率的 overlap tokens 上优化，效果几乎不掉；只看 non-overlap tokens，几乎帮不上忙。这解释了为什么 top-$k$ OPD 往往已经够用，也解释了为什么失败 run 的 loss 看起来还在动，能力却没有涨。
@@ -794,6 +820,8 @@ OPD 的核心是一个训练范式选择：
 
 2026 年机制分析论文最值得带走的 insight，是把 OPD 的核心问题从"teacher 是否更强"换成"teacher 是否更可学"。更强的模型可能只是会在自己的轨迹上拿高分；更可学的 teacher 则能在 student 当前轨迹上提供新知识、相近思维路径和可吸收的局部偏好。这个视角会改变你设计整条蒸馏 pipeline 的方式：先冷启动让两者说同一种语言，再用 teacher-aligned prompt 让 teacher 站到熟悉的分布上，最后用任务奖励保证局部偏好没有背离全局目标。
 
+扩展到多个领域 teacher 后，还要让优化预算随回答长度、剩余师生差距和策略更新及时变化。Open-MOPD 的实验说明，正确路由只能选出负责当前样本的 teacher；预算平衡决定这些 teacher 的能力能否共同进入一个共享 student。
+
 从本章主线看，DPO、GRPO、RLVR 和 OPD 都在回答同一个问题：**当我们不想完整跑传统 RLHF 时，训练信号还能从哪里来？** DPO 用偏好对，RLVR 用验证器，OPD 用 teacher。理解这三类信号的边界，才是真正能迁移到新项目里的能力。
 
 ## 参考文献
@@ -815,6 +843,8 @@ OPD 的核心是一个训练范式选择：
 [^tml_opd]: Lu K, Thinking Machines Lab. [On-Policy Distillation](https://thinkingmachines.ai/blog/on-policy-distillation/), 2025.（工程化 OPD 复现与 Tinker 实现，包含 Qwen3 对比和 personalization 实验）
 
 [^rethinking_opd]: Li Y, Zuo Y, He B, et al. [Rethinking On-Policy Distillation of Large Language Models: Phenomenology, Mechanism, and Recipe](https://arxiv.org/abs/2604.13016), arXiv 2026.（分析 OPD 成功条件、token-level 机制和失败恢复策略）
+
+[^open_mopd]: Gao H, Chi H, Yan Y, et al. [Open-MOPD: Diagnosing and Fixing Capability Imbalance in Multi-Teacher On-Policy Distillation](https://arxiv.org/abs/2608.19098), arXiv 2026；[项目页](https://bytedtsinghua-sia.github.io/Open-MOPD/)。（清华大学 AIR/SIA-Lab 与字节跳动 Seed 提出的首个完整开源多教师 OPD recipe，诊断跨领域 token 预算失衡并给出动态平衡方法）
 
 [^lightning_opd]: Wu Y, Han S, Cai H. [Lightning OPD: Efficient Post-Training for Large Reasoning Models with Offline On-Policy Distillation](https://arxiv.org/html/2604.13010v1), arXiv 2026.（把标准 OPD 离线化：预计算 teacher log-prob，避免训练时 live teacher server）
 

@@ -1,4 +1,4 @@
-# 21.1 浏览器 RL Harness：把网页研究写成可训练环境
+# 21.1 浏览器 RL Harness
 
 这一节学习的是浏览器智能体训练中最基础的工程对象：**Browser RL Harness**。它负责把网页、搜索引擎和模型接成一个可重复运行的强化学习环境，让模型能够搜索、阅读、记录证据，并从最后的答案和引用中获得奖励。
 
@@ -42,13 +42,13 @@ search("论文标题")
 
 所谓 Harness，可以理解为“训练用的实验台”。它把不稳定的真实网页整理成一组明确接口，让同一套模型能够反复运行同一类任务。
 
-### 观察：模型这一刻能够看到什么
+### 观察
 
 观察 (o_t) 可以是搜索结果、网页正文、DOM 摘要、截图、下载文件，也可以包含前几步保存的研究笔记。完整浏览器状态通常比模型看到的内容更大，因此浏览器任务更接近部分可观测决策过程。
 
 例如，一张网页截图没有直接告诉模型某个按钮是否被浮层遮挡；一段抽取文本也可能丢失表格列名。Harness 要明确规定观察格式，避免训练时一种格式、评测时另一种格式。
 
-### 动作：模型能够对网页做什么
+### 动作
 
 最小动作空间只需要三个动作：
 
@@ -60,7 +60,7 @@ answer(text)      提交最终答案
 
 真实浏览器还会加入 `click`、`type`、`scroll`、`download`、`back` 和 `extract`。动作越接近人类操作，能够处理的网页越多；同时，解析错误、页面超时和不可复现状态也会增加。
 
-### 转移：动作之后环境怎样变化
+### 转移
 
 模型执行 `open(url)` 后，Harness 需要等待页面加载、处理重定向、抽取正文，并把新的观察返回给模型。这个过程就是状态转移：
 
@@ -70,7 +70,7 @@ $$
 
 这里，(s_t) 表示浏览器和研究工作区的完整状态，(a_t) 表示模型动作。符号 (P) 提醒我们：同一个 URL 在不同时间可能返回不同内容，网络请求也可能失败。真实网络中的转移并不完全确定。
 
-### 奖励与终止：什么时候算完成
+### 奖励与终止
 
 提交答案后，验证器可以检查短答案是否匹配、引用页面是否存在、引用片段是否支持结论，以及是否超过工具预算。任务成功、达到最大步数或发生不可恢复错误时，轨迹结束。
 
@@ -80,7 +80,7 @@ $$
 \tau=(o_0,a_0,o_1,a_1,\ldots,o_T,a_T,R).
 $$
 
-其中，(R) 是整条轨迹的最终奖励。公式本身并不复杂，它只是要求训练系统保留“观察—动作—下一观察”的先后关系。只有这样，RL 才能判断哪些搜索和阅读决策更可能带来可靠答案。
+其中，(R) 是整条轨迹的最终奖励。公式本身并不复杂，它只是要求训练系统保留“观察，动作，下一观察”的先后关系。只有这样，RL 才能判断哪些搜索和阅读决策更可能带来可靠答案。
 
 ## 用几十行代码看清最小接口
 
@@ -136,25 +136,25 @@ class TinyResearchEnv:
 
 Browser RL 并不要求第一天就启动完整浏览器。环境可以按保真度逐步增加。
 
-### 搜索 API：最容易复现的起点
+### 搜索 API
 
 搜索 API 直接返回标题、摘要和 URL。观察结构规整，速度快，也便于缓存。Search-R1 采用的离线检索环境就属于这一类；论文还通过 **retrieved token masking**，让检索返回的文字不参与模型策略损失，只对模型自己生成的 token 求梯度。参见 [Search-R1 论文](https://arxiv.org/abs/2503.09516)与[官方代码](https://github.com/PeterGriffinJin/Search-R1)。
 
 这种环境适合研究“模型何时搜索、怎样改写查询”。它无法覆盖登录、动态加载、按钮点击和复杂表格等真实网页交互。
 
-### 网页正文抽取：开始处理来源与证据
+### 网页正文抽取
 
 第二层增加 `open(url)`，把网页正文抽取成干净文本。模型可以核对来源、保存引用片段，并处理搜索摘要没有展示的信息。
 
 正文抽取会引入新问题：导航栏和广告可能混入正文，JavaScript 页面可能抽取为空，PDF 和表格也需要独立解析器。Harness 应把“页面不可访问”“抽取失败”“正文确实没有答案”记录成不同状态。
 
-### Playwright 浏览器：处理真实交互
+### Playwright 浏览器
 
 第三层使用 Playwright 一类浏览器控制工具，让模型点击、输入、滚动和下载文件。它能够处理真实网站，也最容易受到弹窗、验证码、页面改版和网络波动影响。
 
 因此，训练通常先在缓存语料或模拟环境中验证算法，再把一部分轨迹迁移到真实网络。[DeepResearcher](https://arxiv.org/abs/2504.03160)强调真实开放网络训练的价值；[Tongyi DeepResearch](https://tongyi-agent.github.io/blog/introducing-tongyi-deep-research/)则同时使用模拟与真实环境，并通过缓存、重试和备用搜索服务减少工具故障污染奖励。
 
-### 混合环境：按任务选择工具
+### 混合环境
 
 实际系统常把三层组合起来：先用搜索 API 找候选来源，再用正文抽取读取大多数页面，只有遇到动态站点时才启动浏览器。这样可以把高成本交互留给真正需要它的页面。
 
@@ -166,7 +166,7 @@ Browser RL 并不要求第一天就启动完整浏览器。环境可以按保真
 
 完成订票、填写表单等 Web Agent 任务时，目标通常是让网页进入某个状态。Deep Research 更关注一条结论是否被多源证据支持。它的交互往往更长，评分也会同时检查答案、引用、过程与成本。
 
-## 第一层：从 ReAct 到长程研究协作
+## 第一层 从 ReAct 到长程研究协作
 
 Deep Research Agent 的推理方式并不是一步到位的。过去两年里，这条路线大致经历了三个层次的演化：
 
@@ -193,13 +193,13 @@ _图：Deep Research Agent 多种技术路线对比（来源：[Tongyi DeepResea
 
 可以把三者理解为同一条能力链上的不同阶段：**ReAct 负责打通工具闭环，iterative research 负责把闭环拉长，multi-agent synthesis 负责把长程研究任务做结构化分工。** Agentic RL 的作用，则是让模型不只会照着模板调用工具，而是在真实反馈中逐渐学会什么时候搜索、什么时候停止、什么时候需要交叉验证。
 
-## 第二层：不同系统怎样组织长程研究
+## 第二层 长程研究的系统组织
 
 以下是目前最具代表性的开源 Deep Research 模型及训练框架。它们的共同目标是将 LLM 从"聊天模型"进化为"研究模型"。
 
-### DeepResearcher：端到端 RL 训练
+### DeepResearcher 的端到端 RL 训练
 
-DeepResearcher 是首个在**真实的、动态的开放网络环境**中进行端到端 RL 训练的框架 [^deepresearcher]。之前的工作大多在受控的 RAG 环境中训练，或者依赖精心设计的 prompt 工程——DeepResearcher 直接让模型与真实的搜索引擎和网页交互，从真实反馈中学习。
+DeepResearcher 是首个在**真实的、动态的开放网络环境**中进行端到端 RL 训练的框架 [^deepresearcher]。之前的工作大多在受控的 RAG 环境中训练，或者依赖精心设计的 prompt 工程，DeepResearcher 直接让模型与真实的搜索引擎和网页交互，从真实反馈中学习。
 
 它的架构采用了多智能体协作：专门的"浏览智能体（Browsing Agents）"负责从复杂网页结构中提取信息，主智能体负责规划研究策略和综合信息。训练目标是纯粹的答案正确性（RLVR），不引入任何过程奖励。
 
@@ -215,7 +215,7 @@ DeepResearcher 的定性分析观察到一些没有写成独立监督标签的�
 
 这些结果说明，终态奖励可能间接提高规划、交叉验证与失败重定向的出现频率。定性案例不能单独证明每种行为都来自 RL；还要结合基线轨迹与消融实验判断变化来源。
 
-### Tongyi DeepResearch：Agentic Mid-training + Post-training
+### Tongyi DeepResearch 的两阶段训练
 
 阿里巴巴通义实验室的 Tongyi DeepResearch 技术报告给出了从 Agentic CPT、SFT 到 on-policy RL 的完整路线 [^tongyi_dr]。模型共有 30.5B 参数，每个 token 激活 3.3B 参数；报告在多项深度研究基准上给出了结果。跨系统比较时还要同时核对工具、预算和测试时扩展设置。
 
@@ -224,28 +224,25 @@ _图：Tongyi DeepResearch 的异步 RL 训练架构（来源：[Tongyi DeepRese
 
 **两阶段训练范式。** Tongyi DeepResearch 的核心创新是提出 **Agentic Mid-training + Post-training** 两阶段流水线：
 
-1. **Agentic Mid-training（Agentic CPT）**：在合成的大规模工具调用轨迹上进行持续预训练。分两步：先在 32K 上下文上训练基础 agentic 能力，再扩展到 128K 引入长序列（64K-128K）agentic 行为数据。这一阶段的目标不是教模型"怎么做好研究"，而是赋予它**agentic 行为的归纳偏置**——让模型在接触具体研究任务之前，就已经"熟悉"工具调用的基本模式。少量通用预训练数据穿插其中，防止模型丧失通用语言能力。
+1. **Agentic Mid-training（Agentic CPT）**：在合成的大规模工具调用轨迹上进行持续预训练。分两步：先在 32K 上下文上训练基础 agentic 能力，再扩展到 128K 引入长序列（64K-128K）agentic 行为数据。这一阶段的目标不是教模型"怎么做好研究"，而是赋予它**agentic 行为的归纳偏置**，让模型在接触具体研究任务之前，就已经"熟悉"工具调用的基本模式。少量通用预训练数据穿插其中，防止模型丧失通用语言能力。
 
-2. **Agentic Post-training**：分为三步——SFT 冷启动（在高质量合成轨迹上学习研究模板）、on-policy RL（用定制化 GRPO 在真实+模拟环境中优化策略）、模型合并（将不同能力偏好的模型变体通过参数平均融合）。
+2. **Agentic Post-training**：分为三步，SFT 冷启动（在高质量合成轨迹上学习研究模板）、on-policy RL（用定制化 GRPO 在真实+模拟环境中优化策略）、模型合并（将不同能力偏好的模型变体通过参数平均融合）。
 
-**两项关键技术。** 除了训练范式，Tongyi DeepResearch 还有两项值得关注的工程创新：
-
-- **Context Management 推理范式**：长程研究面临的核心瓶颈是上下文窗口有限。Tongyi 提出了基于马尔可夫状态重建的 Context Management——每一步不保留完整历史，而是维护一个不断更新的"研究报告摘要"作为压缩记忆。这让模型能在任意深度的探索中保持推理能力。
-- **分阶段环境策略**：不同训练阶段使用不同保真度的环境。Mid-training 使用"先验世界环境"（零成本、零交互）和"模拟环境"（低成本、可控）；Post-training 的 RL 阶段先在模拟环境验证算法，再部署到真实环境做最终训练。这一策略解决了真实环境 API 不稳定、高延迟、高成本的问题。
+**两项关键技术。** 除了训练范式，Tongyi DeepResearch 还有两项值得关注的工程创新。**Context Management 推理范式**针对长程研究的核心瓶颈，即上下文窗口有限：每一步不保留完整历史，而是基于马尔可夫状态重建维护一个不断更新的“研究报告摘要”作为压缩记忆，让模型在任意深度的探索中保持推理能力。**分阶段环境策略**让不同训练阶段使用不同保真度的环境：Mid-training 使用“先验世界环境”（零成本、零交互）和“模拟环境”（低成本、可控）；Post-training 的 RL 阶段先在模拟环境验证算法，再部署到真实环境做最终训练，避开了真实环境 API 不稳定、高延迟、高成本的问题。
 
 在 BrowseComp、WebWalkerQA、FRAMES、HLE 等多个深度研究 benchmark 上达到 SOTA [^tongyi_dr]。
 
-### PokeeResearch-7B：小模型的大潜力
+### PokeeResearch-7B 的小模型表现
 
 PokeeResearch-7B 提供了一个 7B 规模的研究模型 [^pokeeresearch]。它适合研究模型规模较小时，工具接口、检索质量和领域数据能补偿多少参数差距。能否在消费级 GPU 上完整运行，还取决于量化方式、上下文长度和工具服务，部署报告应给出实际显存与吞吐。
 
-### SFR-DeepResearch：自主单智能体
+### SFR-DeepResearch 的自主单智能体
 
 Salesforce 的 SFR-DeepResearch 走了一条与多智能体不同的路线：**自主单智能体**（Autonomous Single Agent）[^sfr_dr]。它不将研究流程拆分为搜索、阅读、写作等多个角色，而是让一个模型端到端完成全部研究流程。
 
-这一路线的优势是**架构简洁**——没有多智能体之间的通信开销和协调成本。但挑战也很明显：单模型需要同时掌握搜索策略、信息综合、长文本生成等多种能力，容易产生能力冲突。SFR 的解法是在**推理增强模型**（已经在数学、代码等领域经过 RL 训练的模型）上继续用 RL 做 agent 训练，利用模型已有的强推理能力来支撑研究任务。
+这一路线的优势是**架构简洁**，没有多智能体之间的通信开销和协调成本。但挑战也很明显：单模型需要同时掌握搜索策略、信息综合、长文本生成等多种能力，容易产生能力冲突。SFR 的解法是在**推理增强模型**（已经在数学、代码等领域经过 RL 训练的模型）上继续用 RL 做 agent 训练，利用模型已有的强推理能力来支撑研究任务。
 
-### rStar2-Agent：训练效率
+### rStar2-Agent 的训练效率
 
 rStar2-Agent 使用基于 GRPO 的 agent RL 方法训练 14B 推理模型 [^rstar2]。它主要提供训练效率与 agentic reasoning 的经验，并不是专门的 Deep Research 系统；放在这里是为了观察采样和优势估计怎样迁移到搜索型智能体。
 
@@ -271,11 +268,11 @@ flowchart LR
     style D fill:#e8f5e9,stroke:#388e3c,color:#000
 ```
 
-## 第三层：从最终答案到过程奖励
+## 第三层 从最终答案到过程奖励
 
 DeepResearcher 与 Search-R1 表明，终态答案奖励可以学出有用搜索行为。轨迹变长后，这个信号会变得稀疏：模型知道整题得分，却很难判断几十个动作中哪些真正有帮助。下面几项工作尝试增加引用或过程信号。
 
-### 引用感知奖励：CaRR
+### CaRR 的引用感知奖励
 
 **问题**：Deep Research Agent 可能编造 URL，也可能引用真实论文却歪曲其结论。只检查最终答案的 outcome reward 无法识别这类引用错误。
 
@@ -288,23 +285,23 @@ DeepResearcher 与 Search-R1 表明，终态答案奖励可以学出有用搜索
 
 最终奖励为被满足且逻辑连通的 Rubric 数量占总 Rubric 数量的比率。该比率奖励与结果奖励（答案是否正确）按可调权重 $\alpha$ 进行混合，作为 GRPO 训练的综合奖励信号。
 
-**启示**：CaRR 的设计思想可以推广到其他需要"可验证性"的场景——不只是引用，代码是否能执行、数学推导是否正确，都可以用类似的"分解→验证→计算比率"框架来设计奖励。
+**启示**：CaRR 的设计思想可以推广到其他需要"可验证性"的场景，不只是引用，代码是否能执行、数学推导是否正确，都可以用类似的"分解→验证→计算比率"框架来设计奖励。
 
-### 原子思维奖励：Atom-Searcher
+### Atom-Searcher 的原子思维奖励
 
-**问题**：Deep Research 的研究轨迹可能长达几十步。如果只用终态 reward（答案对=1，错=0），信用分配（credit assignment）几乎不可能做好——模型完全不知道这几十步中哪些是关键的好决策，哪些是凑巧没影响的坏决策。
+**问题**：Deep Research 的研究轨迹可能长达几十步。如果只用终态 reward（答案对=1，错=0），信用分配（credit assignment）几乎不可能做好，模型完全不知道这几十步中哪些是关键的好决策，哪些是凑巧没影响的坏决策。
 
 **方案**：Atom-Searcher 提出了**原子思维奖励（Atomic Thought Reward, ATR）**[^atom_searcher]，将复杂推理分解为原子级单元，并在每个中间步骤给予过程奖励。核心思想是：与其等到最终答案出来再给 reward，不如在每个"原子推理步骤"上就给反馈。
 
 **为什么是"原子"而不是"步骤"？** 注意 ATR 不是简单的"每步打分"。它先将推理链分解为不可再分的原子单元（如"从 A 推导出 B"），然后对每个原子单元独立评估逻辑正确性和信息价值。这种分解方式比步骤级打分更精细，也比 token 级打分更有语义意义。
 
-**实践价值**：ATR 主要在训练初期发挥作用。当模型还没有形成稳定的研究策略时，密集的过程信号能大幅加速收敛。一旦模型学会了基本的研究模式，可以逐步退火 ATR 的权重，回归到终态 reward 主导——这和人类学习的过程一致：先学每一步怎么做，再学会评价整体结果。
+**实践价值**：ATR 主要在训练初期发挥作用。当模型还没有形成稳定的研究策略时，密集的过程信号能大幅加速收敛。一旦模型学会了基本的研究模式，可以逐步退火 ATR 的权重，回归到终态 reward 主导，这和人类学习的过程一致：先学每一步怎么做，再学会评价整体结果。
 
-### 演化评分标准：DR Tulu
+### DR Tulu 的演化评分标准
 
-**问题**：RL 训练中有一个经典陷阱——**Reward Hacking**。模型会找到评分标准的"漏洞"来获取高分，而不是真正提升研究质量。比如发现"引用越多分越高"就堆砌引用，发现"答案越长分越高"就疯狂注水。一旦模型学会了钻空子，训练就陷入了"刷分但不进步"的死循环。
+**问题**：RL 训练中的经典陷阱是 **Reward Hacking**。模型会找到评分标准的"漏洞"来获取高分，而不是真正提升研究质量。比如发现"引用越多分越高"就堆砌引用，发现"答案越长分越高"就疯狂注水。一旦模型学会了钻空子，训练就陷入了"刷分但不进步"的死循环。
 
-**方案**：Allen AI 的 DR Tulu 提出了 **RLER（Reinforcement Learning with Evolving Rubrics）**[^dr_tulu]——让评分标准本身随训练动态演化。它的核心策略是"打移动靶"：
+**方案**：Allen AI 的 DR Tulu 提出了 **RLER（Reinforcement Learning with Evolving Rubrics）**[^dr_tulu]，让评分标准本身随训练动态演化。它的核心策略是"打移动靶"：
 
 1. **训练初期**：用宽松的 Rubrics 鼓励模型探索。比如"只要有引用就给分"，不苛求引用质量
 2. **训练中期**：当模型在当前标准下刷分到一定程度后，自动收紧标准。比如"引用必须可访问才给分"
@@ -312,37 +309,37 @@ DeepResearcher 与 Search-R1 表明，终态答案奖励可以学出有用搜索
 
 每次标准收紧，之前模型学会的"捷径"就不再有效，迫使模型去寻找真正提升质量的策略。
 
-**启示**：RLER 的思想可以类比于教育中的"升级考试"——不能永远做同一套题，标准要随着学生水平提高而提高。这一策略与 CaRR 的引用验证、Web-Shepherd 的过程评分天然互补。
+**启示**：RLER 的思想可以类比于教育中的"升级考试"，不能永远做同一套题，标准要随着学生水平提高而提高。这一策略与 CaRR 的引用验证、Web-Shepherd 的过程评分天然互补。
 
-### 无需微调的 RL：Memento
+### Memento 的免微调 RL
 
 **问题**：RL 训练需要大量计算资源、复杂的工程基础设施、以及稳定的环境交互。对于很多团队来说，这套门槛太高了。有没有更轻量的方式让 Agent 变强？
 
-**方案**：Memento 提供了一条完全不同的技术路线 [^memento]——**不修改模型参数**，而是通过外部"情景记忆"（Episodic Memory）让 Agent 在推理时检索相似案例来指导行为。具体来说：
+**方案**：Memento 提供了一条完全不同的技术路线 [^memento]，**不修改模型参数**，而是通过外部"情景记忆"（Episodic Memory）让 Agent 在推理时检索相似案例来指导行为。具体来说：
 
 1. **案例积累**：将过去成功和失败的研究轨迹存储为案例
 2. **案例检索**：面对新问题时，从记忆中检索最相似的成功案例
 3. **策略指导**：将检索到的案例作为上下文提供给模型，引导它采取类似的成功策略
 
-**为什么这很重要？** Memento 在 GAIA 验证集上排名第一（87.88% Pass@3），超越了许多经过大量 RL 训练的模型。它有力地证明了：**有时候"更好的检索"比"更好的训练"更有效**。这也提示我们，RL 并非提升 Agent 能力的唯一路径——外部记忆与推理时策略同样是值得关注的方向。对于资源受限的团队，Memento 路线的性价比可能远高于完整的 RL 训练。
+**为什么这很重要？** Memento 在 GAIA 验证集上排名第一（87.88% Pass@3），超越了许多经过大量 RL 训练的模型。它有力地证明了：**有时候"更好的检索"比"更好的训练"更有效**。这也提示我们，RL 并非提升 Agent 能力的唯一路径，外部记忆与推理时策略同样是值得关注的方向。对于资源受限的团队，Memento 路线的性价比可能远高于完整的 RL 训练。
 
-### 步骤级过程奖励：Web-Shepherd
+### Web-Shepherd 的步骤级过程奖励
 
-**问题**：在网页交互场景中，outcome reward（只看最终答案对不对）的信息量极低。一个 Agent 可能搜索了 30 次，其中 28 次都在做无效操作，但碰巧最后一次搜到了正确答案——outcome reward 会给这整条轨迹打高分，实际上强化了大量无效行为。
+**问题**：在网页交互场景中，outcome reward（只看最终答案对不对）的信息量极低。一个 Agent 可能搜索了 30 次，其中 28 次都在做无效操作，但碰巧最后一次搜到了正确答案，outcome reward 会给这整条轨迹打高分，实际上强化了大量无效行为。
 
 **方案**：Web-Shepherd 专门训练了一个**步骤级过程奖励模型（PRM）** 来评估网页交互的每一步质量 [^web_shepherd]。与 ORM（Outcome Reward Model）不同，PRM 为每一步独立打分，提供密集的训练信号。
 
 **关键设计**：Web-Shepherd 的 PRM 为网页导航轨迹中的每一步独立评估质量，比传统的 outcome reward 提供了更密集、更准确的训练信号。
 
-**实验结果**：PRM 能带来 10.9 个百分点的性能提升。这个数字看似不大，但考虑到这纯粹来自"更准确的奖励信号"而非任何模型架构或数据改进，其实际意义非常大——它直接证明了**过程级信号的实用价值**。
+**实验结果**：PRM 能带来 10.9 个百分点的性能提升。这个数字看似不大，但考虑到这纯粹来自"更准确的奖励信号"而非任何模型架构或数据改进，其实际意义非常大，它直接证明了**过程级信号的实用价值**。
 
-**与其他工作的关系**：Web-Shepherd 的 PRM 与 Atom-Searcher 的 ATR 有相似目标（提供过程级信号），但粒度不同——PRM 按步骤打分，ATR 按原子推理单元打分。两者可以互补使用。
+**与其他工作的关系**：Web-Shepherd 的 PRM 与 Atom-Searcher 的 ATR 有相似目标（提供过程级信号），但粒度不同，PRM 按步骤打分，ATR 按原子推理单元打分。两者可以互补使用。
 
-## 第四层：训练轨迹从哪里来
+## 第四层 训练轨迹的来源
 
 长程、高质量的研究轨迹是训练 Deep Research Agent 的关键输入，也是最大的瓶颈。以下工作专注于解决这个问题。
 
-### OpenResearcher：完全开源的轨迹合成
+### OpenResearcher 的开源轨迹合成
 
 **问题**：训练 Deep Research Agent 需要大量长程研究轨迹，但真实网络环境不稳定、API 调用昂贵、且难以复现。大多数研究团队没有条件大规模采集真实轨迹。
 
@@ -350,23 +347,19 @@ DeepResearcher 与 Search-R1 表明，终态答案奖励可以学出有用搜索
 
 **规模与质量**：OpenResearcher 生成了超过 97K 条轨迹，其中部分轨迹包含 100+ 次工具调用。这些轨迹覆盖了从简单事实查询到复杂多步推理的各种难度。
 
-**实践价值**：对资源有限的研究者来说，OpenResearcher 是最友好的起点——不需要 API key，不需要 GPU 集群，一台普通电脑就能跑通整个合成流程。它也是验证新算法的绝佳工具：在一个完全可控、可复现的环境里快速迭代。
+**实践价值**：对资源有限的研究者来说，OpenResearcher 是最友好的起点，不需要 API key，不需要 GPU 集群，一台普通电脑就能跑通整个合成流程。它也是验证新算法的绝佳工具：在一个完全可控、可复现的环境里快速迭代。
 
-### Tongyi DeepResearch：全自动数据合成管线
+### Tongyi DeepResearch 的自动数据合成管线
 
-Tongyi DeepResearch 的数据合成管线 [^tongyi_dr] 是其核心创新之一，完全自动化且无需人工标注。它采用**分阶段、复杂度递增**的策略，为不同的训练阶段定制不同类型的数据：
+Tongyi DeepResearch 的数据合成管线 [^tongyi_dr] 是其核心创新之一，完全自动化且无需人工标注。它采用**分阶段、复杂度递增**的策略，为不同的训练阶段定制不同类型的数据。
 
-- **Mid-training 阶段**：合成大规模 agent 行为数据，覆盖研究的完整生命周期。具体包括四类动作数据：
-  - **问题合成**：基于实体锚定的开放世界记忆，生成多风格问题（多跳推理、数值计算等）
-  - **规划动作**：问题分解与首步行动预测——规划准确性直接决定任务能否成功
-  - **推理动作**：给定问题和相关知识，生成完整的逻辑推理链，并通过推理长度和答案一致性双重过滤保证质量
-  - **决策动作**：在轨迹的每个决策点探索可行动作空间，将轨迹重构为多步决策序列
+**Mid-training 阶段**合成大规模 agent 行为数据，覆盖研究的完整生命周期，包括四类动作数据：**问题合成**基于实体锚定的开放世界记忆生成多风格问题（多跳推理、数值计算等）；**规划动作**做问题分解与首步行动预测，规划准确性直接决定任务能否成功；**推理动作**在给定问题和相关知识后生成完整的逻辑推理链，并通过推理长度和答案一致性双重过滤保证质量；**决策动作**在轨迹的每个决策点探索可行动作空间，将轨迹重构为多步决策序列。
 
-- **Post-training 阶段**：通过知识图谱随机游走构建高互连性信息结构，用形式化方法（基于集合论）对信息检索问题进行建模，逐步增加不确定性来提升问题难度，最终生成超人级的问答对和 PhD 级研究问题
+**Post-training 阶段**通过知识图谱随机游走构建高互连性信息结构，用形式化方法（基于集合论）对信息检索问题进行建模，逐步增加不确定性来提升问题难度，最终生成超人级的问答对和 PhD 级研究问题。
 
 **"数据飞轮"机制**：这套管线最独特的地方在于它能自我进化。完成一轮训练后，得到的更强模型可以反过来生成更高质量的合成数据，形成正反馈循环。这意味着训练数据的质量会随模型能力的提升而持续改善，而不是固定不变的。
 
-### O-Researcher：多智能体协作与蒸馏
+### O-Researcher 的多智能体协作与蒸馏
 
 **问题**：如果只用单个 LLM（如直接调用 GPT-4 API）来生成研究轨迹，模型往往会给出肤浅的答案，或者直接跳过搜索步骤靠内部知识“盲猜”，无法生成用于训练 Agent 的、严谨的多步推理轨迹。
 
@@ -379,79 +372,42 @@ Tongyi DeepResearch 的数据合成管线 [^tongyi_dr] 是其核心创新之一�
 
 **核心启示**：这种模拟人类研究团队协作的“多智能体工作流”，强制生成了包含**完整试错、交叉验证和长程推理（Long-Horizon）** 的轨迹。随后，O-Researcher 将这些极其优质的轨迹数据，通过监督微调（SFT）和 Agentic RL（如 GRPO），“蒸馏”到了单个开源小模型（如 7B/72B）上。这证明了：**对于复杂任务，多智能体是合成高质量 SFT 数据（Data Synthesis）的绝佳手段，而最终部署时，我们可以将其能力压缩到一个强大的单体 Agent 中。**
 
-### Fathom-DeepResearch：多智能体自博弈
+### Fathom-DeepResearch 的多智能体自博弈
 
-**问题**：合成数据通常面临"难度不够"的问题——用 GPT-4 级别的模型生成的研究轨迹，对于训练同级别模型来说可能过于简单。
+**问题**：合成数据通常面临"难度不够"的问题，用 GPT-4 级别的模型生成的研究轨迹，对于训练同级别模型来说可能过于简单。
 
-**方案**：Fathom-DeepResearch 使用**多智能体自博弈**（Multi-agent Self-play）来生成 DUETQA 数据集 [^fathom_dr]。它将两个 4B 参数的模型分别扮演不同角色：
+**方案**：Fathom-DeepResearch 使用**多智能体自博弈**（Multi-agent Self-play）来生成 DUETQA 数据集 [^fathom_dr]。它将两个 4B 参数的模型分别扮演不同角色：**搜索者**（Fathom-Search-4B）负责在网络上搜索和定位信息，**推理者**（Fathom-Synthesizer-4B）负责将搜索到的信息综合为连贯的回答。两个模型通过自博弈协同工作，两者的交互产生了高质量、多样化的训练数据。
 
-- **搜索者（Fathom-Search-4B）**：负责在网络上搜索和定位信息
-- **推理者（Fathom-Synthesizer-4B）**：负责将搜索到的信息综合为连贯的回答
+**启示**：Fathom 的思路可以类比于 GAN（生成对抗网络），用两个模型的对抗来提升数据质量。即使总参数量不变，将能力拆分为专门的子模型也能解锁更强的数据生成能力。这也暗示了"专业化分工"在 agent 训练中的价值。
 
-两个模型通过自博弈协同工作——搜索者负责定位信息，推理者负责综合回答，两者的交互产生了高质量、多样化的训练数据。
-
-**启示**：Fathom 的思路可以类比于 GAN（生成对抗网络）——用两个模型的对抗来提升数据质量。即使总参数量不变，将能力拆分为专门的子模型也能解锁更强的数据生成能力。这也暗示了"专业化分工"在 agent 训练中的价值。
-
-## 第五层：先定义“好的研究”
+## 第五层 定义好的研究
 
 > 本节聚焦 Deep Research 场景特有的评估维度。更广泛的 Agentic 评测体系（包括工具调用、端到端任务、综合能力的 benchmark 全景和评测系统搭建）见 [附录 A.4 评估模型改进](../appendix_industrial_training/evaluation-badcase)。
 
-Deep Research Agent 的"好"远不止是最终答案的正确性。一个优秀的 Deep Research 结果需要同时满足四个层次：
+Deep Research Agent 的“好”远不止是最终答案的正确性。一个优秀的 Deep Research 结果需要同时满足四个层次。**答案正确性**指最终结论是否正确，通过与标准答案对比（Exact Match/F1）评估；**引用可靠性**指每个论断是否有据可查，通过引用 URL 可访问性与内容相关性评估；**过程严谨性**指推理链条是否逻辑自洽，通过步骤级 PRM 评分评估；**执行效率**指是否以最少的步骤完成，通过完成任务所需的交互轮数评估。
 
-- **层次 — 答案正确性**
-  - 含义: 最终结论是否正确
-  - 评估方式: 与标准答案对比（Exact Match/F1）
-- **层次 — 引用可靠性**
-  - 含义: 每个论断是否有据可查
-  - 评估方式: 引用 URL 可访问性 + 内容相关性
-- **层次 — 过程严谨性**
-  - 含义: 推理链条是否逻辑自洽
-  - 评估方式: 步骤级 PRM 评分
-- **层次 — 执行效率**
-  - 含义: 是否以最少的步骤完成
-  - 评估方式: 完成任务所需的交互轮数
+主流评估基准各有侧重。**GAIA** 面向真实世界复杂问答，强调多步推理、工具使用与综合分析能力；**Humanity's Last Exam（HLE）**汇集多学科专家级难题，考察模型在高难知识任务上的上限；**BrowseComp 与 BrowseComp-ZH** 是复杂信息检索基准，强调在开放网页中逐步搜索、定位、核实并整合答案；**WebWalkerQA** 强调网页浏览过程中的路径选择与信息抽取，适合评估边浏览边推理的能力；**FRAMES** 关注长程信息整合与多来源证据组织，更贴近把材料拼成研究结论的场景；**xbench-DeepSearch** 是用户中心的深度研究评测，考察系统能否围绕真实研究需求完成端到端任务；**WebArena 与 Mind2Web** 统计网页环境中的操作成功率，更偏交互执行而非研究结论本身；**BFCL** 检查工具与 API 调用的精确性，适合评估基础工具使用能力。
 
-主流评估基准包括：
-
-- **GAIA**：真实世界复杂问答，强调多步推理、工具使用与综合分析能力。
-- **Humanity's Last Exam (HLE)**：多学科专家级难题，考察模型在高难知识任务上的上限。
-- **BrowseComp / BrowseComp-ZH**：复杂信息 seeking 基准，强调在开放网页中逐步搜索、定位、核实并整合答案。
-- **WebWalkerQA**：强调网页浏览过程中的路径选择与信息抽取，适合评估"边浏览边推理"的能力。
-- **FRAMES**：关注长程信息整合与多来源证据组织，更贴近"把材料拼成研究结论"的场景。
-- **xbench-DeepSearch**：用户中心的深度研究评测，考察系统能否围绕真实研究需求完成端到端任务。
-- **WebArena / Mind2Web**：网页环境中的操作成功率，更偏交互执行而非研究结论本身。
-- **BFCL**：工具/API 调用的精确性，适合评估基础工具使用能力。
-
-如果把这些 benchmark 放在一张图里理解，可以分成三类：
-
-- **研究结果导向**：GAIA、HLE、FRAMES、xbench-DeepSearch
-- **信息寻求导向**：BrowseComp、BrowseComp-ZH、WebWalkerQA
-- **交互执行导向**：WebArena、Mind2Web、BFCL
+把这些基准放在一起，可以分成三类：研究结果导向包括 GAIA、HLE、FRAMES 和 xbench-DeepSearch；信息寻求导向包括 BrowseComp、BrowseComp-ZH 和 WebWalkerQA；交互执行导向包括 WebArena、Mind2Web 和 BFCL。
 
 这也是为什么 Deep Research Agent 的评测不能只看一个榜单：有的基准更像"考试题"，有的更像"找资料"，有的则更像"操作浏览器"。只有把三类信号放在一起看，才能判断一个系统到底是会研究，还是只会搜索，或者只是会点网页。
 
-### 什么行为会被惩罚？
+### 被惩罚的行为
 
-理解"好"的标准，也要知道 RL 训练中哪些行为会被惩罚：
+理解“好”的标准，也要知道 RL 训练中哪些行为会被惩罚：**幻觉引用**是编造不存在的论文标题、URL 或数据来源；**走捷径**是不进行搜索而直接猜测答案，依赖过时的模型内部知识；**信息偏食**是只搜索支持预设结论的信息，忽略相反证据；**低效循环**是反复搜索相同关键词，消耗大量 token 却无进展；**归因错误**是将信息归因于错误的来源，张冠李戴。
 
-- **幻觉引用**：编造不存在的论文标题、URL 或数据来源
-- **走捷径**：直接猜测答案而不进行搜索，依赖过时的模型内部知识
-- **信息偏食**：只搜索支持预设结论的信息，忽略相反证据
-- **低效循环**：反复搜索相同关键词，消耗大量 token 却无进展
-- **归因错误**：将信息归因于错误的来源，张冠李戴
-
-## 第六层：把质量标准写成奖励函数
+## 第六层 把质量标准写成奖励函数
 
 前面列出的“正确、可引用、过程严谨、执行高效”仍然是自然语言要求。RL 需要的是一个能对每条轨迹返回数值的验证器。最稳妥的做法是先让最简单的终态奖励工作，再逐项加入过程信号；这样一旦训练异常，也能定位是哪一项奖励造成的。
 
-**第一阶段——结果导向：**
+**第一阶段：结果导向**
 
 ```python
 # 最简单的 reward 与 只看最终答案
 reward = 1.0 if answer == ground_truth else 0.0
 ```
 
-**第二阶段——加入过程信号：**
+**第二阶段：加入过程信号**
 
 ```python
 # 加入工具调用质量和效率
@@ -462,7 +418,7 @@ reward = (
 )
 ```
 
-**第三阶段——前沿做法：**
+**第三阶段：前沿做法**
 
 ```python
 # 引用质量 + 交叉验证 + 效率
@@ -476,18 +432,7 @@ reward = (
 
 ## 精选开源资源
 
-- **资源 — Awesome-GRPO**
-  - 类型: 资源库
-  - 核心价值: 跟踪 GRPO 等前沿 RL 算法变体
-- **资源 — LLM-Explorer**
-  - 类型: 插件工具
-  - 核心价值: 清华出品，增强 RL 算法探索能力，平均性能提升 37.27%
-- **资源 — WebSailor-V2**
-  - 类型: 开源项目
-  - 核心价值: 通过合成数据和可扩展 RL 弥合开源与闭源 Agent 的差距
-- **资源 — ReLook**
-  - 类型: 研究工作
-  - 核心价值: 多模态 LLM 网页编码 RL，用视觉反馈作为奖励信号
+**Awesome-GRPO** 是跟踪 GRPO 等前沿 RL 算法变体的资源库；**LLM-Explorer** 是清华出品的插件工具，增强 RL 算法探索能力，平均性能提升 37.27%；**WebSailor-V2** 是开源项目，通过合成数据和可扩展 RL 弥合开源与闭源 Agent 的差距；**ReLook** 研究多模态 LLM 网页编码 RL，用视觉反馈作为奖励信号。
 
 ## 实践建议
 
@@ -497,21 +442,21 @@ reward = (
 2. **OpenResearcher**：完全开源了整个数据合成流程，是研究和实践 Deep Research 的基石。
 3. **rStar2-Agent**：用于继续研究 RL 采样与优化方法，不作为浏览器环境的入门复现。
 
-## 第七层：把证据写成研究报告
+## 第七层 把证据写成研究报告
 
-前面的讨论聚焦在"搜索策略"和"信息整合"上——Deep Research 的"输入"和"处理"环节。但一个完整的 Deep Research 系统还需要高质量的**输出**环节：将研究结果写成结构化的报告。在电商、金融、咨询等垂域场景中，报告质量直接决定 Agent 的实用价值。
+前面的讨论聚焦在"搜索策略"和"信息整合"上，Deep Research 的"输入"和"处理"环节。但一个完整的 Deep Research 系统还需要高质量的**输出**环节：将研究结果写成结构化的报告。在电商、金融、咨询等垂域场景中，报告质量直接决定 Agent 的实用价值。
 
-### 报告生成 RL 的独特挑战
+### 报告生成 RL 的挑战
 
 与代码生成、数学推理等"答案可验证"的任务不同，报告生成的 RL 训练面临独特挑战：
 
-**奖励主观且多维。** 一份好的报告需要同时满足准确性、结构清晰性、可读性、完整性和引用可靠性。这些维度之间可能存在 trade-off——最准确的报告可能因为术语堆砌而难以阅读。
+**奖励主观且多维。** 一份好的报告需要同时满足准确性、结构清晰性、可读性、完整性和引用可靠性。这些维度之间可能存在 trade-off，最准确的报告可能因为术语堆砌而难以阅读。
 
 **输出超长。** 一份完整的研究报告可能 3000-10000 字，远超标准 RLHF 的单轮输出（500-1000 字）。超长输出带来梯度传播困难和一致性维持问题。
 
-**结构约束。** 报告不是自由文本——需要标题、段落、引用等结构化元素。模型需要在保持内容质量的同时生成符合格式要求的结构。
+**结构约束。** 报告不是自由文本，需要标题、段落、引用等结构化元素。模型需要在保持内容质量的同时生成符合格式要求的结构。
 
-### LongWriter-Zero：长文本 RL
+### LongWriter-Zero 的长文本 RL
 
 LongWriter-Zero[^longwriter] 解决了核心问题：如何让模型生成万字级别的长文本，而且**不需要任何长文本标注数据**。它的方案是三重复合奖励模型：
 
@@ -533,27 +478,11 @@ def longwriter_reward(text, prompt):
 
 其惊人发现是：**RL 可以让模型从短文本能力自然涌现出长文本能力**。不需要专门的长文本 SFT 数据，复合 reward 就能引导模型学会规划长文本结构。
 
-Writer-R1[^writerr1] 进一步引入了**记忆增强**——通过 Memory-augmented Replay Policy Optimization，保存高质量写作的"成功模式"和低质量写作的"错误模式"，在新任务中检索相关模式，从而提升生成写作的质量。
+Writer-R1[^writerr1] 进一步引入了**记忆增强**，通过 Memory-augmented Replay Policy Optimization，保存高质量写作的"成功模式"和低质量写作的"错误模式"，在新任务中检索相关模式，从而提升生成写作的质量。
 
 ### 结构化输出的分层约束
 
-RL-Struct[^rlstruct] 提出了**分层奖励函数**，将结构化输出分解为约束层级：
-
-- **层级 — Level 0**
-  - 约束类型: 输出格式合法性（合法 JSON/Markdown）
-  - 评分方式: 违反 = 0 分
-- **层级 — Level 1**
-  - 约束类型: 必需字段完整性
-  - 评分方式: 每缺一个扣分
-- **层级 — Level 2**
-  - 约束类型: 字段内容格式（日期是日期，数字是数字）
-  - 评分方式: 格式错误扣分
-- **层级 — Level 3**
-  - 约束类型: 内容质量（准确、连贯）
-  - 评分方式: RM 连续评分
-- **层级 — Level 4**
-  - 约束类型: 表达质量（流畅、精当）
-  - 评分方式: RM 连续评分
+RL-Struct[^rlstruct] 提出了**分层奖励函数**，将结构化输出分解为五个约束层级。Level 0 检查输出格式合法性（合法 JSON/Markdown），违反直接得 0 分；Level 1 检查必需字段完整性，每缺一个字段扣分；Level 2 检查字段内容格式（日期是日期，数字是数字），格式错误扣分；Level 3 检查内容质量（准确、连贯），由 RM 连续评分；Level 4 检查表达质量（流畅、精当），同样由 RM 连续评分。
 
 低层级约束是硬性的（违反直接 0 分），高层级是软性的（RM 给连续分数）。模型首先学会满足硬性约束，然后逐步优化软性质量。
 
@@ -579,7 +508,7 @@ def report_reward(report, task, verified_facts=None):
     )
 ```
 
-训练时建议采用**从短到长的课程学习**——先训 500 字短报告，逐步增加到 5000 字完整报告。这和 19.4 节 HardGen[^hardgen] 的难度自适应思路一致。
+训练时建议采用**从短到长的课程学习**，先训 500 字短报告，逐步增加到 5000 字完整报告。这和 19.4 节 HardGen[^hardgen] 的难度自适应思路一致。
 
 ### Deep Research 的两阶段 RL
 
@@ -595,39 +524,23 @@ def report_reward(report, task, verified_facts=None):
   → reward: 结构完整性 + 内容质量 + 可读性
 ```
 
-分阶段训练通常更稳定——模型先学会"找对信息"，再学会"写好报告"。但在工程条件允许时，端到端 RL 能获得更优的整体效果。
+分阶段训练通常更稳定，模型先学会"找对信息"，再学会"写好报告"。但在工程条件允许时，端到端 RL 能获得更优的整体效果。
 
-## 第八层：从评分标准走到 Search Agent RL
+## 第八层 从评分标准到 Search Agent RL
 
 前面分别讨论了搜索策略、奖励设计、报告生成。现在我们把它们串起来，看一个完整的端到端流程：**如何从零开始，用 RL 训练一个 AI 搜索 Agent？** 这个案例覆盖了从评分标准设计到 Reward Model 训练，再到 RL 优化的全链路。
 
-### Step 1：定义 AI 搜索的多维 Rubrics
+### AI 搜索的多维 Rubrics
 
-Rubrics（评分标准）是把"什么是好的搜索结果"转化为可测量指标的第一步。一个好的 AI 搜索 Agent 评分标准通常包含以下维度：
-
-- **维度 — 答案相关性**
-  - 含义: 回答是否精准切题
-  - 评分方式: 语义相似度 + LLM 判断
-- **维度 — 事实准确性**
-  - 含义: 信息是否正确无幻觉
-  - 评分方式: 与可信来源交叉验证
-- **维度 — 引用质量**
-  - 含义: 是否附带可信来源
-  - 评分方式: URL 可达性 + 内容相关性
-- **维度 — 信息完整性**
-  - 含义: 是否覆盖了问题的所有方面
-  - 评分方式: 关键信息覆盖率
-- **维度 — 时效性**
-  - 含义: 信息是否是最新
-  - 评分方式: 发布时间检测
+Rubrics（评分标准）是把“什么是好的搜索结果”转化为可测量指标的第一步。一个好的 AI 搜索 Agent 评分标准通常包含五个维度。**答案相关性**指回答是否精准切题，用语义相似度加 LLM 判断评分；**事实准确性**指信息是否正确无幻觉，通过与可信来源交叉验证评分；**引用质量**指是否附带可信来源，用 URL 可达性与内容相关性评分；**信息完整性**指是否覆盖了问题的所有方面，用关键信息覆盖率评分；**时效性**指信息是否最新，用发布时间检测评分。
 
 每个维度定义 1-5 分的评分标准，例如"答案相关性"：1 分 = 完全不相关，3 分 = 部分相关但有遗漏，5 分 = 完全精准且全面。
 
-### Step 2：从 Rubrics 到 Reward Model
+### 从 Rubrics 到 Reward Model
 
 有了 Rubrics，下一步是收集偏好数据并训练 Reward Model。
 
-**数据收集。** 对同一个搜索 query，让模型（或不同模型）生成多条搜索结果。然后让标注员（或用 LLM-as-Judge）按照 Rubrics 对每条结果打分，并构建偏好对——"结果 A 比结果 B 好"。
+**数据收集。** 对同一个搜索 query，让模型（或不同模型）生成多条搜索结果。然后让标注员（或用 LLM-as-Judge）按照 Rubrics 对每条结果打分，并构建偏好对，"结果 A 比结果 B 好"。
 
 **RM 训练。** 用 Bradley-Terry 模型（第 13 章的奖励模型）训练一个 Reward Model。输入是 (query, search_result) 对，输出是一个标量分数。这个 RM 将作为后续 RL 训练的 reward 来源。
 
@@ -652,7 +565,7 @@ def train_search_reward_model(preference_data, base_model):
     return rm
 ```
 
-### Step 3：用 RL 训练 Search Agent
+### Search Agent 的 RL 训练
 
 有了 RM，就可以开始 RL 训练了。以 GRPO 为例（不需要单独的 Critic）：
 
@@ -692,35 +605,31 @@ async def search_agent_grpo_step(model, rm, queries, group_size=4, max_turns=10)
     return all_groups
 ```
 
-### Step 4：Reward Hacking 检测与缓解
+### Reward Hacking 检测与缓解
 
-RL 训练中最常见的陷阱是 **Reward Hacking**——模型学会了"钻 reward 函数的空子"，而不是真正提升搜索质量。常见表现：
-
-- **引用堆砌**：模型发现"引用越多 reward 越高"，于是给每个论断都加 3-4 个引用（很多是重复的或无关的）
-- **关键词匹配**：模型发现答案中包含 ground truth 的关键词就能拿高分，于是堆砌关键词而非真正理解
-- **长度膨胀**：模型发现更长的回答更容易"碰上"正确信息，于是越写越长
+RL 训练中最常见的陷阱是 **Reward Hacking**，模型学会了“钻 reward 函数的空子”，而不是真正提升搜索质量。常见表现有：**引用堆砌**，模型发现“引用越多 reward 越高”，于是给每个论断都加 3 到 4 个引用（很多是重复的或无关的）；**关键词匹配**，模型发现答案中包含 ground truth 的关键词就能拿高分，于是堆砌关键词而非真正理解；**长度膨胀**，模型发现更长的回答更容易“碰上”正确信息，于是越写越长。
 
 **检测方法。** 定期用独立的评估集（不参与训练）检查模型的真实搜索质量。如果 RM 分数在涨，但独立评估集上的表现没变甚至下降，就是 Reward Hacking 的信号。
 
-**缓解策略。** DR Tulu[^rler_dr] 的 RLER（演化评分标准）是有效的缓解方案——当模型在当前 Rubrics 下"刷分"到一定程度后，自动收紧评分标准，让之前的"捷径"不再有效。此外，CaRR[^carr_dr] 的引用感知比率奖励也能有效遏制引用堆砌——它不仅检查引用是否存在，还通过证据连通性检查验证引用内容是否在逻辑上支撑了最终答案。
+**缓解策略。** DR Tulu[^rler_dr] 的 RLER（演化评分标准）是有效的缓解方案，当模型在当前 Rubrics 下"刷分"到一定程度后，自动收紧评分标准，让之前的"捷径"不再有效。此外，CaRR[^carr_dr] 的引用感知比率奖励也能有效遏制引用堆砌，它不仅检查引用是否存在，还通过证据连通性检查验证引用内容是否在逻辑上支撑了最终答案。
 
-### Step 5：搜索质量评估与迭代
+### 搜索质量评估与迭代
 
 训练完成后（以及训练过程中），需要一套系统化的评估方案来持续监控搜索质量：
 
 **自动化评估。** 用固定的测试集定期评估：答案准确率、引用可访问率、平均交互轮数。这些指标可以自动化收集，作为训练健康度的"仪表盘"。
 
-**人工抽检。** 定期抽样检查模型输出的质量——自动化指标无法完全捕捉"搜索策略是否合理"、"信息综合是否到位"等维度。
+**人工抽检。** 定期抽样检查模型输出的质量，自动化指标无法完全捕捉"搜索策略是否合理"、"信息综合是否到位"等维度。
 
 **对抗性测试。** 用专门设计的"陷阱题"（如包含过时信息的问题、需要交叉验证的矛盾信息）来测试模型是否会"偷懒"或产生幻觉。
 
 这个"Rubrics → RM → RL → Hacking 检测 → 评估"的闭环是一个持续迭代的过程。每一轮迭代都可能需要调整 Rubrics、重新训练 RM、或修改 RL 的 reward 组合。
 
-## 第九层：用 Search-R1 跑通“推理 + 搜索”
+## 第九层 Search-R1 复现
 
-这一部分使用 [Search-R1 论文](https://arxiv.org/abs/2503.09516)与[官方仓库](https://github.com/PeterGriffinJin/Search-R1)，跑通离线检索、推理与搜索交织、retrieved token masking 和结果奖励。先完成检索服务与推理 smoke test，再决定是否投入 3B—7B 模型训练。
+这一部分使用 [Search-R1 论文](https://arxiv.org/abs/2503.09516)与[官方仓库](https://github.com/PeterGriffinJin/Search-R1)，跑通离线检索、推理与搜索交织、retrieved token masking 和结果奖励。先完成检索服务与推理 smoke test，再决定是否投入 3B 到 7B 模型训练。
 
-### Search-R1 做了什么？
+### Search-R1 的方法
 
 Search-R1 让 LLM 在 RL rollout 中多次生成查询，并把检索结果插回推理上下文。训练目标没有规定“先搜作者、再搜奖项”这样的固定链条；模型根据最终答案奖励调整查询与停止策略。
 
@@ -748,7 +657,7 @@ _图：Search-R1 系统架构（来源：[PeterGriffinJin/Search-R1](https://git
 ![Qwen2.5-7B-Base 经 RL 训练后学会多轮搜索和推理](./images/searchr1_multiturn.webp)
 _图：Qwen2.5-7B-Base 学会多轮搜索与推理（来源：[PeterGriffinJin/Search-R1](https://github.com/PeterGriffinJin/Search-R1)）_
 
-### 为什么选择 Search-R1 作为复现目标？
+### 复现目标的选择理由
 
 Search-R1 适合作为课堂复现起点，因为它提供公开 QA 数据处理脚本、离线语料格式、检索服务、推理入口和 veRL 训练代码。离线检索减少了网页变化和 API 费用，3B 模型可以先验证训练趋势，7B 模型再用于对齐论文设置。
 
@@ -758,9 +667,7 @@ Search-R1 适合作为课堂复现起点，因为它提供公开 QA 数据处理
 
 #### 硬件需求
 
-- **单卡 L4（24GB）**：PPO 训练 Qwen2.5-3B，Jupyter Notebook 逐步教程
-- **单卡 A100（40/80GB）**：GRPO/PPO 训练 Qwen2.5-7B
-- **2—4 卡 A100**：30B+ 模型的多节点训练
+硬件需求按模型规模分档：单卡 L4（24GB）可以 PPO 训练 Qwen2.5-3B，官方提供 Jupyter Notebook 逐步教程；单卡 A100（40 或 80GB）可以 GRPO 或 PPO 训练 Qwen2.5-7B；30B 以上模型的多节点训练需要 2 到 4 卡 A100。
 
 ::: tip
 Search-R1 提供了一个 [Lightning Studio 的免费 Notebook](https://lightning.ai)，可以零成本在单张 L4 上跑通 PPO 训练。
@@ -820,7 +727,7 @@ python -c "import vllm; import verl; print('OK')"
 
 ### 数据准备
 
-Search-R1 支持三种检索后端。复现论文结果推荐使用**离线 Wikipedia 检索**——无需 API key、完全可复现。
+Search-R1 支持三种检索后端。复现论文结果推荐使用**离线 Wikipedia 检索**，无需 API key、完全可复现。
 
 #### 训练数据
 
@@ -845,17 +752,7 @@ Search-R1 支持三种检索后端。复现论文结果推荐使用**离线 Wiki
 bash retrieval_launch.sh
 ```
 
-`retrieval_launch.sh` 支持三种检索模式：
-
-- **模式 — `sparse`**
-  - 说明: BM25 稀疏检索
-  - 适用场景: 快速验证，无需 GPU
-- **模式 — `dense`**
-  - 说明: ANN 密集检索
-  - 适用场景: 论文复现，效果最好
-- **模式 — `online`**
-  - 说明: 调用 Serper/Bing API
-  - 适用场景: 真实网络环境实验
+`retrieval_launch.sh` 支持三种检索模式。`sparse` 用 BM25 稀疏检索，无需 GPU，适合快速验证；`dense` 用 ANN 密集检索，效果最好，适合复现论文；`online` 调用 Serper/Bing API，适合真实网络环境实验。
 
 推荐先用 `sparse` 快速验证流程，再用 `dense` 复现论文结果。
 
@@ -886,7 +783,7 @@ flowchart TD
 
 #### Retrieved Token Masking
 
-搜索返回的 token（`<information>` 部分）在计算 RL loss 时被 **mask 掉**——只有模型自己生成的 token 参与梯度更新。原因很直观：搜索结果的质量不由模型控制，不应因搜索引擎返回了低质量结果而惩罚模型。
+搜索返回的 token（`<information>` 部分）在计算 RL loss 时被 **mask 掉**，只有模型自己生成的 token 参与梯度更新。原因很直观：搜索结果的质量不由模型控制，不应因搜索引擎返回了低质量结果而惩罚模型。
 
 这与本章前文讨论的 Agent Loop 设计原则一致：**环境反馈不改变策略，只有策略自身的决策才改变策略**。
 
@@ -899,7 +796,7 @@ Search-R1 使用最简单的 **outcome reward**（结果奖励）：
 reward = 1.0 if answer_matches(response, ground_truth) else 0.0
 ```
 
-不引入格式奖励、过程奖励或搜索效率奖励。论文发现，纯粹的 0/1 结果奖励足以驱动模型学会复杂的搜索策略——这与 DeepSeek-R1 的 RLVR 发现一致：简单的奖励 + 大量 rollout = 涌现行为。
+不引入格式奖励、过程奖励或搜索效率奖励。论文发现，纯粹的 0/1 结果奖励足以驱动模型学会复杂的搜索策略，这与 DeepSeek-R1 的 RLVR 发现一致：简单的奖励 + 大量 rollout = 涌现行为。
 
 #### GRPO 训练
 
@@ -908,26 +805,7 @@ reward = 1.0 if answer_matches(response, ground_truth) else 0.0
 bash train_grpo.sh
 ```
 
-`train_grpo.sh` 的关键超参数：
-
-- **参数 — `actor_model_name_or_path`**
-  - 推荐值: `Qwen/Qwen2.5-7B-Instruct`
-  - 说明: 策略模型（也可用 3B）
-- **参数 — `max_new_tokens`**
-  - 推荐值: 2048
-  - 说明: 单次 rollout 最大 token 数
-- **参数 — `group_size`**
-  - 推荐值: 4-8
-  - 说明: GRPO 组采样数
-- **参数 — `temperature`**
-  - 推荐值: 0.7
-  - 说明: 采样温度
-- **参数 — `max_turns`**
-  - 推荐值: 10
-  - 说明: 最大搜索轮次
-- **参数 — `reward_fn`**
-  - 推荐值: `exact_match`
-  - 说明: 奖励函数
+`train_grpo.sh` 的关键超参数如下。`actor_model_name_or_path` 推荐 `Qwen/Qwen2.5-7B-Instruct`，是策略模型（也可用 3B）；`max_new_tokens` 推荐 2048，是单次 rollout 的最大 token 数；`group_size` 推荐 4 到 8，是 GRPO 组采样数；`temperature` 推荐 0.7，是采样温度；`max_turns` 推荐 10，是最大搜索轮次；`reward_fn` 推荐 `exact_match`，是奖励函数。
 
 #### PPO 训练
 
@@ -963,29 +841,7 @@ python infer.py \
 
 #### 评测 benchmark
 
-Search-R1 在以下 7 个 QA benchmark 上评测：
-
-- **Benchmark — Natural Questions (NQ)**
-  - 类型: 单跳事实问答
-  - 难度: 中
-- **Benchmark — TriviaQA**
-  - 类型: 知识问答
-  - 难度: 中
-- **Benchmark — HotpotQA**
-  - 类型: 多跳推理
-  - 难度: 高
-- **Benchmark — 2WikiMultiHopQA**
-  - 类型: 多跳推理
-  - 难度: 高
-- **Benchmark — MuSiQue**
-  - 类型: 多跳推理
-  - 难度: 很高
-- **Benchmark — Bamboogle**
-  - 类型: 多跳推理
-  - 难度: 中
-- **Benchmark — BeerQA**
-  - 类型: 多跳推理
-  - 难度: 高
+Search-R1 在 7 个 QA benchmark 上评测。Natural Questions（NQ）是单跳事实问答，难度中等；TriviaQA 是知识问答，难度中等；HotpotQA、2WikiMultiHopQA 和 BeerQA 都是多跳推理，难度较高；MuSiQue 同为多跳推理，难度很高；Bamboogle 是多跳推理，难度中等。
 
 #### 预期结果
 
@@ -1068,31 +924,11 @@ Search-R1 使用 veRL 实现的 GRPO，核心步骤：
 
 完成训练后，按以下模板整理结果：
 
-**表 1：Before / After 对比**
+**表 1：Before / After 对比**逐基准（NQ、HotpotQA、TriviaQA 等）记录 Base Model（RAG）分数、Search-R1（RL）分数与两者差值。
 
-- **Benchmark — NQ**
-  - Base Model (RAG): _填入_
-  - Search-R1 (RL): _填入_
-  - Delta: _计算_
-- **Benchmark — HotpotQA**
-- **Benchmark — TriviaQA**
-- **Benchmark — ...**
+**表 2：训练成本**记录训练 GPU 小时、平均每题搜索次数、平均 rollout token 数与训练 epochs。
 
-**表 2：训练成本**
-
-- **指标 — 训练 GPU 小时:**
-- **指标 — 平均搜索次数 / 问题:**
-- **指标 — 平均 rollout token 数:**
-- **指标 — 训练 epochs:**
-
-**表 3：Badcase 分析**
-
-抽样 10-20 个错误案例，分析：
-
-- 搜索 query 是否合理？
-- 搜索结果是否包含正确答案？
-- 模型是否正确利用了搜索结果？
-- 是搜索不够还是推理不够？
+**表 3：Badcase 分析**抽样 10 到 20 个错误案例，检查搜索 query 是否合理、搜索结果是否包含正确答案、模型是否正确利用了搜索结果，并判断失败是搜索不够还是推理不够。
 
 这三张表是 Deep Research Agent 训练报告的基本功。论文级工作还会加入 reward hacking 检测（reward 上升但独立 eval 不升）、trajectory 长度分析、搜索 query 质量评估等维度。
 
@@ -1109,13 +945,7 @@ Search-R1 使用 veRL 实现的 GRPO，核心步骤：
 <details>
 <summary>思考题：Search-R1 的设计与前面章节的联系</summary>
 
-Search-R1 是本书前面所有 RL 知识在搜索 Agent 场景的具体落地：
-
-- **RLVR（第 15 章）**：Search-R1 的 reward 是纯粹的"答案对不对"，不需要 Reward Model——这正是 RLVR 的核心思想。
-- **GRPO（第 15 章）**：Search-R1 默认使用 GRPO，组采样 + 相对比较替代了 PPO 的 Critic 网络。
-- **Agent Loop（19.1 节）**：Search-R1 的 Rollout 就是 Agent Loop 的具体实现——模型在推理和工具调用之间交替。
-- **ORM vs PRM（19.3 节）**：Search-R1 只用 ORM（终态 reward）。Atom-Searcher[^atom_searcher] 和 Web-Shepherd[^web_shepherd] 在此基础上加了 PRM（过程奖励）。
-- **Retrieved Token Masking**：与 PPO 中 mask prompt token 的思路一致——只对策略可控的部分做梯度更新。
+Search-R1 是本书前面所有 RL 知识在搜索 Agent 场景的具体落地。从 **RLVR（第 15 章）**看，Search-R1 的 reward 是纯粹的“答案对不对”，不需要 Reward Model，这正是 RLVR 的核心思想；从 **GRPO（第 15 章）**看，Search-R1 默认使用 GRPO，组采样加相对比较替代了 PPO 的 Critic 网络；从 **Agent Loop（19.1 节）**看，Search-R1 的 Rollout 就是 Agent Loop 的具体实现，模型在推理和工具调用之间交替；从 **ORM 与 PRM（19.3 节）**看，Search-R1 只用 ORM（终态 reward），Atom-Searcher[^atom_searcher] 和 Web-Shepherd[^web_shepherd] 在此基础上加了 PRM（过程奖励）；**Retrieved Token Masking** 则与 PPO 中 mask prompt token 的思路一致，只对策略可控的部分做梯度更新。
 
 </details>
 
@@ -1123,31 +953,7 @@ Search-R1 是本书前面所有 RL 知识在搜索 Agent 场景的具体落地�
 
 完成 Search-R1 的推理 smoke test 后，可以用下面几份教程补充算法实现或垂直任务。原稿中的成本和提升数字来自各项目自述，运行前仍要核对仓库版本与硬件设置。
 
-- **GRPO from Scratch（Sebastian Raschka）**
-  - 训练什么: 0.6B 模型在 MATH 数据集上做数学推理，从零实现 GRPO 的每一步（advantages / rewards / logprobs / loss）
-  - 提点: MATH-500：**15% → 47%**
-  - GPU: 1 卡
-  - 链接: [GitHub](https://github.com/rasbt/reasoning-from-scratch)
-- **ART·E 邮件搜索 Agent（OpenPipe）**
-  - 训练什么: Qwen 2.5 14B 在 Enron 邮件数据集上学会搜索邮件回答自然语言问题，reward 为多目标（准确性 + 轮次 + 幻觉惩罚）
-  - 提点: **超越 o3**，单卡训练成本 <\$80
-  - GPU: 1×H100
-  - 链接: [ZenML 案例研究](https://www.zenml.io/llmops-database/building-art-e-reinforcement-learning-for-email-search-agent-development)
-- **Agent RFT 九步指南（TensorOps）**
-  - 训练什么: 7B 模型做金融文档问答 agent（search / list / read 三工具），从数据构建到 grader 到训练的完整 9 步流程，框架可选 TRL / verl / OpenRLHF / Unsloth
-  - 提点: 含 base vs fine-tuned 对比
-  - GPU: 1×24GB（LoRA）
-  - 链接: [TensorOps Blog](https://tensorops.ai/blog/practical-guide-to-agent-reinforcement-fine-tuning)
-- **Open Deep Research（OpenPipe ART）**
-  - 训练什么: Qwen 2.5 14B 用 SFT + GRPO 训练为深度研究 agent，在 DeepResearch Bench 上评测，基于 Langchain Open Deep Research 框架
-  - 提点: **超越 Sonnet 4**
-  - GPU: 1×H200，~\$350
-  - 链接: [ART 教程](https://art.openpipe.ai/tutorials/open-deep-research)
-- **Agentic AI 研究员（Owkin）**
-  - 训练什么: Qwen3-8B 生成创新药物靶点假说，reward 由 5 维 LLM judge 面板给出（新颖性 / 有效性 / 可药性 / 可行性 / 商业价值）
-  - 提点: **全面超越 GPT-5**
-  - GPU: 2×H200
-  - 链接: [Owkin Blog](https://www.owkin.com/blogs-case-studies/unlocking-the-next-era-of-therapeutic-discovery-training-an-agentic-ai-researcher-with-reinforcement-learning)
+[GRPO from Scratch](https://github.com/rasbt/reasoning-from-scratch)（Sebastian Raschka）训练 0.6B 模型在 MATH 数据集上做数学推理，从零实现 GRPO 的每一步（advantages、rewards、logprobs、loss），MATH-500 从 15% 提升到 47%，只需 1 卡 GPU。[ART·E 邮件搜索 Agent](https://www.zenml.io/llmops-database/building-art-e-reinforcement-learning-for-email-search-agent-development)（OpenPipe）训练 Qwen 2.5 14B 在 Enron 邮件数据集上学会搜索邮件回答自然语言问题，reward 为多目标（准确性、轮次、幻觉惩罚），自述超越 o3，单卡训练成本低于 \$80（1×H100）。[Agent RFT 九步指南](https://tensorops.ai/blog/practical-guide-to-agent-reinforcement-fine-tuning)（TensorOps）用 7B 模型做金融文档问答 agent（search、list、read 三个工具），覆盖从数据构建到 grader 再到训练的完整九步流程，框架可选 TRL、verl、OpenRLHF 或 Unsloth，含 base 与 fine-tuned 对比，只需 1×24GB GPU（LoRA）。[Open Deep Research](https://art.openpipe.ai/tutorials/open-deep-research)（OpenPipe ART）用 SFT 加 GRPO 把 Qwen 2.5 14B 训练为深度研究 agent，在 DeepResearch Bench 上评测，基于 Langchain Open Deep Research 框架，自述超越 Sonnet 4，成本约 \$350（1×H200）。[Agentic AI 研究员](https://www.owkin.com/blogs-case-studies/unlocking-the-next-era-of-therapeutic-discovery-training-an-agentic-ai-researcher-with-reinforcement-learning)（Owkin）用 Qwen3-8B 生成创新药物靶点假说，reward 由 5 维 LLM judge 面板给出（新颖性、有效性、可药性、可行性、商业价值），自述全面超越 GPT-5，使用 2×H200。
 
 这些教程都使用可检查任务：数学题有答案，邮件检索有参考记录，研究报告可以按事实点评分。学习顺序可以从 GRPO from Scratch 开始，再迁移到需要工具交互的任务。
 
@@ -1157,11 +963,11 @@ Search-R1 是本书前面所有 RL 知识在搜索 Agent 场景的具体落地�
 
 这些工作构建了完整的"搜索→推理→输出"闭环，共同特点是：将 LLM 作为核心决策器，通过 RL 训练使其在真实或模拟网络环境中自主完成多步研究任务。它们的差异主要在于**训练范式**（mid-training vs 纯 post-training）、**环境交互方式**（真实网络 vs 模拟环境 vs 混合）、以及**模型规模策略**（大模型 vs 小模型 vs MoE）。
 
-[^deepresearcher]: Zheng Y, et al. "DeepResearcher: Scaling Deep Research via Reinforcement Learning in Real-world Environments." [arXiv:2504.03160](https://arxiv.org/abs/2504.03160), EMNLP 2025. **特色**：首个直接在真实开放网络环境中端到端 RL 训练的框架。RL 训练过程中自发涌现出规划、交叉验证、自我反思和诚实表达等行为，无需显式教授——这为"RL 能发现人类未设计的策略"提供了直接证据。
+[^deepresearcher]: Zheng Y, et al. "DeepResearcher: Scaling Deep Research via Reinforcement Learning in Real-world Environments." [arXiv:2504.03160](https://arxiv.org/abs/2504.03160), EMNLP 2025. **特色**：首个直接在真实开放网络环境中端到端 RL 训练的框架。RL 训练过程中自发涌现出规划、交叉验证、自我反思和诚实表达等行为，无需显式教授，这为"RL 能发现人类未设计的策略"提供了直接证据。
 
 [^tongyi_dr]: Tongyi DeepResearch Team. "Tongyi DeepResearch Technical Report." [arXiv:2510.24701](https://arxiv.org/abs/2510.24701), 2025. **特色**：提出 Agentic Mid-training + Post-training 两阶段范式，其中 Mid-training 阶段通过持续预训练注入 agentic 归纳偏置，解决了通用基础模型缺乏 agent 先验知识的问题。30.5B MoE（3.3B 激活）在多个 benchmark 上达到 SOTA，证明了 MoE 架构在 agent 场景下极高的参数效率。
 
-[^sfr_dr]: Nguyen X-P, et al. "SFR-DeepResearch: Towards Effective Reinforcement Learning for Autonomously Reasoning Single Agents." [arXiv:2509.06283](https://arxiv.org/abs/2509.06283), 2025. **特色**：Salesforce 出品，专注自主单智能体路线——不拆分多角色，而是让一个模型端到端完成全部研究流程。探索了如何在推理增强模型上继续用 RL 进行 agent 训练。
+[^sfr_dr]: Nguyen X-P, et al. "SFR-DeepResearch: Towards Effective Reinforcement Learning for Autonomously Reasoning Single Agents." [arXiv:2509.06283](https://arxiv.org/abs/2509.06283), 2025. **特色**：Salesforce 出品，专注自主单智能体路线，不拆分多角色，而是让一个模型端到端完成全部研究流程。探索了如何在推理增强模型上继续用 RL 进行 agent 训练。
 
 [^pokeeresearch]: PokeeResearch-7B. [HuggingFace Model Card](https://huggingface.co/PokeeAI/pokee_research_7b), 2025. **特色**：7B 参数量即达到可用的深度研究能力，是目前最小的可用开源 Deep Research 模型之一。对资源受限的团队有很好的参考价值。
 
@@ -1171,21 +977,21 @@ Search-R1 是本书前面所有 RL 知识在搜索 Agent 场景的具体落地�
 
 [^carr_dr]: Zhang J, Lv X, Feng L, Hou L, Li J. "Chaining the Evidence: Robust Reinforcement Learning for Deep Search Agents with Citation-Aware Rubric Rewards." [arXiv:2601.06021](https://arxiv.org/abs/2601.06021), 2026. **特色**：清华大学与智谱 AI 联合出品。将多跳问题分解为原子 Rubric，通过引用验证和证据连通性检查计算比率奖励，有效遏制"编造引用"这一 Deep Research 中最常见的幻觉类型。
 
-[^atom_searcher]: Deng Y, et al. "Atom-Searcher: Enhancing Agentic Deep Research via Fine-Grained Atomic Thought Reward." [arXiv:2508.12800](https://arxiv.org/abs/2508.12800), 2025. **特色**：提出原子思维奖励（ATR），将长链推理分解为原子级单元并在每个中间步骤给予过程奖励。核心价值是大幅加速 RL 收敛——对于动辄几十步的研究轨迹，终态 reward 的信用分配极其困难，ATR 通过密集信号缓解了这一问题。
+[^atom_searcher]: Deng Y, et al. "Atom-Searcher: Enhancing Agentic Deep Research via Fine-Grained Atomic Thought Reward." [arXiv:2508.12800](https://arxiv.org/abs/2508.12800), 2025. **特色**：提出原子思维奖励（ATR），将长链推理分解为原子级单元并在每个中间步骤给予过程奖励。核心价值是大幅加速 RL 收敛，对于动辄几十步的研究轨迹，终态 reward 的信用分配极其困难，ATR 通过密集信号缓解了这一问题。
 
-[^dr_tulu]: Shao R, Asai A, et al. "DR Tulu: Reinforcement Learning with Evolving Rubrics for Deep Research." [arXiv:2511.19399](https://arxiv.org/abs/2511.19399), 2025. **特色**：Allen AI 出品。RLER 的核心思想是让评分标准本身随训练动态演化——初期宽松鼓励探索，后期严格提升质量。这一"打移动靶"的策略天然对抗 Reward Hacking：当模型学会钻当前标准的空子时，标准已经收紧了。
+[^dr_tulu]: Shao R, Asai A, et al. "DR Tulu: Reinforcement Learning with Evolving Rubrics for Deep Research." [arXiv:2511.19399](https://arxiv.org/abs/2511.19399), 2025. **特色**：Allen AI 出品。RLER 的核心思想是让评分标准本身随训练动态演化，初期宽松鼓励探索，后期严格提升质量。这一"打移动靶"的策略天然对抗 Reward Hacking：当模型学会钻当前标准的空子时，标准已经收紧了。
 
 [^rler_dr]: Shao R, Asai A, et al. "DR Tulu: Reinforcement Learning with Evolving Rubrics for Deep Research." [arXiv:2511.19399](https://arxiv.org/abs/2511.19399), 2025. 同上，演化评分标准的 RL 训练，有效缓解 Reward Hacking。
 
 [^web_shepherd]: Chae H, et al. "Web-Shepherd: Advancing PRMs for Reinforcing Web Agents." [arXiv:2505.15277](https://arxiv.org/abs/2505.15277), NeurIPS 2025 Spotlight. **特色**：首个专门为网页导航训练的步骤级过程奖励模型（PRM），在 WebAgent 基准上带来 10.9 个百分点性能提升，直接证明了过程级信号在 agent 训练中的实用价值。
 
-[^rstar2]: Shang N, et al. "rStar2-Agent: Agentic Reasoning Technical Report." [arXiv:2508.20722](https://arxiv.org/abs/2508.20722), 2025. **特色**：基于 GRPO 的高效 Agent RL 算法，用 14B 模型展现出极强的竞争力。证明了训练方法比模型规模更重要——精心设计的 RL 算法可以让小模型达到大模型的效果。
+[^rstar2]: Shang N, et al. "rStar2-Agent: Agentic Reasoning Technical Report." [arXiv:2508.20722](https://arxiv.org/abs/2508.20722), 2025. **特色**：基于 GRPO 的高效 Agent RL 算法，用 14B 模型展现出极强的竞争力。证明了训练方法比模型规模更重要，精心设计的 RL 算法可以让小模型达到大模型的效果。
 
 ### 三、数据与轨迹合成
 
-这些工作解决 Deep Research RL 训练的"燃料"问题——如何获取大量、高质量、多样化的长程研究轨迹。共同挑战是：研究级问题在自然语料中极度稀缺，人工标注成本高昂。它们的共同解法是**合成数据**，差异在于合成策略（自博弈 vs 开源管线 vs 课程式递增）。
+这些工作解决 Deep Research RL 训练的"燃料"问题，如何获取大量、高质量、多样化的长程研究轨迹。共同挑战是：研究级问题在自然语料中极度稀缺，人工标注成本高昂。它们的共同解法是**合成数据**，差异在于合成策略（自博弈 vs 开源管线 vs 课程式递增）。
 
-[^openresearcher]: Li Z, Jiang D, et al. "OpenResearcher: A Fully Open Pipeline for Long-Horizon Deep Research Trajectory Synthesis." [arXiv:2603.20278](https://arxiv.org/abs/2603.20278), 2026. **特色**：目前最完整的开源轨迹合成方案——97K+ 条轨迹，完全不依赖真实网络，基于三个模拟原语（search/open/find）即可复现。对资源有限的研究者是最友好的起点。
+[^openresearcher]: Li Z, Jiang D, et al. "OpenResearcher: A Fully Open Pipeline for Long-Horizon Deep Research Trajectory Synthesis." [arXiv:2603.20278](https://arxiv.org/abs/2603.20278), 2026. **特色**：目前最完整的开源轨迹合成方案，97K+ 条轨迹，完全不依赖真实网络，基于三个模拟原语（search/open/find）即可复现。对资源有限的研究者是最友好的起点。
 
 [^oresearcher]: Yao Y, Zhu H, Wang P, et al. "O-Researcher: An Open Ended Deep Research Model via Multi-Agent Distillation and Agentic RL." [arXiv:2601.03743](https://arxiv.org/abs/2601.03743), 2026. **特色**：OPPO AI Agent 团队提出。通过多智能体协作（规划器、执行器、总结器、审核器）合成高质量、长程推理的研究轨迹。然后将这些数据通过 SFT 和一种新颖的强化学习方法蒸馏到开源单体模型中，在多个深度研究基准上达到 SOTA，证明了“多智能体合成数据 + 单智能体部署”的有效范式。
 
@@ -1193,13 +999,13 @@ Search-R1 是本书前面所有 RL 知识在搜索 Agent 场景的具体落地�
 
 [^fathom_dr]: Singh S, Singh K, Moturi P. "Fathom-DeepResearch: Unlocking Long Horizon Information Retrieval and Synthesis for SLMs." [arXiv:2509.24107](https://arxiv.org/abs/2509.24107), 2025. **特色**：用两个 4B 模型分别扮演"搜索者"和"推理者"进行自博弈，生成 DUETQA 数据集。启示是：即使总参数量不变，将能力拆分为专门的子模型也能解锁更强的数据生成能力。
 
-[^hardgen]: Hao B, et al. "From Failure to Mastery: Generating Hard Samples for Tool-use Agents." [arXiv:2601.01498](https://arxiv.org/abs/2601.01498), 2026. **特色**：从模型失败案例中定向生成高难度训练数据。思路是"哪里跌倒就在哪里练"——自动化分析模型弱点，针对性合成困难样本，实现难度自适应的课程学习。
+[^hardgen]: Hao B, et al. "From Failure to Mastery: Generating Hard Samples for Tool-use Agents." [arXiv:2601.01498](https://arxiv.org/abs/2601.01498), 2026. **特色**：从模型失败案例中定向生成高难度训练数据。思路是"哪里跌倒就在哪里练"，自动化分析模型弱点，针对性合成困难样本，实现难度自适应的课程学习。
 
 ### 四、报告生成与长文本 RL
 
-这些工作解决 Deep Research 的"最后一公里"问题——如何将搜索到的研究材料转化为结构化的高质量报告。共同挑战是：报告输出超长（3000-10000 字）、质量维度多维且主观、需要同时满足格式约束与内容质量。它们的共同思路是用**复合奖励函数**引导 RL 训练，差异在于奖励分解的维度和方式。
+这些工作解决 Deep Research 的"最后一公里"问题，如何将搜索到的研究材料转化为结构化的高质量报告。共同挑战是：报告输出超长（3000-10000 字）、质量维度多维且主观、需要同时满足格式约束与内容质量。它们的共同思路是用**复合奖励函数**引导 RL 训练，差异在于奖励分解的维度和方式。
 
-[^longwriter]: Wu Y, et al. "LongWriter-Zero: Mastering Ultra-Long Text Generation via Reinforcement Learning." [arXiv:2506.18841](https://arxiv.org/abs/2506.18841), 2025. **特色**：发现 RL 可以让模型从短文本能力自然涌现出长文本能力——不需要长文本标注数据，三重复合 reward（长度+质量+结构）就能引导模型学会规划万字文本结构。
+[^longwriter]: Wu Y, et al. "LongWriter-Zero: Mastering Ultra-Long Text Generation via Reinforcement Learning." [arXiv:2506.18841](https://arxiv.org/abs/2506.18841), 2025. **特色**：发现 RL 可以让模型从短文本能力自然涌现出长文本能力，不需要长文本标注数据，三重复合 reward（长度+质量+结构）就能引导模型学会规划万字文本结构。
 
 [^writerr1]: Zhao J, et al. "Writer-R1: Enhancing Generative Writing in LLMs via Memory-augmented Replay Policy Optimization." [arXiv:2603.15061](https://arxiv.org/abs/2603.15061), 2026. **特色**：提出 Memory-augmented Replay Policy Optimization，将写作的"成功模式"和"错误模式"作为可检索的记忆，在新任务中指导模型生成更高质量的文本。
 
@@ -1207,7 +1013,7 @@ Search-R1 是本书前面所有 RL 知识在搜索 Agent 场景的具体落地�
 
 ### 特别说明
 
-[^memento]: Zhou H, et al. "Memento: Fine-tuning LLM Agents without Fine-tuning LLMs." [arXiv:2508.16153](https://arxiv.org/abs/2508.16153), 2025. **为什么不归入上述任何一类**：Memento 提供了一条完全不同的技术路线——**不修改模型参数**，而是通过外部情景记忆机制让 Agent 在推理时检索相似案例来指导行为。它在 GAIA 验证集上排名第一（87.88% Pass@3），有力地证明了：有时候"更好的检索"比"更好的训练"更有效。这个工作提示我们，RL 并非提升 Agent 能力的唯一路径，外部记忆与推理时策略同样是值得关注的方向。
+[^memento]: Zhou H, et al. "Memento: Fine-tuning LLM Agents without Fine-tuning LLMs." [arXiv:2508.16153](https://arxiv.org/abs/2508.16153), 2025. **为什么不归入上述任何一类**：Memento 提供了一条完全不同的技术路线，**不修改模型参数**，而是通过外部情景记忆机制让 Agent 在推理时检索相似案例来指导行为。它在 GAIA 验证集上排名第一（87.88% Pass@3），有力地证明了：有时候"更好的检索"比"更好的训练"更有效。这个工作提示我们，RL 并非提升 Agent 能力的唯一路径，外部记忆与推理时策略同样是值得关注的方向。
 
 [^trl_grpo]: Hugging Face TRL. "GRPO Trainer." [官方文档](https://huggingface.co/docs/trl/en/grpo_trainer). **特色**：提供 `GRPOTrainer`、自定义 `reward_funcs`、Qwen 0.5B Instruct 快速示例，以及工具/环境交互相关接口，适合把本节的离线 reward 升级为小 LLM 的在线 RL 训练。
 
@@ -1215,42 +1021,21 @@ Search-R1 是本书前面所有 RL 知识在搜索 Agent 场景的具体落地�
 
 下面把浏览器写成 RL 环境，并依次回答两个问题：先决定给策略暴露哪些动作，再把环境封装、动作解析、奖励验证、进度记录和并行采样接成闭环。前面的论文与案例是在说明“策略应该学会什么”，这里开始说明“怎样让它真的练起来”。
 
-## 第十层：把浏览器写成 RL 环境
+## 第十层 把浏览器写成 RL 环境
 
 Deep Research 的"环境"是浏览器（或搜索引擎 API）。从 RL 视角看，这是一个**部分可观 + 长程 + 稀疏奖励**的 MDP：
 
 $$\mathcal{M}_{\text{browser}} = (\mathcal{S}, \mathcal{A}, P, R, \gamma, T)$$
 
-- $\mathcal{S}$：浏览器状态空间，包括当前 URL、DOM 树、可见文本、滚动位置、Cookie/Session 等
-- $\mathcal{A}$：动作空间（见下文）
-- $P$：环境转移函数（由真实浏览器决定，对 agent 未知）
-- $R$：稀疏二值奖励，通常 $r_T = \mathbb{1}[\text{答案正确}]$，中间步 $r_{t<T} = 0$
-- $\gamma$：折扣因子，Deep Research 任务 $T = 20-100$ 步，$\gamma = 1$（无折扣）
-- $T$：最大步数（budget），通常 30-50
+其中，$(\mathcal{S})$ 是浏览器状态空间，包括当前 URL、DOM 树、可见文本、滚动位置、Cookie/Session 等；$(\mathcal{A})$ 是动作空间（见下文）；$(P)$ 是环境转移函数，由真实浏览器决定，对 agent 未知；$(R)$ 是稀疏二值奖励，通常 $r_T = \mathbb{1}[\text{答案正确}]$，中间步 $r_{t<T} = 0$；$(\gamma)$ 是折扣因子，Deep Research 任务 $T = 20-100$ 步，取 $\gamma = 1$（无折扣）；$(T)$ 是最大步数（budget），通常 30 到 50。
 
-与 [第 22 章 Computer Use](../chapter25_computer_use/training) 的 GUI MDP 相比，Deep Research 的关键差异：
+与 [第 22 章 Computer Use](../chapter25_computer_use/training) 的 GUI MDP 相比，Deep Research 的差异主要在几处。观察空间上，Deep Research 用 DOM 文本或截图，Computer Use 以截图为主；动作粒度上，Deep Research 用抽象动作（search、click_link、extract），Computer Use 用原子动作（pixel click、key）；状态转移可预测性上，Deep Research 较高（搜索结果相对稳定），Computer Use 较低（GUI 动画、弹窗）；奖励稀疏度上，两者都极稀疏，奖励只出现在最后一步；典型步数上，Deep Research 为 20 到 50 步，Computer Use 为 50 到 500 步。
 
-- **维度 — 观察空间**
-  - Deep Research: DOM 文本 / 截图
-  - Computer Use: 截图为主
-- **维度 — 动作粒度**
-  - Deep Research: 抽象（search / click_link / extract）
-  - Computer Use: 原子（pixel click / key）
-- **维度 — 状态转移可预测性**
-  - Deep Research: 较高（搜索结果相对稳定）
-  - Computer Use: 低（GUI 动画、弹窗）
-- **维度 — 奖励稀疏度**
-  - Deep Research: 极稀疏（最后一步）
-  - Computer Use: 极稀疏（最后一步）
-- **维度 — 典型步数**
-  - Deep Research: 20-50
-  - Computer Use: 50-500
-
-## 第十一步：从简单到真实地设计动作空间
+## 第十一层 动作空间设计
 
 ### 搜索 API 抽象
 
-最简单的方案——不暴露真实浏览器，只给 agent 一个**搜索 API**：
+最简单的方案是不暴露真实浏览器，只给 agent 一个**搜索 API**：
 
 ```python
 ACTIONS = {
@@ -1332,7 +1117,7 @@ Agent action: click(3)  # 点击第一个搜索结果
 - 需要 OCR / DOM 解析做编号（额外组件）
 - 编号错误的代价高（点错链接）
 
-## 第十二步：把 Harness 拆成五个模块
+## 第十二层 Harness 的五个模块
 
 无论选哪种动作空间，Deep Research 的训练 harness 都需要以下五个模块：
 
@@ -1360,11 +1145,7 @@ class BrowserEnv:
         ...
 ```
 
-**关键工程点**：
-
-- **超时处理**：真实网页可能 hang，必须有 timeout（通常 10 秒）
-- **错误恢复**：CSS selector 失败、网络断开、JS 报错——都要捕获并返回友好的 error obs
-- **状态持久化**：Cookie / Session 跨步骤保留（否则登录态丢失）
+**关键工程点**：真实网页可能 hang，必须有 timeout（通常 10 秒）；CSS selector 失败、网络断开、JS 报错都要捕获并返回友好的 error obs；Cookie 与 Session 要跨步骤保留，否则登录态丢失。
 
 ### 动作解析与验证（Action Parser）
 
@@ -1388,11 +1169,7 @@ def parse_action(output: str, mode: str) -> Action:
         return ErrorAction(f"Parse failed: {e}")
 ````
 
-**关键工程点**：
-
-- **格式容错**：LLM 输出经常有格式错误，parser 要 robust
-- **重试机制**：解析失败时返回 error obs，让 agent 自纠错（这是 emergent behavior 的重要来源）
-- **动作白名单**：禁止危险动作（如 `format_disk`、`rm -rf`），即使 agent 想做
+**关键工程点**：LLM 输出经常有格式错误，parser 要 robust；解析失败时返回 error obs 让 agent 自纠错，这也是 emergent behavior 的重要来源；同时要设动作白名单，禁止危险动作（如 `format_disk`、`rm -rf`），即使 agent 想做。
 
 ### 奖励计算器（Reward Verifier）
 
@@ -1415,11 +1192,7 @@ class RewardVerifier:
             return self.browse_comp_score(query, answer)
 ```
 
-**关键工程点**：
-
-- **奖励稀疏化缓解**：可加过程奖励（PRM）作为辅助，但主奖励仍是端到端
-- **LLM-as-Judge 偏置**：用 GPT-4 / Claude 做 judge 时有已知偏置（长答案偏好、自身风格偏好），需要校准
-- **反作弊**：检测 agent 是否"复述问题"或"拼接搜索摘要"等作弊策略
+**关键工程点**：为缓解奖励稀疏，可加过程奖励（PRM）作为辅助，但主奖励仍是端到端；用 GPT-4 或 Claude 做 judge 时有已知偏置（长答案偏好、自身风格偏好），需要校准；还要检测 agent 是否采用“复述问题”或“拼接搜索摘要”等作弊策略。
 
 ### 进度跟踪（Progress Tracker）
 
@@ -1469,13 +1242,9 @@ async def parallel_rollout(
     return await asyncio.gather(*[rollout_one(p) for p in prompts])
 ```
 
-**关键工程点**：
+**关键工程点**：用浏览器池复用浏览器实例（启动开销大）；配置网络代理避免被目标网站封 IP（用住宅代理）；做好失败隔离，单条 trajectory 崩溃不影响其他。
 
-- **浏览器池**：复用浏览器实例（启动开销大）
-- **网络代理**：避免被目标网站封 IP（用住宅代理）
-- **失败隔离**：单条 trajectory 崩溃不影响其他
-
-## 第十三步：接成完整训练流水线
+## 第十三层 完整训练流水线
 
 把这五个模块拼起来：
 
@@ -1511,8 +1280,8 @@ async def parallel_rollout(
 Deep Research 可以继续使用 [第 15 章](../chapter18_grpo/grpo-practice-and-mechanism)介绍的组内相对优势与裁剪策略目标。迁移时除了环境封装和验证器，还要处理长轨迹、环境 token 掩码、工具错误、并发浏览器和网页复现性。[15.6 金融 API 工具调用 GRPO](../chapter18_grpo/financial-tool-calling-grpo)可以作为更小的接口练习。
 :::
 
-## 本节总结
+## 小结
 
-Deep Research 的 harness 工程核心是**五个模块**：环境封装、动作解析、奖励计算、进度跟踪、并行 rollout。其中**环境封装**和**奖励计算**是最难复现的——前者需要真实浏览器工程经验，后者需要任务特定的 verifier 设计。
+Deep Research 的 harness 工程核心是**五个模块**：环境封装、动作解析、奖励计算、进度跟踪、并行 rollout。其中**环境封装**和**奖励计算**是最难复现的，前者需要真实浏览器工程经验，后者需要任务特定的 verifier 设计。
 
 下一节 [21.2 评测基准与开源项目](./deep-research-eval)继续检查答案、证据、过程与成本，建立可复现的分层评测协议。

@@ -253,6 +253,32 @@ The 2026 mechanism analysis reframes OPD from "ability transfer" into a problem 
 
 This also explains why OPD is more selective about teachers than ordinary distillation. Off-policy SFT can force the student to look at teacher trajectories. OPD performs local navigation on the student's own terrain: if there is no gradient near the current position leading toward the teacher's mode, even a much larger teacher can only report the answer from far away.
 
+### Multi-Teacher OPD: Why Specialized Capabilities Do Not Simply Add Up
+
+Once a single teacher is locally teachable, a further problem appears: how can several domain teachers be consolidated into one student? Open-MOPD studies this question in a controlled experiment. Starting from SmolLM3-3B-Base, it first trains a MixSFT model covering mathematics, code, and instruction following, then trains three domain RL teachers, and finally lets one shared student receive token-level feedback from all three. Every sample has a known domain label, so math samples always use the math teacher, code samples use the code teacher, and routing itself is unambiguous.[^open_mopd]
+
+Consider the training budget numerically. Math, code, and instruction-following prompts account for 39.8%, 39.8%, and 20.3% of the batch. Math and code responses average about 10,500 tokens, while instruction-following responses average only 409. After counting response tokens that actually contribute gradients, the three shares become 49.7%, 49.3%, and 0.99%. Instruction following appears in one fifth of the prompts but receives only about one percent of the token-level training budget.
+
+This is **capability imbalance** in multi-teacher OPD. Every sample can be routed to the correct teacher, yet the domains still share one student's parameters and a finite number of updates. Long responses naturally produce more gradient tokens, so math and code dominate optimization while the short-response capability stagnates early.
+
+Open-MOPD also tests a more direct hypothesis: whether different teachers give conflicting signals on the same token. Mean teacher disagreement is only 0.126 nat, and 0.62% of tokens exceed 1 nat. Masking high-disagreement tokens or replacing their signals with teacher consensus reduces the total score by 0.52 to 0.83 points. In this controlled setting, teacher disagreement is measurable but is not the main bottleneck.
+
+The optimization-budget imbalance instead enters through three stages:
+
+| Stage             | Source of imbalance                                                                                                                   | Open-MOPD treatment                                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Response length   | Long responses contribute more gradient tokens, leaving short tasks with few updates                                                  | Reweight domains so that each first receives an equal token budget                                                     |
+| Convergence speed | Teacher-student gaps shrink at different rates, so fixed weights keep spending updates on domains already close to their teachers     | Estimate the remaining gap with mean absolute token reward and allocate more budget to domains that have not converged |
+| Multiple updates  | When one rollout batch is split across several PPO updates, the student changes and the cached student-dependent reward becomes stale | Recompute the current student's token reward before every inner update                                                 |
+
+The second treatment deserves one more step of interpretation. When a domain's teacher and student have become close, its mean absolute token reward decreases. If another domain retains a larger gap, its reward magnitude stays higher. Open-MOPD uses this quantity to adjust domain weights dynamically, so the training budget follows capabilities that still need to be transferred rather than a static data ratio.
+
+The third treatment concerns the student term in the OPD reward. Teacher log-probabilities can be cached because the teacher remains frozen. After every student update, however, the current student log-probabilities change. Reusing rewards computed at rollout time makes later PPO updates follow an outdated teacher-student difference. Open-MOPD refreshes the student-dependent reward before every inner update so that dense feedback again corresponds to the current policy.
+
+The paper uses RouteOPD, which retains separate domain models, as a reference. The shared student from naive M-OPD trails RouteOPD by 3.50 points; Open-MOPD reduces this **capability integration gap** to 0.31 points. If the improvement from MixSFT to domain RouteRL is treated as 100% available headroom, naive M-OPD recovers 35.6%, while Open-MOPD recovers 83.4%. The first metric compares a shared student with routed domain OPD models, whereas the second measures how much domain RL capability enters the shared student.
+
+The authors position Open-MOPD as the first fully open-source multi-teacher OPD recipe. It releases the end-to-end path from mixed SFT and three domain RL teachers to multi-teacher OPD, together with code, models, data, training trajectories, and evaluation suites. It turns a multi-expert OPD route previously seen in industrial systems into an experiment whose components can be inspected independently. Its broader lesson is that adding more teachers creates a new control variable: **the optimization budget actually received by each domain**. Prompt counts alone do not measure it; response-token share, the remaining teacher-student gap, and policy drift after rollout must all be tracked.
+
 ### Overlap Tokens Are the Main Battlefield
 
 One of the most illuminating experiments in the paper splits the token set apart: optimizing only on overlap tokens that both student and teacher assign high probability to almost does not hurt performance; looking only at non-overlap tokens barely helps. This explains why top-$k$ OPD is often enough, and also why the loss in a failed run may still move while capability does not improve.
@@ -800,6 +826,8 @@ It is especially suitable for small models, specialized models, and post-trainin
 
 The most important insight from the 2026 mechanism analysis is to shift the core OPD question from "is the teacher stronger?" to "is the teacher more learnable?" A stronger model may only be good at scoring on its own trajectories. A more learnable teacher can provide new knowledge, similar thinking paths, and absorbable local preferences on the student's current trajectories. This perspective changes how the entire distillation pipeline should be designed: first cold-start both models into the same language, then use teacher-aligned prompts to keep the teacher in a familiar distribution, and finally use task rewards to make sure local preferences do not diverge from the global objective.
 
+With multiple domain teachers, the optimization budget must also adapt to response length, the remaining teacher-student gap, and policy updates. Open-MOPD shows that correct routing only selects the teacher responsible for a sample; budget balance determines whether those teachers' capabilities can jointly enter one shared student.
+
 From the main thread of this chapter, DPO, GRPO, RLVR, and OPD are all answering the same question: **when we do not want to run full traditional RLHF, where else can training signals come from?** DPO uses preference pairs, RLVR uses verifiers, and OPD uses a teacher. Understanding the boundaries of these three signals is the ability that truly transfers to new projects.
 
 ## References
@@ -821,6 +849,8 @@ From the main thread of this chapter, DPO, GRPO, RLVR, and OPD are all answering
 [^tml_opd]: Lu K, Thinking Machines Lab. [On-Policy Distillation](https://thinkingmachines.ai/blog/on-policy-distillation/), 2025. Engineering OPD reproduction and Tinker implementation, including Qwen3 comparisons and personalization experiments.
 
 [^rethinking_opd]: Li Y, Zuo Y, He B, et al. [Rethinking On-Policy Distillation of Large Language Models: Phenomenology, Mechanism, and Recipe](https://arxiv.org/abs/2604.13016), arXiv 2026. Analyzes OPD success conditions, token-level mechanisms, and failure recovery strategies.
+
+[^open_mopd]: Gao H, Chi H, Yan Y, et al. [Open-MOPD: Diagnosing and Fixing Capability Imbalance in Multi-Teacher On-Policy Distillation](https://arxiv.org/abs/2608.19098), arXiv 2026; [project page](https://bytedtsinghua-sia.github.io/Open-MOPD/). The first fully open-source multi-teacher OPD recipe from Tsinghua AIR/SIA-Lab and ByteDance Seed; it diagnoses cross-domain token-budget imbalance and introduces dynamic balancing mechanisms.
 
 [^lightning_opd]: Shi Z, Zhang J, Jiang W, et al. [Lightning OPD: Cost-effective On-Policy Distillation](https://arxiv.org/html/2604.13010v1), arXiv 2026. Offline-izes standard OPD by precomputing teacher log-probs and avoiding a live teacher server during training.
 
