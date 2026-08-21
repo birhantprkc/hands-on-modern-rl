@@ -26,8 +26,8 @@ EXPERIMENTS = [
         "title": "Experiment 01 · CartPole PPO",
         "summary": "Train PPO on CartPole-v1 with CPU, inspect evaluation rewards, and render the learned policy.",
         "resource": "CPU",
-        "kind": "cartpole",
-        "task": "CartPole-v1",
+        "kind": "runtime",
+        "task": "cartpole-ppo",
         "budget": 30_000,
         "full_budget": "30,000 environment steps (usually under one minute on a notebook CPU)",
     },
@@ -220,6 +220,7 @@ def setup_cell(spec: dict) -> dict:
         from __future__ import annotations
 
         import hashlib
+        import importlib.util
         import os
         import subprocess
         import sys
@@ -262,6 +263,12 @@ def setup_cell(spec: dict) -> dict:
         else:
             print(f"Dependency cache ready: {{marker}}")
 
+        if importlib.util.find_spec("ipywidgets") is None:
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "ipywidgets>=8,<9"],
+                check=True,
+            )
+
         os.chdir(SPACE_DIR)
         if str(SPACE_DIR) not in sys.path:
             sys.path.insert(0, str(SPACE_DIR))
@@ -272,6 +279,8 @@ def setup_cell(spec: dict) -> dict:
 
 
 def runtime_parameter_cell(spec: dict) -> dict:
+    epochs = int(spec.get("epochs", 2))
+    steps_per_epoch = max(1, int(spec["budget"]) // epochs)
     return code_cell(
         f'''import importlib
 
@@ -289,7 +298,9 @@ for key, item in tasks.items():
     print(f"  {{key:20s}} {{title.get('en', title)}} · {{item.get('environment', 'environment provided by runtime')}}")
 
 TASK_KEY = "{spec['task']}"
-TRAINING_BUDGET = {spec['budget']}
+STEPS_PER_EPOCH = {steps_per_epoch}
+EPOCHS = {epochs}
+TRAINING_BUDGET = STEPS_PER_EPOCH * EPOCHS
 LEARNING_RATE = {spec.get('learning_rate', '3e-4')}
 GAMMA = {spec.get('gamma', '0.99')}
 EPSILON = {spec.get('epsilon', '0.10')}
@@ -300,7 +311,8 @@ if TASK_KEY not in tasks:
 selected_task = tasks[TASK_KEY]
 print("\\nSelected:", selected_task.get("title", {{}}).get("en", TASK_KEY))
 print("Algorithm:", selected_task.get("algorithm"))
-print("Budget:", TRAINING_BUDGET)
+print(f"Epoch schedule: {{EPOCHS}} epochs × {{STEPS_PER_EPOCH:,}} steps = {{TRAINING_BUDGET:,}} total steps")
+print("Every epoch is evaluated and saved as a separately selectable model.")
 '''
     )
 
@@ -312,14 +324,49 @@ if not torch.cuda.is_available():
 print("CUDA:", torch.cuda.get_device_name(0))""" if spec["resource"] == "xGPU" else "print('Device: CPU')"
     return code_cell(
         f'''from IPython.display import display
+import json
 import matplotlib.pyplot as plt
+import time
 
 {gpu_check}
 
 print("Starting the same training generator used by the live Studio...\\n")
 events = []
-for event in runtime.run(TASK_KEY, TRAINING_BUDGET, LEARNING_RATE, GAMMA, EPSILON, SEED):
+epoch_models = []
+MODEL_INDEX = SPACE_DIR / "artifacts" / "notebook-models.json"
+MODEL_INDEX.parent.mkdir(parents=True, exist_ok=True)
+
+def persist_epoch_models():
+    try:
+        saved_index = json.loads(MODEL_INDEX.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        saved_index = {{"models": []}}
+    previous = [item for item in saved_index.get("models", []) if isinstance(item, dict)]
+    new_ids = {{item["model_id"] for item in epoch_models}}
+    merged = epoch_models + [item for item in previous if item.get("model_id") not in new_ids]
+    MODEL_INDEX.write_text(json.dumps({{"models": merged}}, indent=2, ensure_ascii=False), encoding="utf-8")
+
+for event in runtime.run(TASK_KEY, TRAINING_BUDGET, LEARNING_RATE, GAMMA, EPSILON, SEED, checkpoints=EPOCHS):
     events.append(dict(event))
+    if event.get("model") and event.get("checkpoint_index"):
+        model_path = str(event["model"])
+        model_file = Path(model_path)
+        try:
+            relative_model_id = model_file.relative_to(SPACE_DIR / "artifacts").as_posix()
+        except ValueError:
+            relative_model_id = model_file.name
+        epoch_models.append({{
+            "model_id": str(event.get("model_id") or relative_model_id),
+            "task_key": TASK_KEY,
+            "epoch": int(event["checkpoint_index"]),
+            "epochs": int(event.get("checkpoint_count") or EPOCHS),
+            "step": int(event.get("step") or 0),
+            "score": event.get("score"),
+            "model": model_path,
+            "preview": str(event.get("preview") or ""),
+            "created_ns": time.time_ns(),
+        }})
+        persist_epoch_models()
     message = event.get("log") or event.get("detail")
     if message:
         print(message, flush=True)
@@ -329,15 +376,15 @@ if not events:
 final_event = events[-1]
 print("\\nFinal phase:", final_event.get("phase", "complete"))
 print("Final score:", final_event.get("score", "reported in the log"))
+print(f"Saved {{len(epoch_models)}} selectable epoch models in this run.")
+print("Model index:", MODEL_INDEX)
 '''
     )
 
 
-def runtime_result_cell() -> dict:
+def runtime_curve_cell() -> dict:
     return code_cell(
         '''
-        from IPython.display import Image as NotebookImage
-
         x = final_event.get("x", [])
         y = final_event.get("y", [])
         if x and y:
@@ -351,16 +398,103 @@ def runtime_result_cell() -> dict:
         else:
             print("This task reports its result through the artifact rather than a scalar learning curve.")
 
-        preview = final_event.get("preview")
-        if preview and Path(preview).exists():
-            print("Learned-policy artifact:", preview)
-            display(NotebookImage(filename=str(preview)))
-        else:
-            print("No replay path was returned. Inspect the final log and the artifacts directory:", SPACE_DIR / "artifacts")
+        print("Run the inference cell below to choose an epoch model and visualize its exact learned policy.")
+        '''
+    )
 
-        artifact = final_event.get("artifact") or final_event.get("model")
-        if artifact:
-            print("Downloadable artifact:", artifact)
+
+def runtime_inference_cell() -> dict:
+    return code_cell(
+        '''
+        import json
+        from pathlib import Path
+        from IPython.display import Image as NotebookImage, clear_output, display
+        import ipywidgets as widgets
+
+        MODEL_INDEX = SPACE_DIR / "artifacts" / "notebook-models.json"
+
+        def load_notebook_models():
+            try:
+                payload = json.loads(MODEL_INDEX.read_text(encoding="utf-8"))
+            except (FileNotFoundError, json.JSONDecodeError, OSError):
+                return []
+            records = [
+                item for item in payload.get("models", [])
+                if isinstance(item, dict) and item.get("model_id") and item.get("task_key") == TASK_KEY
+            ]
+            return sorted(
+                records,
+                key=lambda item: (
+                    int(item.get("created_ns", 0)),
+                    int(item.get("step", 0)),
+                    int(item.get("epoch", 0)),
+                ),
+                reverse=True,
+            )
+
+        trained_models = load_notebook_models()
+        if not trained_models:
+            raise RuntimeError("No saved epoch model was found. Run the training cell above first.")
+
+        def model_label(record):
+            score = record.get("score")
+            score_text = "—" if score is None else f"{float(score):.2f}"
+            return (
+                f"Epoch {record.get('epoch')}/{record.get('epochs')} · "
+                f"{int(record.get('step', 0)):,} steps · score {score_text} · {record['model_id']}"
+            )
+
+        model_by_id = {record["model_id"]: record for record in trained_models}
+        model_picker = widgets.Dropdown(
+            options=[(model_label(record), record["model_id"]) for record in trained_models],
+            value=trained_models[0]["model_id"],
+            description="Epoch model:",
+            layout=widgets.Layout(width="95%"),
+            style={"description_width": "110px"},
+        )
+        visualize_button = widgets.Button(
+            description="Visualize selected policy",
+            button_style="primary",
+            icon="play",
+            layout=widgets.Layout(width="240px"),
+        )
+        inference_output = widgets.Output()
+
+        def visualize_selected(_=None):
+            record = model_by_id[model_picker.value]
+            with inference_output:
+                clear_output(wait=True)
+                print("Loading saved model:", record["model"])
+                preview = record.get("preview")
+
+                if hasattr(runtime, "render_preview"):
+                    try:
+                        rendered = runtime.render_preview(record["model_id"])
+                        preview = rendered.get("preview", preview)
+                        print("Generated a fresh deterministic rollout.")
+                    except Exception as exc:
+                        print(f"Fresh rollout unavailable ({type(exc).__name__}); using the saved epoch rollout.")
+                elif hasattr(runtime, "render_saved_model"):
+                    try:
+                        rendered = runtime.render_saved_model(TASK_KEY, record["model"], record["model_id"])
+                        preview = rendered.get("preview", preview)
+                        print("Generated a fresh rollout from the selected saved policy.")
+                    except Exception as exc:
+                        print(f"Fresh rollout unavailable ({type(exc).__name__}); using the saved epoch rollout.")
+
+                preview_path = Path(str(preview)) if preview else None
+                if preview_path and preview_path.is_file():
+                    display(NotebookImage(filename=str(preview_path)))
+                else:
+                    print("No replay file is available for this checkpoint.")
+                print("Model:", record["model"])
+                print("Epoch:", f"{record.get('epoch')}/{record.get('epochs')}")
+                print("Training step:", f"{int(record.get('step', 0)):,}")
+                print("Evaluation score:", record.get("score", "—"))
+
+        visualize_button.on_click(visualize_selected)
+        display(widgets.VBox([model_picker, visualize_button, inference_output]))
+        print("The newest epoch is selected by default. Choose another saved model, then click Visualize selected policy.")
         '''
     )
 
@@ -401,7 +535,8 @@ def gymnasium_cells(spec: dict) -> list[dict]:
             import app as playground
 
             EXPERIMENT = "{spec['task']}"
-            TRAINING_BUDGET = {spec['budget']}
+            STEPS_PER_EPOCH = {max(1, int(spec['budget']) // 2)}
+            EPOCHS = 2
             LEARNING_RATE = 0.1
             GAMMA = 0.99
             EPSILON = 0.10
@@ -412,6 +547,7 @@ def gymnasium_cells(spec: dict) -> list[dict]:
                 print(" ", name)
             if EXPERIMENT not in playground.EXPERIMENTS:
                 raise ValueError(f"Choose EXPERIMENT from {{list(playground.EXPERIMENTS)}}")
+            print(f"Epoch schedule: {{EPOCHS}} epochs × {{STEPS_PER_EPOCH:,}} steps")
             '''
         ),
         code_cell(
@@ -421,7 +557,9 @@ def gymnasium_cells(spec: dict) -> list[dict]:
             from IPython.display import Image as NotebookImage, display
 
             results = []
-            for result in playground.train(EXPERIMENT, TRAINING_BUDGET, LEARNING_RATE, GAMMA, EPSILON, SEED, "English"):
+            for result in playground.train(
+                EXPERIMENT, STEPS_PER_EPOCH, EPOCHS, LEARNING_RATE, GAMMA, EPSILON, SEED, "English"
+            ):
                 results.append(result)
                 console = result[-1]
                 value = getattr(console, "value", str(console))
@@ -432,11 +570,57 @@ def gymnasium_cells(spec: dict) -> list[dict]:
                 raise RuntimeError("The playground returned no training result")
             status, metric, curve, preview, artifact, console = results[-1]
             display(curve)
-            if isinstance(preview, (str, Path)) and Path(preview).exists():
-                display(NotebookImage(filename=str(preview)))
-            else:
-                display(preview)
             print("Result artifact:", getattr(artifact, "value", artifact))
+            print(f"Saved {{len(playground.load_models(EXPERIMENT))}} selectable epoch models for this task.")
+            '''
+        ),
+        code_cell(
+            '''
+            from pathlib import Path
+            from IPython.display import Image as NotebookImage, clear_output, display
+            import ipywidgets as widgets
+
+            trained_models = playground.load_models(EXPERIMENT)
+            if not trained_models:
+                raise RuntimeError("No saved epoch model was found. Run the training cell above first.")
+
+            def model_label(record):
+                return (
+                    f"Epoch {record['epoch']}/{record['epochs']} · {record['step']:,}/{record['total']:,} steps · "
+                    f"score {record['score']:.2f} · {record['model_id']}"
+                )
+
+            model_by_id = {record["model_id"]: record for record in trained_models}
+            model_picker = widgets.Dropdown(
+                options=[(model_label(record), record["model_id"]) for record in trained_models],
+                value=trained_models[0]["model_id"],
+                description="Epoch model:",
+                layout=widgets.Layout(width="95%"),
+                style={"description_width": "110px"},
+            )
+            visualize_button = widgets.Button(
+                description="Visualize selected policy", button_style="primary", icon="play",
+                layout=widgets.Layout(width="240px"),
+            )
+            inference_output = widgets.Output()
+
+            def visualize_selected(_=None):
+                record = model_by_id[model_picker.value]
+                with inference_output:
+                    clear_output(wait=True)
+                    print("Loading saved model:", record["model"])
+                    preview = Path(str(record["preview"]))
+                    if preview.is_file():
+                        display(NotebookImage(filename=str(preview)))
+                    else:
+                        print("The saved policy has no replay file.")
+                    print("Epoch:", f"{record['epoch']}/{record['epochs']}")
+                    print("Training step:", f"{record['step']:,}")
+                    print("Evaluation score:", record["score"])
+
+            visualize_button.on_click(visualize_selected)
+            display(widgets.VBox([model_picker, visualize_button, inference_output]))
+            print("The newest epoch is selected by default. Choose another saved model, then click Visualize selected policy.")
             '''
         ),
     ]
@@ -445,7 +629,7 @@ def gymnasium_cells(spec: dict) -> list[dict]:
 def reflection_cell(spec: dict) -> dict:
     return markdown_cell(
         f"""
-        ## 4. Read the result before increasing the budget
+        ## 6. Read the result before increasing the budget
 
         Compare the first and last checkpoint values, then inspect the replay. A rising curve with an implausible replay can
         indicate reward shaping, evaluation, or rendering problems. A flat quick run is also inconclusive: this notebook's
@@ -459,15 +643,31 @@ def build_notebook(spec: dict) -> dict:
     cells = [intro_cell(spec), learning_cell(spec), markdown_cell("## 2. Prepare the matching Studio runtime"), setup_cell(spec)]
     if spec["kind"] == "runtime":
         cells.extend([
-            markdown_cell("## 3. Choose a task and train"),
+            markdown_cell("## 3. Configure the epoch schedule"),
             runtime_parameter_cell(spec),
+            markdown_cell("## 4. Train and save one model per epoch"),
             runtime_run_cell(spec),
-            runtime_result_cell(),
+            runtime_curve_cell(),
+            markdown_cell(
+                "## 5. Load a saved epoch model and run inference\n\n"
+                "This cell reloads the on-disk model index. It therefore works after training and after a kernel restart, "
+                "as long as the ModelScope Notebook workspace is still available. Studio and Notebook run in separate "
+                "containers, so this selector lists models produced in the current Notebook workspace."
+            ),
+            runtime_inference_cell(),
         ])
-    elif spec["kind"] == "cartpole":
-        cells.extend([markdown_cell("## 3. Train PPO and inspect the artifacts"), *cartpole_cells(spec)])
     else:
-        cells.extend([markdown_cell("## 3. Choose a recipe and train"), *gymnasium_cells(spec)])
+        cells.extend([
+            markdown_cell("## 3. Configure the epoch schedule"),
+            gymnasium_cells(spec)[0],
+            markdown_cell("## 4. Train and save one model per epoch"),
+            gymnasium_cells(spec)[1],
+            markdown_cell(
+                "## 5. Load a saved epoch model and run inference\n\n"
+                "The selector reloads models produced in this Notebook workspace. The live Studio uses a separate container."
+            ),
+            gymnasium_cells(spec)[2],
+        ])
     cells.append(reflection_cell(spec))
     notebook_id = hashlib.sha1(spec["slug"].encode("utf-8")).hexdigest()[:10]
     for index, cell in enumerate(cells):

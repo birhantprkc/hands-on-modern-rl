@@ -69,6 +69,23 @@ def main() -> None:
             except SyntaxError as exc:
                 errors.append(f"{slug}: code cell {index} does not compile: {exc}")
 
+        notebook_source = "\n".join(str(cell.get("source", "")) for cell in notebook.get("cells", []))
+        for required_text in (
+            "STEPS_PER_EPOCH",
+            "EPOCHS",
+            "Epoch model:",
+            "Visualize selected policy",
+            "No saved epoch model was found",
+        ):
+            if required_text not in notebook_source:
+                errors.append(f"{slug}: notebook is missing epoch/inference workflow marker {required_text!r}")
+        if spec["kind"] == "runtime":
+            for required_text in ("checkpoints=EPOCHS", "notebook-models.json", "persist_epoch_models"):
+                if required_text not in notebook_source:
+                    errors.append(f"{slug}: runtime notebook is missing {required_text!r}")
+        elif "playground.load_models(EXPERIMENT)" not in notebook_source:
+            errors.append(f"{slug}: Gymnasium notebook does not reload saved epoch models")
+
         studio_readme = studio_dir / "README.md"
         if expected_url not in studio_readme.read_text(encoding="utf-8"):
             errors.append(f"{slug}: Studio README is missing its companion URL")
