@@ -1,6 +1,16 @@
 # 9.3 Model-Based RL
 
-> [9.2](./td3-sac) brought model-free continuous-control algorithms to a stable, practical level: SAC and TD3 can learn good policies on MuJoCo after one million training steps. One million steps are prohibitively expensive for a physical robot, however, because motor wear, battery life, and safety constraints make real-environment sampling costly. The central idea of **model-based RL** is to **learn an environment model**, $\hat{P}(s' \mid s, a), \hat{R}(s, a)$, and train the policy within that model, reducing the required samples from millions of steps to tens of thousands.
+## What This Section Covers
+
+[9.2](./td3-sac) brought model-free continuous-control algorithms to a stable, practical level. SAC and TD3 can learn good MuJoCo policies after roughly one million training steps. In a physical robot, each sample consumes time, battery capacity, and mechanical lifetime, while a collision can damage the system. A million real steps may require weeks or months.
+
+**Model-based RL** addresses this cost by learning an environment model,
+
+$$
+\hat P(s'\mid s,a),\qquad \hat R(s,a),
+$$
+
+and then planning or training largely inside that model. This section develops three routes: Dyna uses the model as a data generator, PETS quantifies uncertainty with probabilistic ensembles, and MBPO limits error with short rollouts.
 
 ## The Fundamental Difference Between Model-Based and Model-Free RL
 
@@ -8,7 +18,7 @@ All preceding algorithms—DDPG, TD3, and SAC—are **model-free**: the agent do
 
 ### Why Use a Model?
 
-The main reason is **sample efficiency**. MuJoCo's physics simulations are inexpensive, but **every sample from a physical robot is costly** because the robot may be damaged and its battery and mechanical components wear down. Model-free methods need millions of steps to learn a good policy, which is impractical for a physical robot. Model-based methods need only tens of thousands of steps because, after learning the model, they can sample from it without limit.
+The main reason is **sample efficiency**. If one real interaction takes one second, one million steps require about 11.5 days of uninterrupted operation, whereas 100,000 steps require about one day. Model-based methods can reuse a learned model to generate inexpensive imagined experience, reducing real interaction by roughly 10–100 times in the representative results discussed below.
 
 ### Overview of Three Major Paradigms
 
@@ -48,11 +58,23 @@ Dyna treats the model as an additional data generator. After every real interact
 
 ### A Key Limitation of Dyna
 
-Dyna assumes a deterministic model that uses $(s, a)$ to predict $s'$ directly. This works in discrete environments such as GridWorld, but model errors accumulate in continuous physics environments such as MuJoCo:
+Dyna works well in a small discrete world, but repeatedly feeding predictions back into a learned model accumulates error in continuous dynamics. Suppose the model's one-step error is at most $\epsilon$, and the true dynamics are Lipschitz in the state with constant $L$. If
 
-$$\|s_T^{\text{predicted}} - s_T^{\text{true}}\| \sim \mathcal{O}(\epsilon^T)$$
+$$
+e_t=\lVert s_t^{\text{predicted}}-s_t^{\text{true}}\rVert,
+$$
 
-where $\epsilon$ is the one-step prediction error. When $\epsilon = 0.1, T = 10$, the prediction error reaches $10^{10}$ and becomes unusable. Later methods such as PETS and MBPO therefore address the question of how to quantify model error.
+then
+
+$$
+e_{t+1}\leq L e_t+\epsilon,
+\qquad
+e_T\leq \epsilon\sum_{i=0}^{T-1}L^i.
+$$
+
+The three regimes are different. With $L=0.9$, the bound converges to $10\epsilon$. With $L=1$, it grows linearly to $T\epsilon$. With $L=1.1$ and $T=50$, the geometric sum is about $1174\epsilon$; a one-step error of 0.01 can therefore grow beyond 11. This is why long imagined trajectories can become unrelated to the real system.
+
+PETS and MBPO respond differently. PETS explicitly represents uncertainty and plans conservatively across plausible models. MBPO avoids long predictions and resets each short rollout to a state taken from real data.
 
 ## Probabilistic Ensembles with Trajectory Sampling
 
@@ -60,6 +82,8 @@ The key observation behind Probabilistic Ensembles with Trajectory Sampling (Chu
 
 - **Epistemic uncertainty**: uncertainty in the model caused by limited training data, represented by an **ensemble** $M_1, \ldots, M_K$
 - **Aleatoric uncertainty**: randomness inherent in the environment, such as a die roll, represented by a **probabilistic output** $p(s' \mid s, a)$
+
+Epistemic uncertainty can shrink when the data set covers the relevant state-action region. Aleatoric uncertainty remains even with unlimited data because it belongs to the environment itself. PETS commonly uses an ensemble of five probabilistic networks: disagreement across networks represents the first kind, while each network's predicted variance represents the second.
 
 ### Model Architecture
 
@@ -114,9 +138,13 @@ def cem_planning(model, s, horizon=10, n_samples=500, n_iters=5):
     return action_mean[0]  # Execute only the first action, following MPC
 ```
 
+Each sampled trajectory keeps one randomly selected ensemble member for the whole rollout. This TS1 choice preserves distinct plausible dynamics; changing models at every step would instead approximate an artificial average environment.
+
+CEM begins with a broad Gaussian over action sequences, evaluates 500 candidates, fits the next distribution to the best 20%, and repeats for five iterations. It then executes only the first action and replans from the next observed state, following model predictive control.
+
 ### Experimental Results for PETS
 
-PETS was the first model-based method to match model-free performance on MuJoCo while using **10–50 times fewer samples**. Its cost is expensive planning: every environment step requires 500 model rollouts.
+PETS was the first model-based method to match model-free performance on MuJoCo while using **10–50 times fewer samples**. Its cost is expensive planning. With five CEM iterations, 500 candidates, and a horizon of ten, selecting one action requires about $5\times500\times10=25{,}000$ model predictions.
 
 ## Model-Based Policy Optimization
 
@@ -124,7 +152,9 @@ The central innovation of Model-Based Policy Optimization (Janner et al., 2019) 
 
 ### Short-Horizon Rollouts
 
-The key MBPO parameter is the rollout length $k$. The paper proves that when the one-step model error is $\epsilon$, the accumulated error of a $k$-step rollout is $\leq k \epsilon$, which remains controllable.
+The key MBPO parameter is the rollout length $k$. The practical observation is that most of the sample-efficiency benefit appears with one to five model steps, before compounded model bias dominates.
+
+For intuition, take $L=1.01$ and $\epsilon=0.01$. The error bound is about 0.01 after one step, 0.05 after five, 0.22 after twenty, and 2.7 after one hundred. MBPO uses the early, relatively reliable part of the curve. Every rollout starts from a state sampled from real experience, advances only a few model steps, and then stops.
 
 ```python
 # Short-horizon rollouts keep model error under control
@@ -155,6 +185,8 @@ for rollout_step in range(K_short):  # K_short = 5
 ```
 
 MBPO matches the performance of model-free SAC on MuJoCo while using **10–100 times fewer samples**.
+
+The rollout length can grow with training. Early in training, when the learned dynamics are inaccurate, $k$ may remain at one. As prediction improves, it can increase toward five. The final policy is still an ordinary SAC policy, so deployment does not require PETS-style CEM planning.
 
 ### Comparing Three Model-Based RL Algorithms
 

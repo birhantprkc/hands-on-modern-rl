@@ -1,175 +1,251 @@
-# 24.1 Audio Reward Design: Content, Prosody, and Real-Time Interaction
+# 24.1 Audio Reward Design
 
-Consider a three-second recording: a woman says, “It will rain tomorrow; remember an umbrella,” in a calm, slow voice with faint keyboard noise behind her. Asked for the speaker's emotion, the model answers “calm.” The answer is correct. Yet when the response is synthesized, the model uses the same pitch and rhythm for comfort, warnings, and jokes. The user does not say that the answer is wrong; the user simply does not want another conversation.
+Consider a three-second recording: a woman says, “It will rain tomorrow; remember an umbrella,” in a calm, slow voice with faint keyboard noise behind her. Asked for the speaker's emotion, the model answers “calm.” The answer is correct. Yet when this answer is spoken aloud, every sentence uses the same pitch and rhythm, whether the content is comforting, warning, or joking. The user does not say that the answer is wrong; the user simply does not want another conversation.
 
-This is the central difficulty of audio RL. End-to-end speech interaction carries three layers of information: **what is said (content), how it is said (prosody), and how quickly it is delivered (real-time behavior)**. Rewarding only the first layer can degrade the other two. This section develops audio tokenization and a three-layer reward, then follows Step-Audio-R1 and Step-Audio-R1.5 to show how a single metric creates traps and how multidimensional feedback restores interaction quality.
+This is the central difficulty of audio RL. Many text-reasoning tasks can use answer correctness as their main reward. End-to-end speech interaction carries three layers of information: **what is said (content), how it is said (prosody), and how quickly it is delivered (real-time behavior)**. Rewarding only the first layer can degrade the other two. This section first explains audio tokenization, then constructs rewards for all three layers. Finally, it follows Step-Audio-R1 and Step-Audio-R1.5 to show how a single reward creates a trap and how multidimensional feedback restores interaction quality.
 
 ![Step-Audio-R1 model overview](../../chapter27_audio_rl/images/step-audio-r1-overview.png)
 
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 1: Step-Audio-R1 architecture. A 25 Hz audio encoder is downsampled to 12.5 Hz through an adapter, then passed to a Qwen2.5-32B LLM decoder that produces textual reasoning and responses. Source: <a href="https://arxiv.org/abs/2511.15848" target="_blank" rel="noopener noreferrer">Step-Audio-R1 Technical Report</a>.</em>
+</div>
+
 ## Overview of Audio Language Models
 
-Text language models process sequences of discrete tokens. However, audio is a continuous waveform at 24 kHz—24,000 floating-point samples per second. To enable Transformers to process audio, it must first be "tokenized." This is the task of the **Neural Audio Codec**.
+### From Waveforms to Tokens
 
-The Neural Audio Codec converts raw audio waveforms into a sequence of discrete tokens that can be processed by neural networks. This process typically involves two main steps: **feature extraction** and **tokenization**. First, the audio signal is transformed into a spectrogram or a series of mel-frequency cepstral coefficients (MFCCs), which capture the essential characteristics of the audio. Then, a neural network, often a variant of the Transformer, is trained to map these features into a sequence of discrete tokens.
+Text language models process discrete token sequences, while audio is a continuous waveform. At 24 kHz, one second contains 24,000 samples. A Transformer therefore usually receives a compressed discrete representation produced by a **neural audio codec**. The following are representative configurations; frame rates and codebook counts vary with bandwidth settings.
 
-This tokenization process is crucial for enabling the use of audio in reinforcement learning scenarios. By converting continuous audio signals into discrete tokens, the model can then apply standard reinforcement learning techniques, such as policy gradients or actor-critic methods, to learn to perform tasks involving audio inputs.
+**SoundStream** (Google, 2021) typically uses 50 Hz and eight RVQ layers for speech synthesis. **EnCodec** (Meta, 2022) uses configurations such as 75 Hz and eight RVQ layers for general audio and music. **SpeechTokenizer** (2023) uses eight layers at 50 Hz, with the first layer guided toward semantics and the remaining layers carrying acoustic detail. **WavTokenizer** (ICLR 2025) targets high compression with one VQ layer at 40–75 Hz. **Mimi** (Kyutai, 2024) uses a 12.5 Hz joint semantic-acoustic representation for real-time dialogue in Moshi.
 
-In the context of audio-based reinforcement learning, the design of the reward function is particularly important. The reward function must accurately reflect the quality of the agent's actions in the audio domain. This involves not only capturing the acoustic properties of the audio but also aligning the reward with the specific goals of the task,
+[SoundStream](https://arxiv.org/abs/2107.03312) and [EnCodec](https://arxiv.org/abs/2210.13438) use **residual vector quantization (RVQ)**. A single codebook rarely represents an encoded audio frame accurately, so successive codebooks quantize the residual left by the previous layer.
 
-### Three Major Audio Tokenization Schemes
+Let the encoder output be $e^{(0)}=\operatorname{Encoder}(x)$. Layer $k$ chooses the nearest entry in codebook $\mathrm{CB}_k$ and records the remaining error:
 
-| Codec                         | Frame Rate | Codebook Size                 | Token Information | Typical Use Cases          |
-| ----------------------------- | ---------- | ----------------------------- | ----------------- | -------------------------- |
-| **SoundStream** (Google 2021) | 50 Hz      | 8 RVQ layers                  | Medium            | Speech Synthesis, TTS      |
-| **EnCodec** (Meta 2022)       | 75 Hz      | 8 RVQ layers                  | Medium            | General Audio, Music       |
-| **SpeechTokenizer** (2023)    | 50 Hz      | 8 (1 semantic + 7 acoustic)   | High (semantic)   | Semantic Understanding     |
-| **WavTokenizer** (ICLR 2025)  | 40-75 Hz   | 1 (VQ)                        | Extremely High    | Ultra-Compression, AudioLM |
-| **Mimi** (Kyutai 2024)        | 12.5 Hz    | 8 (Semantic + Acoustic Joint) | High              | Real-time Dialogue (Moshi) |
+$$
+c_k=\arg\min_c\left\|e^{(k-1)}-\mathrm{CB}_k[c]\right\|,
+\qquad
+e^{(k)}=e^{(k-1)}-\mathrm{CB}_k[c_k].
+$$
 
-RVQ (Residual Vector Quantization, Residual Vector Quantization) is the core of EnCodec/SoundStream. It encodes a frame of audio into $K$ layers of codebook indices $c_1, c_2, \ldots, c_K$, where each layer quantizes the residual of the previous layer:
+The decoder reconstructs the waveform from all indices: $\hat{x}=\operatorname{Decoder}(c_1,\ldots,c_K)$. More layers can improve reconstruction, but each layer adds another token stream and increases autoregressive generation cost.
 
-$$e^{(0)} = \text{Encoder}(x), \quad c_k = \arg\min_c \|e^{(k-1)} - \text{CB}_k[c]\|, \quad e^{(k)} = e^{(k-1)} - \text{CB}_k[c_k]$$
+[SpeechTokenizer](https://arxiv.org/abs/2308.16692) modifies this structure by using HuBERT features to guide the first RVQ layer toward semantic information, while later layers supply acoustic details. This hierarchy provides an intuitive basis for separating content and prosody rewards later in the section.
 
-The final waveform is reconstructed as $\hat{x} = \text{Decoder}(c_1, \ldots, c_K)$. Larger $K$ leads to higher reconstruction quality, but each additional layer of the codebook increases the token sequence by one, doubling the length of the autoregressive generation. The key insight of SpeechTokenizer is: **distill the first layer of the codebook into HuBERT semantic features**, so that $c_1$ encodes "what was said", and $c_2 \ldots c_K$ encodes "how it was said" (prosody, timbre).
+### How Speech Generation Differs from Text Generation
 
-### Differences Between Speech Generation and Text Generation
+Audio-token generation looks like ordinary autoregressive next-token prediction, but its constraints are different. Text sequence length grows mostly with the number of words; speech sequence length also grows with duration and codec frame rate. At 75 Hz with eight RVQ layers, one second contains $75\times8=600$ tokens, and ten seconds contains 6,000. The same content usually needs only a few hundred text tokens.
 
-Feeding audio tokens into an LLM appears to follow the same generation mechanism as text (autoregressive next-token), but the reality is vastly different:
+Speech evaluation must cover content, prosody, emotion, timbre, and rhythm. A wrong text token can leave a sentence readable, while one bad audio frame can create a click or electrical artifact. Multiple RVQ streams must remain synchronized, and real-time dialogue adds a strict latency budget. These constraints make audio-RL sampling substantially more expensive than text-RL sampling.
 
-| Dimension       | Text Generation            | Speech Generation                                  |
-| --------------- | -------------------------- | -------------------------------------------------- |
-| Sequence Length | 1 token ≈ 0.5 word ≈ 0.3 s | 1 token ≈ 0.013 s (75 Hz) → 1 s speech = 75 tokens |
-| Evaluation      | Content accuracy           | Content + Prosody + Emotion + Voice + Rhythm       |
-| Error Tolerance | One word error is readable | One frame error → burst noise, electrical noise    |
-| Multi-Codebook  | Single stream              | 8-layer RVQ requires synchronized generation       |
-| Real-time       | Streaming is sufficient    | First packet delay < 1 s                           |
+### Engineering Challenges in Real-Time Inference
 
-To generate one second of speech, 75 × 8 = 600 tokens must be generated, and 10 seconds of dialogue would require 6000 tokens — 20 times longer than equivalent text content. This is the **sequence length explosion** problem in audio LLMs.
+Real-time speech dialogue must be **full duplex**: listening, reasoning, and speaking overlap. Three constraints dominate:
 
-### Engineering Challenges of Real-Time Inference
+1. **First-packet latency:** the interval from the end of the user's speech to the first playable audio output. Hardware, networking, and model size determine the achievable threshold.
+2. **Streaming decoding:** the system must emit chunks instead of waiting for a complete sentence.
+3. **Interruptibility:** when the user speaks again, generation must stop and listening must resume immediately.
 
-Real-time voice conversation requires **full-duplex** operation: the model listens, thinks, and speaks simultaneously. There are three key engineering challenges:
+[Moshi](https://arxiv.org/abs/2410.00037) jointly models multiple audio and text streams. Production real-time systems do not disclose every internal detail, but all must stream input and output. Later we will see how Step-Audio-R1 Realtime pipelines formulation and articulation to achieve sub-second first-packet latency.
 
-1. **First Packet Latency**: The interval between when the user finishes speaking and when the model begins to respond. The industry goal is less than 500 ms.
-2. a **Streaming Decoding**: The model cannot wait for the entire sentence to be generated before synthesizing the output; it must output in chunks.
-3. **Interruptibility**: The user may interrupt at any time, and the model must immediately stop generating and switch to listening mode.
+## Three Dimensions of Audio Reward
 
-GPT-4o Realtime, Gemini Live, and Moshi use **chunked autoregressive** combined with **streaming vocoder** to address these challenges. In the latter half of this chapter, we will see that Step-Audio-R1 Realtime achieves sub-second latency using a **dual-brain architecture** of "listen-and-think + think-and-speak."
+We begin with correctness, which is easiest to implement, then add prosody and latency. These signals differ in verifiability and can conflict when combined.
 
-## Step-Audio Series: The Audio Reasoning Path of Chinese Teams
+### Content Correctness
 
-StepFun (Staircase Star) is a representative company of domestic audio LLMs. The Step-Audio series evolves from Step-Audio 2 (a basic conversational model) to **Step-Audio-R1** (a reasoning model, 2025.11) and **Step-Audio-R1.5** (RLHF-aligned, 2026.04), fully covering the full chain of "audio understanding + reasoning + generation."
+For a response $a$ and reference answer $a^*$, the simplest reward is binary:
 
-### Step-Audio-R1: Test-Time Compute Scaling
+$$
+R_{\mathrm{content}}(a,a^*)=
+\begin{cases}
+1,&a=a^*,\\
+0,&\text{otherwise}.
+\end{cases}
+$$
 
-The core contribution of [Step-Audio-R1](https://arxiv.org/abs/2511.15848): **the first model to successfully unlock test-time compute scaling in the audio domain.**
+Useful variants include $1-\mathrm{WER}$ for speech recognition, embedding cosine similarity for semantic equivalence, and an LLM judge that returns a score in $[0,1]$. These rewards fit objective tasks such as mathematics, factual QA, and ASR. Open-ended dialogue has no unique reference answer, so correctness alone is insufficient.
 
-#### The Inverted Scaling Anomaly
+### Prosody Naturalness
 
-Text and visual reasoning models generally follow the test-time compute scaling law — giving a model more reasoning tokens leads to predictable performance improvements (see [Chapter 16 on Reasoning Models](../chapter19_reasoning/r1-zero-pure-rl-reasoning)). However, in the audio domain, an anomaly appears:
+Prosody includes pitch, rhythm, intensity, and pauses. It has no single correct label, so preferences must be learned from human comparisons or acoustic statistics. A scalar reward model can be trained with the Bradley–Terry objective:
+
+$$
+\mathcal{L}_{\mathrm{RM}}
+=
+-\log\sigma\!\left(R_\phi(y_w)-R_\phi(y_l)\right).
+$$
+
+Suppose response A is factually correct but completely monotone, while response B is factually wrong but sounds natural. Different annotators may prioritize content or experience. A single scalar hides which dimension produced the preference.
+
+Step-Audio-R1.5 instead uses rubric prompting so that an evaluator can consider correctness, fluency, prosody, emotional fit, and immersion under the current task. A teaching approximation is to assign each dimension a score and aggregate it with weights learned from human preferences:
+
+$$
+R_{\mathrm{prosody}}(y)=\sum_k w_k\,\mathrm{GRM}_k(y),
+\qquad
+w=\arg\min_w\left\|R_{\mathrm{human}}(y)-\sum_k w_k\,\mathrm{GRM}_k(y)\right\|^2.
+$$
+
+This weighted equation is an explanatory template, not Step-Audio-R1.5's published training formula. The paper uses a **generative reward model (GRM)**: given the multi-turn context, policy response, reference response, and an optional rubric, it generates a relative-quality judgment and maps that judgment to a scalar reward. The criterion can therefore change with the task instead of being compressed into one unexplained fixed score.
+
+When preference data is unavailable, acoustic features can provide a diagnostic reward. The following illustrative code compares pitch and energy distributions with human references and explicitly penalizes monotony:
+
+```python
+def prosody_reward(audio):
+    f0 = extract_pitch(audio)
+    energy = extract_energy(audio)
+
+    f0_score = -wasserstein(f0_dist(audio), f0_dist_human)
+    energy_score = -wasserstein(energy_dist(audio), energy_dist_human)
+
+    f0_var = np.std(f0)
+    monotonicity_penalty = -max(0, 0.2 - f0_var)
+
+    return 0.5 * f0_score + 0.3 * energy_score + 0.2 * monotonicity_penalty
+```
+
+The final term does not reward ideal prosody; it penalizes the absence of prosody. This is a first defense against the flattening caused by correctness-only RLVR.
+
+### Real-Time Reward
+
+Latency requires a precise measurement interval. Here it begins when the user's speech ends and finishes when the system emits its first playable audio packet. The following piecewise reward is a teaching example; product budgets and measurement conditions must determine the actual thresholds:
+
+$$
+R_{\mathrm{latency}}(y)=
+\begin{cases}
+1,&T_{\mathrm{first\text{-}packet}}<0.5\ \mathrm{s},\\
+0.5,&0.5\ \mathrm{s}\le T_{\mathrm{first\text{-}packet}}<1.0\ \mathrm{s},\\
+0,&T_{\mathrm{first\text{-}packet}}\ge1.0\ \mathrm{s}.
+\end{cases}
+$$
+
+A continuous alternative, $R_{\mathrm{latency}}(y)=\exp(-\alpha T_{\mathrm{first\text{-}packet}})$, avoids abrupt behavior near thresholds.
+
+Latency conflicts with deep reasoning: more deliberation delays the first packet. Architecture can hide part of that delay. The dual-brain design discussed below begins articulation while formulation is still in progress.
+
+### Combined Reward
+
+A teaching objective combines the three signals:
+
+$$
+R_{\mathrm{total}}
+=w_cR_{\mathrm{content}}+w_pR_{\mathrm{prosody}}+w_lR_{\mathrm{latency}}.
+$$
+
+Customer-service QA emphasizes $w_c$ because factual accuracy determines business value. A companion emphasizes $w_p$ because conversation quality affects retention. Real-time translation emphasizes $w_l$ because excessive delay makes the system unusable. Step-Audio-R1.5's central lesson is that optimizing only $w_c$ creates a verifiable-reward trap; interaction preferences must also enter the reward.
+
+## Case 1: Step-Audio-R1 and Modality-Grounded Reasoning
+
+The Step-Audio series progresses from the audio-understanding and dialogue foundation of [Step-Audio 2](https://arxiv.org/abs/2507.16632) to Step-Audio-R1 in November 2025 and Step-Audio-R1.5 in April 2026. R1 asks a reward-design question: why can an audio model perform worse when it reasons for longer?
+
+### The Inverted-Scaling Anomaly
+
+Text and visual reasoning models often improve with more test-time reasoning tokens. Audio models can show the opposite behavior:
 
 ```mermaid
 graph LR
-    A[Audio Input] --> B{Reasoning Length}
-    B -->|0 token| C[Direct Answer<br/>Accuracy 70%]
-    B -->|500 token| D[Short CoT<br/>Accuracy 65%]
-    B -->|3000 token| E[Long CoT<br/>Accuracy 55%]
-    style C fill:#9f9
-    style E fill:#f99
+    A[Audio input] --> B{Reasoning method}
+    B -->|Direct answer| C[Use current acoustic representation]
+    B -->|Acoustically grounded reasoning| D[Analyze pitch, rhythm, and timbre]
+    B -->|Textual surrogate reasoning| E[Continue from a transcript or imagined text]
+    D --> F[Longer reasoning may help]
+    E --> G[Errors may compound with length]
 ```
 
-#### The Root Cause of Textual Surrogate Reasoning
+This diagram explains the mechanism; it is not a fabricated accuracy curve. The paper verifies the effect across audio benchmarks and ablations, with task-dependent values.
 
-The Step-Audio-R1 team identified the root cause through systematic case analysis: **Textual Surrogate Reasoning**.
-
-#### The Disease of Textual Surrogate Reasoning
-
-Most audio LLMs use text CoT data for SFT initialization (inheriting the reasoning ability of text models). As a result, the model "thinks" not about the audio, but rather about **the textual description of the audio**:
+The [Step-Audio-R1](https://arxiv.org/abs/2511.15848) team calls the cause **textual surrogate reasoning**. Audio LLMs are often initialized with text chain-of-thought data, so they reason over a textual description of the audio instead of the acoustic evidence itself:
 
 ```text
-❌ Textual Surrogate Reasoning:
-"Lyrics mention sadness → This song expresses sadness"
+❌ Textual surrogate reasoning:
+“The lyrics mention sadness, so the song is sad.”
 
-✅ Modality-Grounded Reasoning:
-"Minor key + descending melodic contour + slow tempo → Sad emotion"
+✅ Acoustically grounded reasoning:
+“Minor harmony + descending melodic contour + slow tempo indicate sadness.”
 ```
 
-The former only looks at the lyrics text (even hallucinating lyrics), while the latter truly analyzes pitch, rhythm, and harmony. When the reasoning chain becomes longer, the textual surrogate model will only drift further away — this is the root of inverted scaling.
+The first chain may even hallucinate lyrics. As it grows longer, it compounds reasoning over the wrong substrate. Audio rewards therefore need to distinguish an answer grounded in acoustic evidence from a lucky answer based on text alone.
 
-**Modality-Grounded Reasoning Distillation (MGRD)** is the core training framework of Step-Audio-R1. It gradually shifts the reasoning base from text to acoustics through $T$ rounds of iteration:
+### MGRD: Modality-Grounded Reasoning Distillation
+
+**MGRD (Modality-Grounded Reasoning Distillation)** is Step-Audio-R1's central training framework. Across $T$ iterations, it moves the basis of reasoning from textual surrogates to acoustic evidence:
 
 ```mermaid
 graph TB
     subgraph "Iteration t"
-        A["Audio question (x_audio, q)<br/>Requires acoustic feature analysis"] --> B["Current model π_θt samples K reasoning chains"]
-        B --> C{Quality filtering}
-        C -->|1. Acoustic grounding<br/>2. Logical coherence<br/>3. Answer correctness| D["Distillation dataset D_t^audio-cot"]
+        A["Audio question (x_audio, q)<br/>requires acoustic analysis"] --> B["Current policy samples K reasoning chains"]
+        B --> C{Quality filter}
+        C -->|Acoustically grounded<br/>coherent<br/>correct| D["Distilled audio-CoT dataset"]
         C -->|Otherwise| E[Discard]
-        D --> F["Multimodal SFT:<br/>L_SFT + L_RLVR"]
-        F --> G["New model π_θt+1"]
+        D --> F["Multimodal SFT<br/>plus RLVR"]
+        F --> G[Updated policy]
     end
 ```
 
-Each round of MGRD consists of three stages, with the overall loss defined as:
+The overall loss sums SFT and RLVR objectives across iterations:
 
-$$\mathcal{L}_{\text{MGRD}} = \sum_{t=1}^{T}\left(\mathcal{L}_{\text{SFT}}^{(t)} + \mathcal{L}_{\text{RLVR}}^{(t)}\right)$$
+$$
+\mathcal{L}_{\mathrm{MGRD}}
+=\sum_{t=1}^{T}\left(\mathcal{L}_{\mathrm{SFT}}^{(t)}+\mathcal{L}_{\mathrm{RLVR}}^{(t)}\right).
+$$
 
-**Stage One: Self-Distillation Sampling.** On data requiring acoustic analysis (e.g., pitch recognition, rhythm judgment, emotion classification), let $\pi_{\theta_t}$ sample $K$ candidate responses:
+Each iteration has three stages.
 
-$$(r^{(i)}, a^{(i)}) \sim \pi_{\theta_t}(\cdot \mid x_{\text{audio}}, q), \quad i=1,\ldots,K$$
+**1. Self-distillation sampling.** On tasks requiring acoustic analysis, the current policy samples $K$ candidates:
 
-Candidates are filtered using three criteria: (1) the reasoning must explicitly mention perceptual features (pitch, rhythm, timbre); (2) the reasoning steps are logically coherent; and (3) the final answer is correct.
+$$
+(r^{(i)},a^{(i)})\sim\pi_{\theta_t}(\cdot\mid x_{\mathrm{audio}},q),
+\qquad i=1,\ldots,K.
+$$
 
-**Stage Two: Multi-Modal Supervised Refinement.** On the distilled data plus the original text-based reasoning data, perform joint SFT:
+A candidate is kept only when its reasoning explicitly cites perceptual features such as pitch, rhythm, or timbre; its steps are coherent; and its final answer is correct.
 
-$$\mathcal{L}_{\text{SFT}}^{(t)} = \mathbb{E}_{\mathcal{D}_t^{\text{audio-cot}}}\left[\log \pi_\theta(r, a \mid x_{\text{audio}}, q)\right] + \mathbb{E}_{\mathcal{D}_{\text{task}}}\left[\log \pi_\theta(r, a \mid q)\right]$$
+**2. Multimodal supervised refinement.** The model is trained jointly on distilled audio reasoning and original text-reasoning data:
 
-The mixed training prevents "catastrophic forgetting"—preserving both acoustic grounding and text-based reasoning capabilities.
+$$
+\mathcal{L}_{\mathrm{SFT}}^{(t)}
+=\mathbb{E}_{\mathcal{D}_t^{\mathrm{audio\text{-}cot}}}\!\left[\log\pi_\theta(r,a\mid x_{\mathrm{audio}},q)\right]
++\mathbb{E}_{\mathcal{D}_{\mathrm{task}}}\!\left[\log\pi_\theta(r,a\mid q)\right].
+$$
 
-**Stage Three: Multi-modal RL**. Text uses standard binary rewards, while audio uses composite rewards:
+The mixture preserves text reasoning while acoustic grounding improves.
 
-$$R_{\text{audio}}(r, a) = 0.8 \cdot \mathbb{1}[a = a^*] + 0.2 \cdot \mathbb{1}[\text{reasoning present in } r]$$
+**3. Multimodal RL.** Text tasks use ordinary binary correctness. Audio tasks use a composite reward:
 
-The design of the weights 0.8 + 0.2 is intentional: **the 0.2 format reward prevents reasoning collapse**. Ablation experiments show that without the format reward, the number of reasoning tokens drops from 2800 to 1500, and MMAU accuracy falls from 77.7 to 76.5. RL optimizers naturally favor "most token-efficient" strategies—directly giving answers—so explicit rewards for "thinking behavior" are needed to preserve the reasoning chain.
+$$
+R_{\mathrm{audio}}(r,a)
+=0.8\,\mathbb{1}[a=a^*]+0.2\,\mathbb{1}[\text{reasoning is present in }r].
+$$
 
 ![Format-reward ablation](../../chapter27_audio_rl/images/format-reward-ablation.png)
 
-![Reasoning-length collapse without the format signal](../../chapter27_audio_rl/images/reasoning-collapse.png)
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 2: The model with a format reward converges faster, reaches a higher reward, and remains more stable late in training. Source: <a href="https://arxiv.org/abs/2511.15848" target="_blank" rel="noopener noreferrer">Step-Audio-R1 Technical Report</a>.</em>
+</div>
 
-::: details Data Filtering in MGRD: pass@8 ∈ [3, 6]
+![Reasoning-length collapse](../../chapter27_audio_rl/images/reasoning-collapse.png)
 
-RL datasets are only 5000 samples in size, but of very high quality. For each question, we sample $k=8$ times using the previous model, and **only retain questions with pass@8 ∈ [3, 6]**—neither too easy (pass@8 > 6, which offers little learning) nor too hard (pass@8 < 3, which is often due to ambiguous questions).
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 3: Without format reward, reasoning length falls from roughly 3,000 tokens to below 1,500; with it, the length remains around 2,300–2,800. Source: <a href="https://arxiv.org/abs/2511.15848" target="_blank" rel="noopener noreferrer">Step-Audio-R1 Technical Report</a>.</em>
+</div>
 
-Experiments compare three data strategies:
+The 0.8/0.2 split has experimental support. Removing the 0.2 format reward reduces reasoning length from 2,800 to 1,500 tokens and MMAU accuracy from 77.7 to 76.5. RL naturally favors a token-efficient shortcut—skip reasoning and emit the answer—so the training signal must explicitly preserve the reasoning process.
 
-![Reward under different data-selection strategies](../../chapter27_audio_rl/images/data-selection-reward.png)
+::: details MGRD data selection: pass@8 in [3, 6]
+The RL dataset contains only 5,000 examples and is tightly filtered. The previous policy samples each question eight times, and training keeps questions with pass@8 between 3 and 6. Easier questions offer little learning signal; questions below that range are more likely to be ambiguous.
 
-![Data selection changes reasoning length](../../chapter27_audio_rl/images/data-selection-tokens.png)
+![Data-selection reward](../../chapter27_audio_rl/images/data-selection-reward.png)
 
-| Data Strategy                        | Final Reward             | Reasoning Length Stability |
-| ------------------------------------ | ------------------------ | -------------------------- |
-| All Failures (pass@8 = 0)            | 0.45–0.70, high variance | Drops to 1800 tokens       |
-| Moderate Difficulty (pass@8 ∈ [3,6]) | 0.75–0.80, stable        | Maintains 2300–2800 tokens |
-| 200K Unfiltered (10× Expansion)      | No improvement           | —                          |
+![Effect of data selection on reasoning length](../../chapter27_audio_rl/images/data-selection-tokens.png)
 
-**Data Quality > Data Quantity**. Blindly expanding audio RL data can instead introduce ambiguity and noise.
+All-failure questions end with rewards around 0.45–0.70 and reasoning lengths around 1,800 tokens. Medium-difficulty questions reach roughly 0.75–0.80 while maintaining 2,300–2,800 tokens. Expanding to 200K unfiltered examples, ten times more data, does not improve the result. Here, data quality matters more than data volume.
+:::
 
-#### Acoustic-Grounded Reasoning
+### Results and Real-Time Reasoning
 
-The output of MGRD is **Acoustic-Grounded Reasoning** — reasoning chains explicitly reference acoustic properties. Performance of Step-Audio-R1 on MMAU (Massive Multi-Task Audio Understanding):
+MGRD produces **acoustically grounded reasoning** whose chains explicitly cite acoustic properties. On the reported MMAU-family evaluation, Step-Audio-R1 averages 83.6, compared with 68.3 for Step-Audio 2, 81.5 for Gemini 2.5 Pro, and 85.1 for Gemini 3 Pro. Its Big Bench Audio score is 98.7, while its reported Spoken MQA, MMSU, MMAU, and Wild Speech scores are 95.2, 75.9, 77.7, and 70.6. These values belong to the paper's evaluation configuration and should not be generalized to unrelated settings.
 
-| Model             | Average  | Big Bench Audio | Spoken MQA | MMSU | MMAU     | Wild Speech |
-| ----------------- | -------- | --------------- | ---------- | ---- | -------- | ----------- |
-| Step-Audio 2      | 68.3     | 59.1            | 88.8       | 64.3 | 78.0     | 51.1        |
-| Gemini 2.5 Pro    | 81.5     | 96.1            | 94.8       | 79.3 | 77.4     | 60.0        |
-| Gemini 3 Pro      | 85.1     | 92.1            | 95.3       | 82.9 | 78.9     | 76.4        |
-| **Step-Audio-R1** | **83.6** | **98.7**        | 95.2       | 75.9 | **77.7** | 70.6        |
-
-Average 83.6, surpassing Gemini 2.5 Pro, approaching Gemini 3 Pro. Big Bench Audio (multi-step logical reasoning) reaches 98.7, the highest among all models.
-
-### Mind-Paced Speaking: Speaking While Thinking
-
-The bottleneck in real-time speech dialogue is the **serial dependency between reasoning and generation**: the model must finish thinking before it can speak. Step-Audio-R1 Realtime draws inspiration from the **listen-while-thinking** and **think-while-speaking** architectures, achieving **Mind-Paced Speaking**:
+After correctness improves, latency becomes the next bottleneck. A serial system finishes reasoning before speaking. Step-Audio-R1 Realtime draws on listen-while-thinking and think-while-speaking designs to implement **Mind-Paced Speaking**:
 
 ```mermaid
 sequenceDiagram
@@ -178,234 +254,135 @@ sequenceDiagram
     participant F as Formulation Brain
     participant A as Articulation Brain
 
-    U->>L: "What emotion is this song?"
-    Note over L,F: Parallel: L continues listening<br/>F begins reasoning
-    F->>F: Analyze acoustic features<br/>(minor key, descending melody)
-    F->>A: Deliver reasoning conclusion
-    Note over A: A synthesizes while receiving
-    A->>U: "It sounds like sadness..."
-    Note over L,A: Entire process < 1 s per packet
+    U->>L: “What emotion does this song express?”
+    Note over L,F: Listening continues while formulation begins
+    F->>F: Analyze minor mode and descending melody
+    F->>A: Stream the emerging response
+    A->>U: “It sounds sad...”
 ```
 
-Key insight: **Human speech is streaming** — we speak while thinking, with the latter half of a sentence still being considered while the former is spoken. Mind-Paced Speaking enables models to possess this capability, allowing them to begin speech synthesis without waiting for the entire reasoning process to complete.
-
-**Step-Audio-R1** achieves **96.1 points** (inference performance) on **Big Bench Audio speech-to-speech**, with a **first-packet delay of 0.92 seconds**, comprehensively outperforming **GPT Realtime 0825** (83 points / 0.98 seconds) and **Gemini 2.5 Flash Native Audio** (92 points / 0.63 seconds).
-
-### Dual-Brain Architecture
-
-An architecture that decouples "thinking" and "speaking" is called the **Dual-Brain architecture**:
+The supporting **dual-brain architecture** separates formulation from articulation:
 
 ```mermaid
 graph TB
     subgraph "Formulation Brain"
-        A1[Audio Encoder<br/>25 Hz → 12.5 Hz] --> A2[LLM Decoder<br/>Qwen2.5 32B]
-        A2 -->|Generate think token| A3[" thinking..."]
-        A3 --> A4[Text Response]
+        A1[Audio encoder<br/>25 Hz to 12.5 Hz] --> A2[Qwen2.5-32B LLM decoder]
+        A2 --> A3["<think>...</think>"]
+        A3 --> A4[Text response]
     end
-
     subgraph "Articulation Brain"
-        B1[Text Response] --> B2[Prosody Modeling]
-        B2 --> B3[Codec Token Generation]
-        B3 --> B4[Speech Codec → Waveform]
+        B1[Text response] --> B2[Prosody modeling]
+        B2 --> B3[Codec-token generation]
+        B3 --> B4[Vocoder to waveform]
     end
-
     A4 --> B1
 ```
 
-- **Formulation Brain**: Audio encoder + LLM, outputting ` thinking...` reasoning plus a text response
-- **Articulation Brain**: Converts the text response into codec tokens with prosody, emotion, and voice characteristics, then decodes them into a waveform
+This structure comes from [Mind-Paced Speaking](https://arxiv.org/abs/2510.09592). The formulation brain encodes audio and produces reasoning plus text. The articulation brain turns that text into codec tokens carrying prosody, emotion, and timbre. Decoupling them permits pipelined execution. The Step-Audio-R1 report gives its Realtime model a Big Bench Audio speech-to-speech score of 96.1 and a first-packet latency of 0.92 seconds; in the same evaluation, GPT Realtime 0825 scores 83 at 0.98 seconds, and Gemini 2.5 Flash Native Audio scores 92 at 0.63 seconds.
 
-## Two-Brain Decoupling Enables Deep Thinking and Fast Speaking Without Mutual Interference
+Prosody, emotion, and timbre are created in the articulation layer. A reward that checks only answer correctness gives this layer no incentive to preserve expressive quality.
 
-The concept of two-brain decoupling allows the brain responsible for thinking deeply to run long Chain-of-Thought (CoT) reasoning, while the brain responsible for expression can parallelly synthesize speech. This is the key to Step-Audio-R1's ability to maintain reasoning capabilities with sub-second latency.
+## Case 2: The Verifiable-Reward Trap and the RLHF Correction
 
-Step-Audio-R1 is an audio reasoning model released by StepWise in early 2026. Its core innovation is **MGRD (Modal Grounded Reasoning Distillation)** — distilling text-based reasoning chains into the audio modality to address the "the more you think, the worse you perform" inverted scaling problem. Step-Audio-R1.5 further shifts the training paradigm from RLVR to RLHF, transforming the audio model from a mere "mechanical answer machine" into a truly conversational voice assistant.
+Step-Audio-R1 combines MGRD with RLVR to obtain strong objective benchmark scores. In real dialogue, however, the team observed that better benchmark scores could coincide with less pleasant conversation.
 
-Below, we continue to focus on the design of audio rewards: why text-based reward models cannot directly evaluate prosody, emotion, accent, and real-time performance, and why RLVR needs to be combined with multi-dimensional preference rewards.
+### How the Trap Works
 
-In the previous sections, we introduced the development of the Step-Audio series. This section focuses on the core engineering challenge: **how to design audio rewards?** Text-based reward models can directly use preference data for training, but audio involves dimensions such as prosody, emotion, and accent, which a single reward signal cannot cover.
+[Step-Audio-R1.5](https://arxiv.org/abs/2604.25719) calls this the **verifiable-reward trap**.
 
-## Evolution from RLVR to RLHF
-
-Step-Audio-R1 achieves state-of-the-art performance on objective benchmarks using MGRD + RLVR. However, when deployed to real-world conversations, the team discovered a counterintuitive problem: **higher benchmark scores correlate with worse conversational quality**.
-
-### The Verifiable Reward Trap
-
-[Step-Audio-R1.5](https://arxiv.org/abs/2604.25719) names this issue the **Verifiable Reward Trap**.
-
-::: warning Verifiable Reward Trap
-When the ground truth of an audio benchmark is merely a discrete label (emotion category, ASR text, scene label), RLVR only rewards "label guessing," **structurally ignoring** prosody naturalness, emotional coherence, and conversational fluency.
+::: warning Verifiable-reward trap
+When an audio benchmark's ground truth is a discrete label—an emotion class, ASR transcript, or scene label—RLVR rewards only the correct label. It structurally ignores prosodic naturalness, emotional continuity, and conversational fluency.
 :::
 
-The mechanism of the trap is as follows:
+The mechanism is direct:
 
 ```text
-RLVR Objective = Answer Accuracy → Model learns "most token-efficient" → Responses become short, mechanical, and flat
-                ↓
-         Benchmark ↑      Real-world conversational experience ↓
+RLVR objective = answer correctness → token-efficient policy → short, mechanical, flat responses
+                                      ↓
+                              benchmark ↑  dialogue quality ↓
 ```
 
-RLVR optimizes "what to say" (content), while users care about "how to say it" (style). When these two aspects are decoupled, the model degrades into a **question-answering machine**—technically accurate, but experientially hollow.
+In the three-layer framework, RLVR optimizes only $w_c$. The model devotes capacity to content correctness while unrewarded prosody gradually disappears. It becomes an accurate answer engine with a hollow interaction style.
 
-### Step-Audio-R1.5: From RLVR to RLHF
+### Step-Audio-R1.5's Three-Stage Correction
+
+R1.5 restores RLHF to the pipeline so that correctness, fluency, and emotional resonance all affect the reward.
+
+**1. Audio-centric mid-training.** Before RLHF, the model strengthens its audio-understanding and reasoning foundation while retaining text reasoning:
+
+$$
+\mathcal{L}_{\mathrm{mid}}
+=\mathbb{E}_{(x,q,r,y)\sim\mathcal{D}_{\mathrm{audio}}}\!\left[\log\pi_\theta(r,y\mid x,q)\right]
++\mathbb{E}_{(q,r,y)\sim\mathcal{D}_{\mathrm{text}}}\!\left[\log\pi_\theta(r,y\mid q)\right].
+$$
+
+Here $x$, $q$, $r$, and $y$ denote audio input, context, reasoning, and response.
+
+**2. Cold-start SFT.** This stage aligns interaction behavior: maintaining context across turns, following content and format instructions, responding naturally, and handling clarification, interruption, and user corrections. It gives preference optimization a stronger initialization.
+
+**3. RLHF with a rubric-based GRM.** Audio interaction mixes explicit constraints with qualities that are hard to encode as rules. R1.5 lets the generative reward model switch modes: it follows a supplied rubric when a task has explicit criteria and performs ordinary relative preference judgment otherwise.
+
+Let $\mathcal{H}_{1:T}$ be the dialogue history through turn $T$, $y$ the policy response, $y^{\mathrm{ref}}$ a reference response, and $c$ an optional criterion. The GRM generates a relative judgment and maps it to a scalar:
+
+$$
+g=\mathcal{R}(\mathcal{H}_{1:T},y,y^{\mathrm{ref}};c),
+\qquad c\in\mathcal{C}\cup\{\varnothing\},
+\qquad r=\phi(g).
+$$
+
+With $c\ne\varnothing$, the evaluator can check a condition such as whether the response remembers a speed requirement given several turns earlier. With $c=\varnothing$, it compares overall naturalness.
+
+Given advantages $\hat A_t$, the paper uses a PPO-style objective with a reference-policy KL term:
+
+$$
+\mathcal{L}_{\mathrm{RLHF}}(\theta)
+=\mathbb{E}_t\!\left[
+\min\!\left(
+\rho_t(\theta)\hat A_t,
+\operatorname{clip}(\rho_t(\theta),1-\epsilon,1+\epsilon)\hat A_t
+\right)
+\right]
+-\beta D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}}).
+$$
+
+Here $\rho_t$ is the new-to-old policy probability ratio. Clipping limits one update, and the KL term keeps the policy near the reference. This objective comes from [Section 3.3 of Step-Audio-R1.5](https://arxiv.org/html/2604.25719#S3.SS3); it should not be described as DPO.
+
+### Preserving Prosodic Naturalness
+
+The clearest correctness-only RLVR regression is **prosodic flattening**: responses become shorter, more mechanical, and less emotionally continuous. R1.5 uses end-to-end interaction preferences so that the GRM compares complete responses for correctness, fluency, and emotional resonance; explicit rubrics check concrete task conditions. Its architecture outputs text. The paper does not claim that preference supervision is applied directly to acoustic RVQ codec tokens.
 
 ![Step-Audio-R1.5 benchmark ranking](../../chapter27_audio_rl/images/step-audio-r1.5-ranking.png)
 
-R1.5 Solution: **Use RLHF to Augment RLHF** — Train a holistic preference reward model that distills correctness, fluency, and emotional resonance into a unified supervisory signal.
+<div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
+  <em>Figure 4: Step-Audio-R1.5's aggregate ranking over eight speech-to-text benchmarks. R1.5 averages 77.97 versus R1's 72.50. Source: <a href="https://arxiv.org/abs/2604.25719" target="_blank" rel="noopener noreferrer">Step-Audio-R1.5 Technical Report</a>.</em>
+</div>
 
-#### Audio-Centric Mid-Training
+The evaluation covers eight speech-to-text benchmarks including AudioMultiChallenge, Big Bench Audio, MMSU, and MMAU. The 77.97 average exceeds R1's 72.50, with much of the gain coming from multi-turn interaction and long-context tasks while retaining analytical ability. This is more precise than claiming that every individual benchmark improves: RLHF improves the overall balance, but individual scores can move in either direction.
 
-Before RLHF, perform a mid-training phase to reinforce audio understanding and reasoning foundations:
+## Connections to Earlier Chapters
 
-$$\mathcal{L}_{\text{mid}} = \mathbb{\mathbb{E}}_{(x,q,r,y) \sim \mathcal{D}_{\text{audio}}}\left[\log \pi_\theta(r, y \mid x, q)\right] + \mathbb{E}_{(q,r,y) \sim \mathcal{D}_{\text{text}}}\left[\log \pi_\theta(r, y \mid q)\right]$$
+RLVR's binary reward reappears here as content correctness and creates the verifiable-reward trap when used alone. The preference reward model becomes a rubric-conditioned GRM in R1.5. PPO clipping and a reference KL term convert its judgment into stable policy updates. The 0.2 format reward prevents reasoning collapse, echoing the need to reward a necessary process rather than only its outcome. Textual surrogate reasoning is the audio counterpart of a visual shortcut: the model bypasses modality evidence and guesses from an easier representation.
 
-Here, $(x, q, r, y)$ represents audio input + context + reasoning + response. The text data retains the long CoT reasoning structure, facilitating transfer to audio.
+<details>
+<summary>Question: Why is the 0.2 format reward especially important in audio RL?</summary>
 
-#### Cold-Start SFT
+In text RL, a reasoning chain often improves correctness, so process and outcome rewards can point in the same direction. In audio, a long chain may be grounded in acoustics or may elaborate a hallucinated textual surrogate. Reasoning length can therefore correlate negatively with correctness. Outcome reward alone cannot distinguish these cases; explicit format and grounding signals keep optimization tied to acoustic evidence.
 
-Cold-start SFT no longer expands domain knowledge, but instead **aligns interaction behavior**:
+</details>
 
-1. **Multi-Turn Continuity**: Maintain context and constraints across turns
-2. **Instruction Following**: Respond according to the content, format, and style specified by the user
-3. **Naturalness of Responses**: Coherent and appropriately conversational
-4. **Interactive Awareness**: Handle follow-up questions, clarifications, interruptions, and user corrections
+## Summary
 
-This step provides a better initialization for subsequent RLHF — avoiding preference optimization from wasting resources on correcting basic conversational behaviors.
+Audio must be tokenized by a codec before it enters a language model. RVQ's semantic and acoustic hierarchy motivates separate content and prosody rewards. A complete audio objective must cover content, prosody, and latency. Correctness-only RLVR creates a verifiable-reward trap: benchmark accuracy rises while conversation quality falls.
 
-#### RLHF with Rubric-based Reward Model
+Step-Audio-R1 uses MGRD to correct inverted scaling by grounding reasoning in acoustic evidence. Step-Audio-R1.5 uses a rubric-based GRM and PPO-style RLHF to restore interaction quality. The conflict between deep reasoning and real-time response is addressed architecturally: the formulation brain reasons while the articulation brain synthesizes speech in parallel.
 
-Audio interaction is a multi-objective optimization — content correctness, natural prosody, emotional coherence, and controllable latency. R1.5 replaces the scalar RM with a **rubric-based generative reward model (Generated Reward Model, GRM)**:
+The next section, [24.2 Multimodal Audio Agents](./future), implements a minimal audio-GRPO training loop and then examines tool use and multi-turn collaboration.
 
-```python
-def audio_rlhf_reward(response, context, rubric):
-    """Scoring across multiple dimensions rather than a scalar"""
-    scores = {}
-    scores["correctness"] = grm.score(response, context, rubric="Content correctness")
-    scores["fluency"] = grm.score(response, context, rubric="Expressiveness and naturalness")
-    scores["prosody"] = grm.score(response, context, rubric="Prosody matching emotional tone")
-    scores["emotional_resonance"] = grm.score(response, context, rubric="Emotional resonance")
-    scores["latency"] = grm.score(response, context, rubric="Response latency")
-    # Weighted aggregation (weights learned from human preference regression)
-    return sum(w[k] * scores[k] for k in scores)
-```
+## References
 
-Using an LLM as a judge to score each dimension (rubric prompting), and then learning a weight aggregator, effectively upgrades the RM from "scoring overall" to "scoring card" in [RLHF](../chapter15_rlhf/base-model-to-assistant).
-
-#### Multi-objective RL Training Objective
-
-The RL loss of R1.5 combines RLVR and RLHF:
-
-$$\mathcal{L}_{\text{RL}} = \underbrace{\mathbb{E}_{\mathcal{D}_{\text{verified}}}\left[R_{\text{verify}}(r, a)\right]}_{\text{Objective Correctness (RLVR)}} + \lambda \cdot \underbrace{\mathbb{E}_{\mathcal{D}_{\text{pref}}}\left[\log\sigma\left(\beta \log\frac{\pi_\theta(y_w \mid x)}{\pi_{\text{ref}}(y_w \mid x)} - \beta \log\frac{\pi_\theta(y_l \mid x)}{\pi_{\text{ref}}(y_l \mid x)}\right)\right]}_{\text{Subjective Preference (DPO Form)}}$$
-
-The first term preserves the objective reasoning ability (preventing RLHF from forgetting what RLVR has learned), while the second term uses the DPO loss (see [Chapter 14 on DPO](../chapter17_dpo/dpo-theory-and-family)) to align with subjective experience. $\lambda$ balances the two — this is the core hyperparameter in audio RL.
-
-### Preserving Rhythm and Naturalness
-
-The biggest drawback of RLVR is **rhythm flattening**: the model, in its pursuit of maximizing answer accuracy, transforms speech into a monotonous "reading" style. R1.5 employs three mechanisms to preserve rhythm:
-
-1. **Preference data includes a rhythm dimension**: When annotators compare two responses, they not only evaluate content but also consider "which one sounds more natural, has more appropriate emotion, and has a rhythm more like a human."
-2. **Rubric explicitly scores prosody**: GRM assigns a separate score for prosody, without conflating it with correctness.
-3. **Codec token-level supervision**: The $c_2 \ldots c_K$ (acoustic layer) of RVQ participates in preference learning, ensuring that rhythm information is preserved during the generation phase.
-
-R1.5 achieves or exceeds the performance of Gemini-2.5-Flash on the AudioMultiChallenge benchmark (a multi-turn dialogue benchmark that evaluates Inference Memory, Instruction Retention, Self Coherence, and Voice Editing), **while maintaining performance** on traditional reasoning benchmarks. The "trap" of RLVR is thus resolved by RLHF.
-
-## Audio Reward Design
-
-The reward design in audio reinforcement learning is significantly more complex than in text — while text primarily focuses on correctness, audio requires consideration of content, intonation, and real-time performance across three layers. This section systematically discusses the design of these three types of rewards.
-
-### Content Accuracy Reward
-
-The most straightforward approach: compare the final answer with the ground truth.
-
-$$R_{\text{content}}(r, a) = \begin{cases}1, & \text{if } a = a^* \\ 0, & \text{otherwise}\end{cases}$$
-
-Variants include:
-
-- **ASR Word Error Rate (WER)**: The lower the WER, the higher the reward, $R = 1 - \text{WER}$
-- **Semantic Matching**: Using cosine similarity of embeddings, $R = \cos(\text{emb}(a), \text{emb}(a^*))$
-- **LLM-as-Judge**: Let a large model judge whether the answer is equivalent, $R \in [0, 1]$
-
-Content-based rewards are suitable for objective tasks (e.g., mathematics, knowledge question answering, and ASR), but they fail in open-ended dialogues where there is no standard answer.
-
-### Prosody Naturalness Reward
-
-Prosody includes pitch, rhythm, intensity, and pauses. Modeling human preferences for naturalness is a challenge in audio reinforcement learning.
-
-#### Limitations of Scalar Rewards
-
-Traditional approach: Training a reward model $R_\phi(\text{audio}) \to \mathbb{R}$ using human pairwise preference data:
-
-$$\mathcal{L}_{\text{RM}} = -\log\sigma(R_\phi(y_w) - R_\phi(y_l))$$
-
-Problem: Scalar rewards compress multi-dimensional preferences into a single dimension, losing the distinction between "content correct but prosody strange" versus "content wrong but prosody natural."
-
-#### Modeling Multi-Dimensional Preferences
-
-R1.5's GRM uses **rubric prompting** to have LLMs score responses across dimensions:
-
-```text
-Please evaluate the response according to the following rubric (0-10 points):
-1. Content Accuracy: Is the answer accurate?
-2. Fluency: Is it coherent and smooth?
-3. Prosody Naturalness: Are pitch and rhythm natural to human speech?
-4. Emotional Consistency: Does the tone match the context's emotion?
-5. Immersion: Does it feel like a conversation with a human?
-
-Response: [Audio]
-```
-
-Each dimension is scored independently, and then aggregated using learned weights $w_k$:
-
-$$R_{\text{prosody}}(y) = \sum_k w_k \cdot \text{GRM}_k(y), \quad w = \arg\min_w \|R_{\text{human}}(y) - \sum_k w_k \cdot \text{GRM}_k(y)\|^2$$
-
-Weights are learned from human preferences using Bradley-Terry regression.
-
-#### Prosody-based Reward Features
-
-In addition to preference modeling, acoustic features can be directly used to score performance:
-
-```python
-def prosody_reward(audio):
-    # Extract prosodic features
-    f0 = extract_pitch(audio)          # Fundamental frequency curve
-    energy = extract_energy(audio)     # Energy envelope
-    duration = extract_durations(audio)  # Phoneme duration
-
-    # Compare with reference prosodic distributions
-    f0_score = -wasserstein(f0_dist(audio), f0_dist_human)
-    energy_score = -wasserstein(energy_dist(audio), energy_dist_human)
-
-    # Penalize monotony (to prevent flattening caused by RLVR)
-    f0_var = np.std(f0)
-    monotonicity_penalty = -max(0, 0.2 - f0_var)  # Penalize if f0 variance is too low
-
-    return 0.5 * f0_score + 0.3 * energy_score + 0.2 * monotonicity_penalty
-```
-
-This "human-based prosodic distribution" reward mechanism can suppress the flattening tendency caused by RLVR when preference annotations are not available.
-
-### Real-Time Reward
-
-Real-time dialogue requires the first packet latency to be less than 1 second, and the overall response time to be reasonable. Incorporating latency into the reward:
-
-$$R_{\text{latency}}(y) = \begin{cases}1, & T_{\text{first-packet}} < 0.5\text{s} \\ 0.5, & 0.5\text{s} \leq T_{\text{first-packet}} < 1.0\text{s} \\ 0, & T_{\text{first-packet}} \geq 1.0\text{s}\end{cases}$$
-
-Or using a continuous form:
-
-$$R_{\text{latency}}(y) = \exp(-\alpha \cdot T_{\text{first-packet}})$$
-
-Real-time reward conflicts with deep reasoning—the longer the thinking, the later the first packet. This is the value of the [Dual-Brain Architecture](#dual-brain-architecture): the articulation brain can begin synthesizing while the formulation brain is still thinking, hiding latency within the generation pipeline.
-
-### Comprehensive Reward
-
-The total reward for the final audio reinforcement learning (RL) typically combines three categories with weighted summation:
-
-$$R_{\text{total}} = w_c \cdot R_{\text{content}} + w_p \cdot R_{\text{prosody}} + w_l \cdot R_{\text{latency}}$$
-
-The weights $(w_c, w_p, w_l)$ reflect the application scenario: customer service emphasizes content ($w_c$ is large), companion robots emphasize prosody ($w_p$ is large), and real-time translation emphasizes latency ($w_l$ is large). The core contribution of R1.5 is to demonstrate that **optimizing only on $w_c$ can lead to the verifiable reward trap** — it is necessary to introduce $w_p$ to preserve the authentic conversational experience.
-
-## Summary of This Section
-
-Designing audio rewards is significantly more complex than text — in addition to content accuracy, one must also consider prosody, emotion, accent, and speaking style. Engineering solutions for multi-dimensional rewards follow two main approaches: (1) combining multiple reward models (RM) with weights; (2) using a Large Language Model (LLM) as a judge to directly evaluate the overall quality. Step-Audio-R1.5 adopts the latter approach, integrating audio understanding and evaluation into a unified framework.
-
-The next section [24.2 Multi-modal Audio Agent and Future Directions](./future) moves toward more advanced topics — audio is no longer just input and output, but a tool that agents can invoke (e.g., speech search, speech translation, real-time conversation).
+- [Step-Audio-R1 Technical Report (arXiv:2511.15848)](https://arxiv.org/abs/2511.15848): the MGRD framework and acoustically grounded reasoning
+- [Step-Audio-R1.5 Technical Report (arXiv:2604.25719)](https://arxiv.org/abs/2604.25719): RLHF and the verifiable-reward trap
+- [Step-Audio 2 Technical Report (arXiv:2507.16632)](https://arxiv.org/abs/2507.16632): the Step-Audio foundation model
+- [EnCodec (arXiv:2210.13438)](https://arxiv.org/abs/2210.13438): a representative RVQ neural codec
+- [SpeechTokenizer (arXiv:2308.16692)](https://arxiv.org/abs/2308.16692): separating semantic and acoustic speech-token layers
+- [Moshi (arXiv:2410.00037)](https://arxiv.org/abs/2410.00037): full-duplex dialogue and the Mimi codec

@@ -42,11 +42,13 @@ class AudioDialogueConfig:
     beta_kl = 0.0           # Step-Audio sets to 0, allowing free exploration
 ```
 
+Two values deserve attention. `group_size = 16` is the number of responses sampled per question in Step-Audio-R1's published PPO setting. The paper also sets `beta_kl = 0`, omitting a reference-model KL penalty during RL. This expands exploration but increases the risk of drifting away from the initialized policy, so it should not be copied to a new task without an ablation.
+
 ### Model Structure
 
 ```python
 class AudioDialoguePolicy(nn.Module):
-    """Audio Dialogue Policy: Audio encoding → LLM reasoning → Text + codec generation"""
+    """Audio understanding policy: audio encoding → LLM reasoning → text response"""
     def __init__(self, config):
         super().__init__()
         # Audio encoder (frozen)
@@ -90,7 +92,7 @@ class AudioReward:
 
     def prosody_reward(self, response_audio):
         """Prosody Naturalness"""
-        f0 = librosa.pyin(response_audio)         # Fundamental frequency
+        f0 = extract_valid_f0(response_audio)     # Remove unvoiced frames
         f0_var = np.std(f0)
         # Wasserstein distance to human distribution
         f0_w = wasserstein_distance(
@@ -102,8 +104,8 @@ class AudioReward:
         return -f0_w + 0.5 * flat_penalty
 
     def format_reward(self, response_text):
-        """Check for 🤔...✅ format (a key trick in MGRD)"""
-        has_think = '🤔' in response_text and '✅' in response_text
+        """Check the <think>...</think> structure used by MGRD"""
+        has_think = '<think>' in response_text and '</think>' in response_text
         return 1.0 if has_think else 0.0
 
     def total(self, response_text, response_audio, ground_truth, weights=(0.7, 0.2, 0.1)):
@@ -116,7 +118,7 @@ class AudioReward:
 ::: tip The Role of Format Reward
 The Step-Audio-R1 paper found that removing the format reward ($w_f=0$) reduced the number of reasoning tokens from 2,800 to 1,500 and lowered the MMAU score by 1.2 percentage points. The optimizer had learned a shorter strategy: answer immediately and omit the `<think>...</think>` segment.
 
-A format-reward weight of $0.2$ was sufficient to stabilize the reasoning behavior in this experiment. Audio RL therefore uses an explicit signal to preserve the required response structure while the content and prosody rewards evaluate the answer itself.
+In the paper's experiment, the format term has weight 0.2 and raises MMAU from 76.5 to 77.7 while restoring late-stage reasoning length to roughly 2,300–2,800 tokens. This result belongs to that model and dataset; a new task still needs its own weight ablation. The format reward proves only that a reasoning segment exists. Whether it uses the correct acoustic evidence depends on MGRD's data filtering and grounding checks.
 :::
 
 ### GRPO Training Loop
@@ -124,64 +126,54 @@ A format-reward weight of $0.2$ was sufficient to stabilize the reasoning behavi
 We use [GRPO](../chapter18_grpo/grpo-family) (Group Relative Policy Optimization) for training—no critic is needed, making it more suitable for large models:
 
 ```python
-def grpo_train_step(policy, ref_policy, reward_fn, batch, config):
-    """Single-step GRPO Training"""
-    advantages = []
-    log_probs_all = []
+def grpo_train_step(policy, reward_fn, speech_synthesizer, batch, config):
+    """One illustrative GRPO update"""
+    token_losses = []
 
-    for prompt, audio in batch:
-        # 1. Sample G responses for each prompt
+    for prompt, audio, ground_truth in batch:
+        # 1. Sample G responses and retain rollout-time log probabilities
         responses = []
         for _ in range(config.group_size):
             with torch.no_grad():
                 resp = policy.sample(audio, prompt, config.max_response_len)
+                resp.log_prob_old = policy.log_prob(audio, prompt, resp.tokens)
+            # Step-Audio-R1 itself outputs text. A separate synthesizer is
+            # attached here only to demonstrate a prosody-reward branch.
+            resp.audio = speech_synthesizer(resp.text)
+            resp.reward = reward_fn.total(resp.text, resp.audio, ground_truth)
             responses.append(resp)
 
-        # 2. Compute reward for each response
-        rewards = torch.tensor([
-            reward_fn.total(r.text, r.audio, r.gt) for r in responses
-        ])
+        # 2. Normalize rewards within the prompt group
+        rewards = torch.tensor([r.reward for r in responses])
+        advantages = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
 
-        # 3. Normalize within group to get advantage (core of GRPO)
-        adv = (rewards - rewards.mean()) / (rewards.std() + 1e-8)
-        advantages.extend(adv.tolist())
+        # 3. Apply a token-level clipped policy objective
+        for resp, advantage in zip(responses, advantages):
+            logp_new = policy.log_prob(audio, prompt, resp.tokens)
+            ratio = torch.exp(logp_new - resp.log_prob_old)
+            clipped = torch.clamp(ratio, 1 - config.clip_eps, 1 + config.clip_eps)
+            token_loss = -torch.min(ratio * advantage, clipped * advantage).mean()
+            token_losses.append(token_loss)
 
-        # 4. Compute new policy log π(a|s)
-        for resp, a in zip(responses, adv):
-            log_probs = policy.log_prob(audio, prompt, resp.tokens)
-            log_probs_all.append(log_probs)
-
-    # 5. PPO clip objective (Step-Audio sets β_kl = 0)
-    advantages = torch.tensor(advantages).unsqueeze(1)
-    policy_loss = 0
-    for logp_new, resp in zip(log_probs_all, [r for b in batch for r in [None]]):
-        # Simplified: actual implementation should compute ratio per token
-        pass
-
-    # Complete PPO clip (refer to Chapter 8)
-    # ratio = exp(logp_new - logp_old)
-    # clipped = clip(ratio, 1-eps, 1+eps)
-    # loss = -min(ratio * adv, clipped * adv).mean()
-
-    return policy_loss
+    return torch.stack(token_losses).mean()
 
 # Main loop
 for epoch in range(num_epochs):
     for batch in dataloader:
-        loss = grpo_train_step(policy, ref_policy, reward_fn, batch, config)
-        loss.backward()
-        optimizer.step()
         optimizer.zero_grad()
+        loss = grpo_train_step(
+            policy, reward_fn, speech_synthesizer, batch, config
+        )
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(policy.parameters(), max_norm=1.0)
+        optimizer.step()
 ```
 
-::: details Why Use GRPO Instead of PPO
-Industrial audio LLMs almost all use GRPO (e.g., [DeepSeek-R1](https://arxiv.org/abs/2501.12948)) or its variants, rather than classical PPO. Reasons:
+::: details Why the pseudocode uses GRPO while the paper says PPO
 
-1. **Save critic memory**: Training a critic for a 32B model requires additional VRAM; GRPO replaces the critic with intra-group normalization
-2. **Better for discrete rewards**: Audio rewards are mostly 0/1 binary, making it hard for critics to learn
-3. **Training stability**: Intra-group baseline naturally adapts to different difficulty levels
+[Step-Audio-R1](https://arxiv.org/html/2511.15848#S4.SS3) explicitly reports on-policy PPO: it samples 16 responses per question, uses a clipping coefficient of 0.2, and places reward on the final token. The paper does not call this GRPO and does not disclose replacing a value model with the group mean.
 
-The RL implementation of Step-Audio-R1 is on-policy PPO, but samples 16 prompts per request and applies intra-group normalization — essentially an engineering interpretation of GRPO.
+The pseudocode uses GRPO to connect with the course's earlier treatment of group-relative advantages and to show how several responses to one audio input can be compared without a separate critic. A reproduction must follow the paper and official code. Multi-sample PPO and GRPO are not interchangeable names.
 
 :::
 
@@ -191,7 +183,7 @@ There's a non-mainstream but critical issue in industrial audio RL: **the model 
 
 ```python
 def self_cognition_correction(policy):
-    """Three-stage correction for self-cognition errors"""
+    """Two-stage correction for self-cognition errors"""
     # Stage 1: Iterative self-distillation + LLM judge filtering
     for t in range(T):
         responses = policy.sample(audio_perception_queries)
@@ -205,41 +197,65 @@ def self_cognition_correction(policy):
     policy.dpo(pref_pairs, beta=0.1)
 ```
 
-Results:
+The paper reports a self-cognition error rate of 6.76% for the base model, 2.63% after iterative self-distillation, and 0.02% after DPO. These numbers measure one dedicated self-cognition test set, not general audio accuracy. The correction matters in deployment because an otherwise capable audio model can still destroy the interaction by insisting that it cannot hear.
 
-| Training Stage                    | Self-Cognition Error Rate |
-| --------------------------------- | ------------------------- |
-| Base model                        | 6.76%                     |
-| Iterative self-distillation       | 2.63%                     |
-| Iterative self-distillation + DPO | **0.02%**                 |
+## Forms of Audio Agents
 
-The precise alignment of DPO brings the error rate close to zero. This step may seem trivial, but it is crucial during deployment — users expect the model to confidently handle audio inputs, rather than apologetically saying "I can't hear."
+An audio model that answers questions is only the starting point. In a continuing environment it must maintain state across turns and decide when to listen, speak, stop, or call a tool. Three forms are common.
 
-## Summary of Audio Direction
+**Full-duplex dialogue agents.** A traditional assistant alternates turns. A full-duplex agent listens while speaking, can be interrupted, and must sometimes remain silent.
 
-Audio reinforcement learning extends reasoning and preference optimization to continuous acoustic signals. This section, together with 24.1, highlights three core advancements:
+```mermaid
+sequenceDiagram
+    participant U as User audio stream
+    participant P as Perception and turn policy
+    participant T as Reasoning and tools
+    participant S as Speech generator
+    U->>P: Continuous speech
+    P->>P: Continue listening or begin responding?
+    P->>T: Submit intent and context
+    T-->>S: Response plan or tool result
+    S-->>U: Stream speech
+    U->>P: Interrupt
+    P-->>S: Stop immediately
+    P->>T: Update plan with the new input
+```
 
-1. **MGRD in Step-Audio-R1**: Addresses the inverted scaling issue in the audio domain — the root cause is text-based reasoning, and the solution is iterative distillation, transferring the reasoning base from text to acoustics. R1 is the first to enable audio models to benefit from test-time compute scaling.
-2. analogously, **RLHF Paradigm Migration in Step-Audio-R1.5**: Identifies and breaks the "verifiable reward trap" — RLVR optimizes "what to say," while users care about "how to say," necessitating the use of RLHF's multi-dimensional preference modeling to complete prosody, emotion, and coherence.
-3. **Audio Reward Design**: A weighted combination of content, prosody, and real-time performance, with rubric-based generative RM replacing scalar RM, which is the core engineering difference between audio RL and text RL.
+The difficult RL decisions are temporal: when to take the floor, when to yield it, and how to recover context after an interruption. These behaviors lack simple verifiable labels and usually require preference or trajectory-level rewards.
 
-At the methodological level, this chapter reveals three universal lessons:
+**Audio as an agent's perception channel.** Here audio supplies perception and output, while planning and tool use remain in text space. A meeting agent combines streaming ASR, speaker separation, summaries, and action-item extraction. Voice search and translation convert speech into tool calls and have verifiable retrieval or translation outcomes. A customer-service agent uses detected emotion to choose a response path, while escalation timing becomes a sequential decision. These systems connect directly to [multi-agent collaboration](../chapter22_agentic/multi-agent-swarm): the audio model perceives and expresses, a text agent plans and invokes tools, and the reward evaluates the whole trajectory.
 
-- **Modality Grounding Determines Reasoning Quality**: Reasoning capability can be transferred across modalities, but it must be explicitly anchored to the features of the correct modality.
-- **Data Quality > Data Quantity**: A carefully selected set of 5K samples with pass@8 ∈ [3, 6] outperforms 200K unfiltered samples.
-- **Reward Design is the Soul of RL**: A single verifiable reward collapses model behavior, while multi-dimensional rubrics are key to aligning with real-world experience.
+**Audio as an output tool.** The core agent reasons in text and invokes speech as an output interface. RL must keep presentation consistent with the decision: serious content should not use a playful tone, and an urgent reminder may require slower, clearer delivery. Today this consistency is mainly supervised by rubric-based preferences; mature verifiable rewards remain limited.
 
-The next section [24.3 VLA Models](../chapter28_vla/embodied-intelligence/) will connect multimodal perception to physical actions: strategies must not only understand sound and image but also act in continuous control, real-world cost, and physical constraints. Training methods for multi-agent collaborative RL are discussed in [Chapter 19 on Multi-Agent Collaboration](../chapter22_agentic/multi-agent-swarm).
+## Future Directions
 
-## Further Reading
+**Audio-native reasoning.** MGRD grounds a textual chain of thought in acoustic evidence, but the chain is still written in text. A future system could reason directly over prosody and timbre representations. Its reward would also have to move from text-verifiable to acoustically verifiable evidence.
 
-- [Step-Audio-R1 Technical Report (StepFun, 2025.11, arXiv:2511.15848)](https://arxiv.org/abs/2511.15848) — Original paper of the MGRD framework, foundational work on audio reasoning
-- [Step-Audio-R1.5 Technical Report (StepFun, 2026.04, arXiv:2604.25719)](https://arxiv.org/abs/2604.25719) — Paradigm transfer of RLHF, breaking the verifiable reward trap
-- [Step-Audio 2 Technical Report](https://arxiv.org/abs/2507.16632) — Foundation models of the Step-Audio series
-- [EnCodec: High Fidelity Neural Audio Compression (Meta, 2022)](https://arxiv.org/abs/2210.13438) — Classic work on RVQ encoder-decoder
-- [SoundStream: An End-to-End Neural Audio Codec (Google, 2021)](https://arxiv.org/abs/2107.03312) — Original paper of SoundStream
-- [SpeechTokenizer: Unified Speech Tokenizer for Speech LLMs (2023)](https://arxiv.org/abs/2308.16692) — Semantic/acoustic hierarchical tokenization
-- [WavTokenizer: An Efficient Acoustic Discrete Codec Tokenizer (ICLR 2025)](https://arxiv.org/abs/2408.16532) — Extreme compression (40-75 tokens/s)
-- [Moshi: A Speech-Text Foundation Model for Real-Time Dialogue (Kyutai, 2024)](https://arxiv.org/abs/2410.00037) — Full-duplex real-time dialogue, Mimi encoder-decoder
-- [GPT-4o System Card (OpenAI, 2024)](https://arxiv.org/abs/2410.21276) — Milestone of industrial-grade real-time speech interaction
-- [DeepSeek-R1: Incentivizing Reasoning Capability via RL (2025)](https://arxiv.org/abs/2501.12948) — RLVR + GRPO training paradigm, foundational work of Step-Audio-R1
+**Streaming RL.** Step-Audio training primarily rewards complete responses, while real conversations contain interruptions, revisions, and follow-up questions inside a turn. Sentence- or chunk-level feedback is needed to train when to begin and stop speaking.
+
+**Long-horizon credit assignment.** A poor tone in one turn may cause the user to leave five turns later. This is the same credit-assignment problem seen in agent RL, now with longer delays, acoustic observations, and sparser signals.
+
+## Connections to Earlier Chapters
+
+The illustrative training loop uses GRPO group normalization, while the Step-Audio-R1 paper itself reports PPO. The `<think>` format reward preserves the reasoning chain. Freezing the audio encoder mirrors differentiated VLM updates: RL changes the language policy without rewriting perceptual features. Meeting and service agents use trajectory-level rewards, and DPO preference pairs correct self-cognition and can support prosody alignment.
+
+<details>
+<summary>Question: Why is “when to speak” difficult to train with a verifiable reward?</summary>
+
+The correct timing depends on the other person's live state: whether the user is hesitating, about to interrupt, or changing emotion. There is no discrete ground-truth label comparable to answer correctness. Available signals, such as whether the conversation continues or receives a high satisfaction score, are delayed and noisy. Timing therefore requires preference or trajectory-level feedback. This is the temporal extension of the verifiable-reward trap: once the easy-to-check part is optimized, the remaining part is central to the experience.
+
+</details>
+
+## Summary
+
+The audio-GRPO teaching loop shares the basic structure of text GRPO, but reward evaluation adds speech synthesis and prosody branches. Format rewards and self-cognition correction address two deployment-critical behaviors that answer correctness does not cover. Full-duplex dialogue, audio perception for tool-using agents, and audio as an output tool lead respectively to timing, trajectory-reward, and presentation-consistency problems. Open directions are audio-native reasoning, streaming RL, and long-horizon credit assignment.
+
+The next section, [24.3 VLA Models](../chapter28_vla/embodied-intelligence/), connects multimodal perception to physical action under continuous control, real-world costs, and physical constraints.
+
+## References
+
+- [Step-Audio-R1 Technical Report (arXiv:2511.15848)](https://arxiv.org/abs/2511.15848): training configuration and self-cognition correction
+- [Step-Audio-R1 GitHub](https://github.com/stepfun-ai/Step-Audio-R1): open inference code and model weights
+- [DeepSeek-R1 (arXiv:2501.12948)](https://arxiv.org/abs/2501.12948): the RLVR and GRPO training line that informed Step-Audio-R1
+- [Moshi (arXiv:2410.00037)](https://arxiv.org/abs/2410.00037): full-duplex real-time dialogue and the Mimi codec
+- [GPT-4o System Card (arXiv:2410.21276)](https://arxiv.org/abs/2410.21276): an industrial real-time speech-interaction reference

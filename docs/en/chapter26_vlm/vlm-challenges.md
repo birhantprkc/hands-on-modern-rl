@@ -8,22 +8,12 @@ Start with a small counting task. An image contains three circles, and the quest
 
 In a text task, a correct answer often supplies a strong learning signal. An image adds a perceptual chain: the model must locate the relevant region, recognize objects or text, and then reason. A final answer fails when any link fails; even a correct answer can rest on incorrect visual evidence. **VLM reinforcement learning must therefore reward both correctness and whether the answer is grounded in the image.**
 
-In earlier chapters, we pushed RL from classic control to LLM post-training:
-
-- DQN learns from pixels in Atari,
-- PPO stabilizes policy updates,
-- DPO/GRPO optimize language models with preference signals or verifiable rewards.
-
-Most of those settings share a simplifying assumption: there is only one input modality (state vectors, pixels, or text tokens).
-
-The real world is not text-only. You see images, screenshots, charts, videos, and 3D scenes. Before you can reason and act, you must first **understand visual evidence**. Vision-language models (VLMs) bring images and language into a single model. RL then asks a harder question:
-
-Can outcome feedback make the model not only describe images, but _look accurately, reason reliably, and answer from evidence_?
+We will follow that problem from reward attribution to gradient flow, visual shortcuts, autonomous driving, and training diagnostics. The next section, [23.2 Visual Reflection RL](./qwen3-vl-reflection), continues with models that gather and verify visual evidence during reasoning.
 
 ![VISTA-Gym Overview](../../chapter26_vlm/images/ref-vista-gym-overview.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>Figure 1: VISTA-Gym (and VISTA-R1) illustrates a typical VLM-RL loop: visual QA + tool use + trajectory reward + policy updates, pushing beyond "look-and-answer" toward "look, verify with tools, and improve by feedback". Source: the VISTA-Gym / VISTA-R1 blog.</em>
+  <em>Figure 1: VISTA-Gym places visual QA, tool use, trajectory rewards, and policy updates in one loop. Source: <a href="https://www.eigenai.com/blog/vista-gym-vista-r1" target="_blank" rel="noopener noreferrer">VISTA-Gym / VISTA-R1 Blog</a>.</em>
 </div>
 
 Moving RL from text to multimodal models is not "just add image tokens." Once you train seriously, you run into a set of problems that do not appear in text-only RL:
@@ -32,8 +22,6 @@ Moving RL from text to multimodal models is not "just add image tokens." Once yo
 2. **Should the vision encoder be updated by RL?** Update too aggressively and you can degrade vision (the model "goes blind"); freeze it completely and you cannot improve visual ability.
 3. **Will the model pretend it saw the image?** If guessing can get reward, RL can reinforce visual hallucinations.
 4. **How does vision connect to action?** In driving, robotics, and GUI agents, visual outputs affect real decisions. Safety and latency become training constraints.
-
-This chapter opens these issues in a progressive way: first a minimal GRPO experiment to build intuition, then the special challenges of VLM RL, then frameworks that connect experiments to real applications, and finally RL post-training for visual generation models.
 
 ::: tip Prerequisites
 
@@ -52,31 +40,6 @@ image -> vision encoder -> visual tokens -> multimodal fusion -> language reason
 
 So training becomes "see correctly, then reason correctly." A single scalar reward does not automatically tell you where the failure came from. This is the core credit-assignment problem in multimodal RL.
 
-## Learning Path
-
-This chapter is organized as: run something minimal -> see the new problems -> understand systems -> extend to generation.
-
-| Section                                                                            | Question it answers                                                                       |
-| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| [23.3 Hands-On: GRPO for a VLM](./vlm-grpo-hands-on)                               | How do we train a VLM to "look then reason" under verifiable rewards?                     |
-| [23.1 Challenges](./vlm-challenges)                                                | How do we assign reward across vision vs language? How do we reduce visual hallucination? |
-| [VLM RL Frameworks](./vlm-frameworks)                                              | What systems bridge experiments to applications (tools, environments, self-play)?         |
-| [Visual Generation RL](../chapter29_visual_generation/visual-generation-dancegrpo) | How does RL apply to diffusion/video generation, and what does "policy" mean there?       |
-| [23.4 Hands-On: EasyR1 GeoQA](./easyr1-geoqa)                                      | How do we run an industrial-style VLM GRPO training loop on a real dataset?               |
-
-## Learning Goals
-
-After this chapter, you should be able to:
-
-- map VLM RL back to the same RL primitives you already know (policy, trajectory, reward, KL constraints),
-- explain why multimodality changes reward design and credit assignment,
-- identify the typical failure modes (visual hallucination, encoder collapse, mis-grounding),
-- and evaluate whether a VLM is truly using visual evidence rather than language priors.
-
-In the previous section we ran the VLM GRPO experiment and saw the model evolve from "guessing answers" to "describing the image first, then reasoning." The experiment itself went smoothly — swap in a different multimodal model, adjust the input format, and the core GRPO code barely changes. But when you push VLM RL toward more complex scenarios (medical image analysis, autonomous driving decisions, robotic visual navigation), you encounter three problems that simply do not exist in text-only RL: should the reward be attributed to visual understanding or text reasoning? Should the visual encoder be updated along with RL? Will the model "see" things that are not in the image?
-
-These three questions are not independent minor annoyances — they are the core theoretical challenges of VLM RL. How well they are solved directly determines whether the system can work in real scenarios.
-
 ![VISTA-Gym Main Results](../../chapter26_vlm/images/ref-vista-gym-workflow.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
@@ -87,10 +50,27 @@ These three questions are not independent minor annoyances — they are the core
 
 In text-only RL, reward attribution is not a problem — the entire response is generated from text tokens, so the reward naturally belongs to the whole generation process. But in a VLM, a response's quality depends on two stages of capability: **visual understanding** (did the model correctly "see" the image content) and **text reasoning** (did the model make a reasonable derivation based on correct visual information).
 
+### Where the Gradient Actually Flows
+
+To see where gradients can flow, follow one image through the forward pass. The vision encoder divides it into patches, maps each patch to a visual token, projects those tokens to the language-model dimension, and concatenates them with the question. With a simplified $14\times14$ patch size, a $448\times448$ image contains $32\times32=1024$ patches. Real token counts also depend on patch merging, special tokens, and dynamic-resolution rules, so 1024 is an order-of-magnitude example rather than the context length of a particular VLM.
+
+The policy loss is summed over generated response tokens:
+
+$$
+\mathcal L(\theta)=-\sum_{t\in\text{response}}A_t
+\log\pi_\theta(y_t\mid y_{<t},x_{\text{text}},x_{\text{image}}).
+$$
+
+Visual tokens are inputs rather than sampled actions, so they receive no direct policy-gradient term. Each response probability still attends to those inputs, however, and the gradient can travel through the projector into the vision encoder. Whether the encoder changes is therefore controlled by which parameter groups are unfrozen, not by the scalar reward alone.
+
+### One Group, Two Kinds of Error
+
 For example, show the model an image with 3 circles and 2 triangles, and ask "How many circles are in the image?" The model answers "There are 2 circles in the image." This answer is wrong. But the cause of the error could be one of two things:
 
 - **Visual error**: The model "saw" wrong, identifying 3 circles as 2. In this case, the reward signal should tell the visual encoder "you need to look more carefully."
 - **Reasoning error**: The model "saw" correctly (its internal representation did identify 3 circles) but said the wrong number when generating text. In this case, the reward signal should tell the text decoder "your reasoning is wrong."
+
+Now sample four responses to the same question. A sees three circles and answers 3; B sees two and answers 2; C sees three but loses one during reasoning and answers 2; D ignores the image and guesses 3 from a language prior. An outcome reward assigns A and D the same positive advantage and B and C the same negative advantage. Yet B needs a perceptual correction, C needs a reasoning correction, and D should not be reinforced at all. This is the ambiguity created by one scalar reward.
 
 The problem is that in current VLM RL frameworks, we typically have only one scalar reward score and cannot naturally distinguish between these two cases. A more practical approach is to decompose an error into several observable checkpoints:
 
@@ -136,6 +116,14 @@ def setup_optimizer_with_lr_decay(model, text_lr=1e-6, vision_lr=1e-7):
     return torch.optim.AdamW(param_groups)
 ```
 
+### From Outcome Rewards to Process Rewards
+
+One route is to make perception outputs structured enough for deterministic checking. [Visual-RFT](https://arxiv.org/abs/2503.01785) combines three verifiable signals for detection: mean IoU between predicted and labeled boxes, confidence calibration for matched and unmatched boxes, and a format reward for a parseable template. None requires a separately trained reward model.
+
+In the paper's few-shot setting, one-shot fine-grained classification with roughly 100 samples exceeds the supervised fine-tuning baseline by 24.3 percentage points, while two-sample COCO detection improves by 21.9 points. [VLM-R1](https://github.com/om-ai-lab/VLM-R1) applies related IoU rewards to referring-expression comprehension and open-vocabulary detection. These results show how a visual task can use rule-based rewards when its evidence can be represented as boxes or coordinates.
+
+A second route makes evidence gathering part of the trajectory. Qwen3-VL's [Thinking with Images](https://github.com/QwenLM/Qwen3-VL/tree/main/cookbooks) lets the model zoom into a region during reasoning and then continue from the enlarged evidence. The tool call turns “where did the model look again?” into a recorded action that a trajectory evaluator can inspect.
+
 ## Visual Hallucination: The Model “Sees” Things That Are Not There
 
 Visual hallucination is one of the most troublesome problems for VLMs. It refers to the model describing content in its response that simply does not exist in the image. For example, the image contains only one red triangle, but the model says "I see 3 red triangles and 2 blue circles in the image."
@@ -151,6 +139,22 @@ Several strategies for addressing visual hallucination:
 **Strategy 2: Uncertainty penalties.** If the model is overly certain about visual content (e.g., saying "there are 3 circles" rather than "there seem to be 2-3 circles") and the description does not match reality, apply an additional penalty. Encourage the model to express uncertainty when unsure.
 
 **Strategy 3: Multi-turn verification.** First have the model describe the image content, then use another model (or rule system) to verify the description's accuracy. Only responses that pass verification receive full reward. This essentially embeds a "fact-checking" step in the reward function.
+
+**Strategy 4: Counterfactual comparison.** Pair a question with the real image and with a replacement image—blank, noisy, or a visually similar scene whose critical count or attribute differs. If the answer barely changes, the policy is probably using language priors rather than visual evidence.
+
+```python
+def image_sensitivity_bonus(answer_real, answer_shuffled, correctness):
+    """Reward a correct answer only when it responds to changed visual evidence."""
+    if not correctness:
+        return 0.0
+    if answer_real.strip() == answer_shuffled.strip():
+        return -0.3
+    return 0.1
+```
+
+The replacement must resemble the original scene while changing the decisive object or relation. Otherwise the model can pass the test from a superficial background difference.
+
+Two standard evaluations can track hallucination before and after training. [POPE](https://arxiv.org/abs/2305.10355) converts object hallucination into yes/no questions and constructs random, popular, and adversarial negative samples. [CHAIR](https://arxiv.org/abs/1809.02156) measures fabricated objects in generated captions at sentence and object-mention levels. Running both periodically reveals whether a rising task reward is accompanied by worsening visual grounding.
 
 <details>
 <summary>Exercise: Why is visual hallucination more likely to worsen in RL training than in SFT training?</summary>
@@ -239,9 +243,19 @@ def driving_reward(scene_description, action, telemetry):
     return reward
 ```
 
-A unique challenge in autonomous driving VLM-RL is the **contradiction between safety and exploration**. RL needs to explore new strategies to find better driving approaches, but exploration itself may produce unsafe driving behaviors. You cannot let the model "trial-and-error" on real roads — one mistake could cause an accident. Therefore, autonomous driving VLM-RL is trained almost entirely in simulation environments before transferring to the real world. This is the same Sim-to-Real problem discussed in Section 24.3 on embodied intelligence.
+Autonomous-driving VLM-RL has a fundamental conflict between safety and exploration. Dangerous exploration belongs in logged replay and simulation. A real vehicle should move through shadow mode and controlled validation before its execution scope expands. Simulation lowers exploration cost but introduces a Sim-to-Real gap.
 
-Another challenge is **latency constraints**. In text-only scenarios, a model taking 2 seconds to generate a response is perfectly acceptable. But in autonomous driving, a 2-second delay means the vehicle travels 60 meters blind on a highway. VLM inference must complete in milliseconds — requiring the model to be small enough and fast enough, creating a tension with the large models typically used in RL training.
+The same issue can be expressed as constrained optimization. Let $c_t$ be a safety cost such as collision risk or a red-light violation, and let $d$ be the accepted cost budget:
+
+$$
+\max_\pi\;\mathbb{E}\!\left[\sum_t r_t\right]
+\quad\text{s.t.}\quad
+\mathbb{E}\!\left[\sum_t c_t\right]\le d.
+$$
+
+A Lagrange multiplier can increase the safety penalty when the policy exceeds the budget and relax it when margin remains. This formulation is easier to validate against a hard requirement such as a collision-rate ceiling than burying safety inside an undifferentiated scalar reward.
+
+Latency is another constraint. At 108 km/h, or 30 m/s, a vehicle travels 60 meters in two seconds. This calculation only shows the scale of perception-to-decision delay; actual safety distance also depends on braking, road conditions, and redundant systems. In practice, large-model trajectories are distilled into smaller policies, online output length is bounded, and long reasoning is reserved for offline labeling, replay analysis, and reward computation.
 
 ## Architecture Choices for Multimodal Policies
 
@@ -256,7 +270,7 @@ Finally, let us summarize the architectural choices for VLM RL:
 
 "ViT + Transformer" is currently the most mainstream architecture — the ViT encodes images into visual tokens, which then interact with text tokens through cross-attention. During RL training, you can choose full updates or differential learning rates.
 
-"Frozen ViT + lightweight decoder" suits fast-iteration scenarios — for example, if you want to quickly validate a reward function design without spending significant compute on visual encoding. Freezing the ViT eliminates gradient computation for the visual component, potentially speeding up training 3-5x.
+"Frozen ViT + lightweight decoder" suits an early reward-design experiment. Freezing removes vision-side gradients and optimizer state, but the actual speedup depends on vision forward cost, response length, group size, and communication. It should not be summarized with one fixed multiplier.
 
 "Multiple visual encoders" suits tasks requiring extremely high visual precision — such as medical image analysis or satellite image interpretation. Multiple ViTs process visual information at different scales or modalities (e.g., one handles overall layout, another handles fine texture), then integrate through an attention fusion layer. During RL updates, you can choose to update only the fusion layer, preserving each ViT's independent feature extraction capability.
 
@@ -265,25 +279,22 @@ Finally, let us summarize the architectural choices for VLM RL:
 # VLM RL architecture comparison: training speed
 # ==========================================
 
-# Assume total model parameters: 3B, with ViT 1B, Transformer 2B
+# This table describes update scope without inventing hardware-bound timings.
 architectures = {
     "Full update": {
-        "Trainable params": "3B",
-        "Per-step time": "~8s",
-        "Visual protection": "Weak",
-        "Visual optimization": "Strong",
+        "train_vision": True,
+        "vision_lr_scale": 1.0,
+        "note": "Update vision and language; monitor visual degradation",
     },
     "Differential LR": {
-        "Trainable params": "3B (ViT lr=1e-7, LM lr=1e-6)",
-        "Per-step time": "~8s",
-        "Visual protection": "Medium",
-        "Visual optimization": "Medium",
+        "train_vision": True,
+        "vision_lr_scale": 0.1,
+        "note": "Allow visual adaptation with smaller vision updates",
     },
     "Frozen ViT": {
-        "Trainable params": "2B",
-        "Per-step time": "~5s",
-        "Visual protection": "Strong",
-        "Visual optimization": "None",
+        "train_vision": False,
+        "vision_lr_scale": 0.0,
+        "note": "Protect existing features but cannot repair perception with RL",
     },
 }
 
@@ -294,24 +305,34 @@ for name, config in architectures.items():
     print()
 ```
 
-## VLM RL Challenge Checklist
+## Training-Monitoring Checklist
 
-Summarizing this section's challenges and corresponding mitigations:
+Most failures discussed in this section leave measurable traces:
 
-| Challenge                  | Root Cause                                          | Mitigation                                         | Tradeoff                                                |
-| -------------------------- | --------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------- |
-| Reward attribution         | Visual and text tokens share one reward signal      | Differential learning rates / holistic attribution | Protecting vision vs improving vision                   |
-| Visual hallucination       | Model fabricates content not in the image           | Visual grounding checks / uncertainty penalties    | Training complexity vs reliability                      |
-| Visual encoder degradation | RL gradients damage pretrained features             | Freeze ViT / small learning rate                   | Visual understanding protection vs room for improvement |
-| Safety vs exploration      | RL exploration may produce unsafe actions           | Simulation training + hard constraints             | Simulation-reality gap                                  |
-| Inference latency          | Large models are slow                               | Distillation / speculative decoding                | Accuracy vs speed                                       |
-| Multi-scale vision         | Different tasks need different visual granularities | Multi-encoder architecture                         | Compute cost vs precision                               |
+- If task accuracy stalls while reward rises, inspect the reward distribution for shortcuts.
+- If accuracy with a blank or shuffled image approaches accuracy with the real image, add an image-sensitivity check.
+- If a held-out general visual probe degrades, reduce the vision learning rate or freeze the encoder.
+- If response length grows without an accuracy gain, inspect length-related rewards and truncation.
+- If format reward falls, exploration may be leaving the required output schema.
+- If IoU or grounding reward plateaus, the bottleneck may require new data or a tool rather than a larger policy update.
+- If KL divergence spikes, reduce update size or smooth an overly sharp reward.
 
-These challenges are not isolated problems but interconnected systemic difficulties. For example, solving visual hallucination requires finer-grained reward attribution; finer attribution requires a better visual encoder; a better encoder requires a larger model and more compute. Every improvement involves trade-offs across multiple dimensions.
+The blank-image control and general visual probe require dedicated held-out sets. Prepare them before training; after degradation appears, it is too late to reconstruct an uncontaminated baseline.
 
-The challenges of VLM RL go well beyond those listed here — multimodal policy representation, cross-modal reward attribution, visual hallucination prevention, and the safety-efficiency balance are all active research directions. Next we look at frameworks that are trying to address these problems — [VLM RL Frameworks and Frontiers](./vlm-frameworks).
+## A Diagnostic Sequence for VLM RL
+
+When training reward rises but real visual performance does not, follow the causal chain.
+
+**Reward attribution** fails because visual and text modules share one scalar; process rewards and differential learning rates trade adaptation against protection. **Visual hallucination** comes from describing absent content; grounding checks, uncertainty penalties, and counterfactual images trade compute for reliability. **Visual shortcuts** arise when language priors earn reward without the image; image-sensitivity and tool-trajectory rewards make evidence use observable. **Encoder degradation** occurs when RL damages pretrained features; freezing or a smaller vision learning rate protects perception at the cost of adaptation. **Unsafe exploration** belongs in simulation with hard constraints and shadow deployment. **Latency** calls for distillation and bounded reasoning. **Visual-token cost** calls for resolution limits or token pooling, with a corresponding loss of detail.
+
+These failures propagate. An answer-only reward encourages a visual shortcut. Unfreezing the encoder to remove that shortcut can damage general perception. Adding high-resolution evidence and tools then increases rollout cost and latency. A useful training report therefore includes task accuracy, blank-image controls, general visual probes, trajectory cost, and safety metrics together.
+
+The next section, [23.2 Visual Reflection RL](./qwen3-vl-reflection), asks how a model can preserve, check, and revisit visual evidence during reasoning.
 
 ## References
 
 - [VISTA-Gym / VISTA-R1 Blog](https://www.eigenai.com/blog/vista-gym-vista-r1) — shows ablation results for tools, reasoning trajectories, and reward design in visual QA tasks.
 - [VLM-R1 GitHub](https://github.com/om-ai-lab/VLM-R1) — provides grounding reward curves, useful for understanding how visual rewards enter VLM RL training.
+- [Visual-RFT](https://arxiv.org/abs/2503.01785) — applies verifiable IoU, confidence, and format rewards to visual classification, detection, and grounding.
+- [POPE](https://arxiv.org/abs/2305.10355) — turns object hallucination into binary visual questions.
+- [CHAIR](https://arxiv.org/abs/1809.02156) — measures fabricated objects in image captions at sentence and object levels.

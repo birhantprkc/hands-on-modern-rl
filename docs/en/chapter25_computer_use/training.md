@@ -14,27 +14,23 @@ The figure separates one click into four judgments. Training only button locatio
 
 Each action changes the next screenshot, and a verifier judges whether the task advanced. This observation–action–new-observation loop is the starting point for formulating GUI operation as reinforcement learning.
 
-## The Computer Use Paradigm
+## Step 1: Treat the GUI as an Interactive Environment
 
 The tools in [Chapter 19: Tool Use and Trajectory](../chapter22_agentic/tool-use-and-trajectory) are **structured APIs** — `def search(query): return results`, with input and output as strings. However, in the real world, many software applications have only one interface: the **GUI**. Browsers, Excel, enterprise internal OA systems, Photoshop, and games — none of them expose public APIs; they only provide screens and mouse and keyboard events.
 
 The **Computer Use** paradigm treats the entire operating system as the agent's environment:
 
-- **Observation**: A screen capture $o_t \in \mathbb{R}^{H \times W \times 3}$ (1–4 frames per second)
+- **Observation**: A screen capture $o_t \in \mathbb{R}^{H \times W \times 3}$, optionally accompanied by window, cursor, or accessibility-tree information
 - **Action**: Atomic GUI events (mouse movement, click, scroll, keyboard input, wait)
 - **Reward**: A binary signal indicating task completion ("whether a flight was successfully booked")
 
 This MDP is entirely different from traditional RL benchmarks. CartPole has a 4-dimensional state, 2-dimensional actions, and dense per-step rewards; in the Computer Use paradigm, the state is millions of dimensions of pixels, the action space is mixed-type, and the reward is sparse, only given at the final step.
 
-### Mainstream Products
+### What the Representative Systems Address
 
-| Product             | Organization   | Release | Features                                                          |
-| ------------------- | -------------- | ------- | ----------------------------------------------------------------- |
-| **Computer Use**    | Anthropic      | 2024.10 | Native support for screenshot-action pairs with Claude 3.5 Sonnet |
-| **Operator**        | OpenAI         | 2025.01 | CU Agent + GPT-4o Vision, browser-specific                        |
-| **Project Mariner** | Google         | 2024.12 | Gemini-driven, deep integration with Chrome                       |
-| **UI-TARS-2**       | ByteDance Seed | 2025.09 | End-to-end VLM + RL training                                      |
-| **Open-AutoGLM**    | Zhipu          | 2025.12 | Open-source upgraded version of AutoGLM                           |
+[Anthropic Computer Use](https://docs.anthropic.com/en/docs/agents-and-tools/tool-use/computer-use-tool) packages screenshots, mouse input, and keyboard input as model tools. Browser products such as Operator and Project Mariner demonstrate complete task execution. These systems first answer an engineering question: how can a model receive screenshots and control software under explicit safety boundaries?
+
+[UI-TARS](https://arxiv.org/abs/2501.12326), [UI-TARS-2](https://arxiv.org/abs/2509.02544), and [AutoGLM](https://arxiv.org/abs/2411.00820) are useful for understanding training. UI-TARS studies a native screenshot-only GUI agent; UI-TARS-2 extends it with multi-turn RL and parallel sandboxes; AutoGLM emphasizes planning and grounding interfaces and an online curriculum that changes with policy capability.
 
 ### Core Action Space
 
@@ -56,15 +52,15 @@ ACTIONS = {
 
 Note three key design choices:
 
-1. **Actions are a mixture of discrete tokens and continuous coordinates** — `click` requires both selecting a token and predicting $(x, y)$. This is a challenge for LLMs to handle natively: standard transformer outputs discrete tokens, while $(x, y) \in [0, W] \times [0, H]$ are continuous values.
-2. **Screenshot frequency is much lower than human visual perception** — humans perceive 30–60 frames per second, while Computer Use captures 1–4 frames per second. This means that the state transition $P(s_{t+1} \mid s_t, a_t)$ involves a large number of hidden state changes between observations.
-3. **The `wait` action** — GUI animations, network loading, and popup transitions require waiting. This is a unique "active time consumption" action not present in traditional RL.
+1. **Action type and position must be predicted together.** A `click` is discrete, while $(x,y)$ is a location. Implementations may regress coordinates or discretize them into special tokens.
+2. **Unobserved changes occur between screenshots.** Loading, animation, and background processes can change the interface, so a sequence of screenshots is usually only a partial state.
+3. **Waiting is itself a decision.** Clicking before a page finishes loading creates new errors; waiting too long increases latency and step count.
 
 ### MDP Formalization
 
 Define the Computer Use MDP as $\mathcal{M} = (\mathcal{S}, \mathcal{A}, P, R, \gamma, T)$:
 
-$$\mathcal{S} = \{\text{screenshots}\}, \quad \mathcal{\mathcal{A}} = \{\text{click, type, scroll, key, wait, done}\}$$
+$$\mathcal{S} = \{\text{screenshots}\}, \quad \mathcal{A} = \{\text{click, type, scroll, key, wait, done}\}$$
 
 The task description (e.g., "Help me convert this PDF into Markdown") is appended as an initial prompt $q$ before each observation. The policy is a conditional distribution:
 
@@ -72,11 +68,11 @@ $$\pi_\theta(a_t \mid q, o_{1:t}, a_{1:t-1})$$
 
 The reward $R$ is typically sparse and binary: $r_T = \mathbb{1}[\text{task completed}]$, and intermediate steps $r_{t<T} = 0$. This makes credit assignment extremely difficult — a single browser automation task may involve 50 actions, with only the last step receiving a reward, making it impossible to determine which steps were correct or incorrect.
 
-::: warning RL's True Challenges
-Sparse rewards + long sequences (50–500 steps) + high-dimensional observations (screenshots of 1344×756 pixels) + mixed action spaces — Computer Use simultaneously hits all the pain points of RL. This is why, before 2024, almost all Computer Use systems were based on **pure prompt engineering** (prompt engineering). It wasn't until 2025 that RL training truly entered industrial deployment.
+::: warning The central RL difficulty
+High-dimensional screenshots, mixed actions, long trajectories, and sparse rewards amplify one another. An early misclick changes every later observation, while terminal reward does not identify the first wrong branch. Training therefore usually begins with demonstrations and then moves into resettable, verifiable environments for online RL.
 :::
 
-## GUI Grounding RL
+## Step 2: Ground a Text Goal in Screen Coordinates
 
 The first challenge in computer use is not decision-making, but **grounding**: how does the model know where the "submit" button is on the screen at coordinate $(x, y)$?
 
@@ -94,11 +90,13 @@ This transforms the problem of continuous coordinate prediction into a **discret
 
 ### Visual Grounding
 
-Models like UI-TARS and CogAgent take a different approach: **let the VLM directly output coordinates**. The model architecture has two heads:
+Models such as UI-TARS and CogAgent take a different approach: **let the VLM directly output coordinates**. [Set-of-Mark prompting](https://arxiv.org/abs/2310.11441) makes the alternative explicit: an external detector assigns discrete labels to interface regions, reducing coordinate prediction to label selection but inheriting detector misses. An end-to-end grounding model instead has two conceptual outputs:
 
 $$\text{VLM}(o_t, q) \to \underbrace{(\text{thought}, \text{action token})}_{\text{language head}} + \underbrace{(x, y) \in [0,1]^2}_{\text{grounding head}}$$
 
 The grounding head is typically an MLP that outputs normalized coordinates $(x, y) \in [0, 1]^2$, which are then scaled to pixel coordinates by multiplying with the screen size.
+
+In the opening form, the center of the blue button is approximately $(214,209)$. A prediction of $(214,160)$ is syntactically valid but lands in the verification-code field. A GUI trajectory must therefore preserve both which action was chosen and where it was applied.
 
 Training the grounding head uses **supervised imitation**: human-labeled "center points" $(x_i, y_i)$ of buttons, with loss defined as:
 
@@ -133,187 +131,152 @@ def ui_tars_forward(self, screenshot, task):
     return thought, action, coord
 ```
 
-### Generating RL Training Data
+### From Demonstrations to Online Trajectories
 
-Real GUI tasks cannot be extensively manually labeled — a 50-step browser task requires about 30 minutes of human demonstration. The solution is **programmatic task generation**:
+Demonstrations teach basic operations but cannot cover the combinations of window sizes, pop-ups, error messages, and recovery paths. A training system usually connects four components:
 
-1. **Real Website Crawling**: UI-TARS collects over 200 real applications, each generating more than 1,000 task templates automatically.
-2. **Environment Snapshots**: Record the human operation process, saving screenshots and actions at each step as SFT data.
-3. analogical Task Validator\*\*: Use programmatic rules to check whether the task is completed ("Has the success prompt appeared on the page?").
-4. **RL Rollout**: The agent executes the task in a virtual machine, and the validator provides the final reward.
+1. A **task template** specifies an objective and variable parameters, such as changing order `{order_id}` to `{status}`.
+2. An **environment snapshot** restores a virtual machine to a known initial state.
+3. A **demonstration trajectory** stores every screenshot and action for supervised fine-tuning.
+4. An **online trajectory** is generated by the current policy, while a program verifier reads application state and returns reward.
 
 ```python
 class GUIEnv:
     def reset(self, task_id):
-        self.vm.restore_snapshot(task_id)  # Restore the virtual machine to the initial state of the task
+        self.vm.restore_snapshot(task_id)
         self.task = self.tasks[task_id]
         return self.screenshot()
 
     def step(self, action):
-        self.vm.execute(action)            # Inject mouse and keyboard events
+        self.vm.execute(action)
         obs = self.screenshot()
         done = self.task.verifier(obs, self.vm.state)
         reward = 1.0 if done else 0.0
         return obs, reward, done, {}
 ```
 
-::: details Why Not Use Real Mouse
-Directly controlling the operating system's mouse would cause conflicts between the agent's input and human users' input. In industrial practice, the agent runs in a **virtual machine + VNC remote desktop**, with mouse and keyboard events injected through the RDP/VNC protocol, isolating the agent from human users. This is why Computer Use systems typically execute only 1–2 actions per second — due to the delay from screenshot capture and VNC injection.
+::: details Why training usually runs in virtual machines
+
+Online RL produces many failed actions. A virtual machine or containerized desktop isolates user files and accounts and restores a snapshot after every trajectory. [OSWorld](https://arxiv.org/abs/2404.07972) uses real applications in a reproducible computer environment; large-scale training runs many such environments in parallel so that the GPU does not wait on one desktop.
+
 :::
 
-## Summary of This Section
+## Moving from One-Step Grounding to Complete Tasks
 
-Computer Use treats GUI pixel streams as the state space for RL and mouse and keyboard events as the action space, which amplifies all traditional RL challenges (sparse rewards, long sequences, high-dimensional observations) simultaneously. **Set-of-Mark** and **Visual Grounding** are the two mainstream approaches to solving the "localization" problem: the former relies on external detectors to simplify the action space, while the latter uses VLMs to end-to-end output coordinates.
+At this point, the model can turn a screenshot into a legal action. Complete tasks add recovery from early mistakes and sparse terminal feedback. The following sections compare how UI-TARS-2, AutoGLM, MobileRL, ComputerRL, and CogAgent change online training, curriculum, reward distance, and visual representation. Their papers do not disclose one shared recipe, so each mechanism must remain tied to the problem it was designed to solve.
 
-The next section [22.1 GUI Agent Training Practice](./training) will take us into industrial practice — you will see how systems such as UI-TARS-2, AutoGLM, MobileRL, and ComputerRL transform this theoretical framework into a reproducible training pipeline.
+## Step 3: Connect Single-Step Ability into a Training Pipeline
 
-The previous sections have clarified the MDP modeling of Computer Use and the visual alignment of GUI Grounding. This section addresses the next engineering question: **How to train a VLM into a GUI Agent?** This involves data synthesis, curriculum design, reward engineering, and virtual environments — a complete industrial training pipeline. Below, we will compare the technical approaches of UI-TARS-2, AutoGLM, MobileRL, ComputerRL, and CogAgent, based on representative work from Chinese laboratories in 2025–2026.
+Once grounding works, training becomes dominated by environment interaction. Representative systems share three prerequisites:
 
-## A Concentrated Outburst of GUI Agents in Chinese Laboratories
+1. A pretrained VLM supplies initial perception.
+2. Resettable environments such as [AndroidWorld](https://arxiv.org/abs/2405.14573), [OSWorld](https://arxiv.org/abs/2404.07972), and WebArena make trajectories comparable.
+3. Parallel environments keep the GPU occupied while applications load.
 
-In the second half of 2025, Chinese laboratories experienced a concentrated outburst in GUI Agent RL training. This was not a coincidence — three conditions simultaneously matured:
+The papers change different parts of this system. [UI-TARS-2](https://arxiv.org/abs/2509.02544) emphasizes stable multi-turn RL, data flywheels, mixed GUI environments, and a unified sandbox. [AutoGLM](https://arxiv.org/abs/2411.00820) exposes planning and grounding interfaces and a curriculum that evolves with the policy. [MobileRL](https://arxiv.org/abs/2509.18119) changes replay, filtering, and shortest-path reward adjustment for a heavy-tailed mobile-task distribution. [ComputerRL](https://arxiv.org/abs/2508.14040) scales online sampling with hybrid API–GUI actions and parallel virtual desktops and uses Entropulse to counter entropy collapse. [CogAgent](https://arxiv.org/abs/2312.08914) changes the visual representation for high-resolution interfaces.
 
-1. **Mature VLM Foundation**: Open-source VLMs such as Qwen2.5-VL, InternVL3, and GLM-4.5V provided a high-quality starting point.
-2. **Virtual Environment Toolchains**: Benchmarks such as Android Worldwide, AndroidWorld, OSWorld, and WebArena provided reproducible training and evaluation environments.
-3. **Reduced Compute Costs**: The stable prices of 4090 and H100 GPUs made RL training of 7B models affordable.
+These works do not share one fixed recipe. Their components should not be presented as an interchangeable list of tricks.
 
-Comparison of Representative Works:
+## Step 4: Use UI-TARS-2 to Understand Multi-Turn Online RL
 
-| Model            | Institution     | arXiv      | Parameter Scale | Core Innovation                                             |
-| ---------------- | --------------- | ---------- | --------------- | ----------------------------------------------------------- |
-| **UI-TARS-2**    | Byte Seed       | 2509.02544 | 7B / 72B        | End-to-end VLM + Long-term Task RL + Reflection Enhancement |
-| **Open-AutoGLM** | Zhipu AI        | 2411.00820 | 9B              | Multilingual GUI + Mobile + Full Open Source                |
-| **MobileRL**     | Tencent         | 2509.18119 | 7B              | Mobile App Difficulty Curriculum Learning                   |
-| **ComputerRL**   | Shanghai AI Lab | 2508.14040 | 7B              | Reverse Curriculum + Intermediate Exploration Rewards       |
-| **CogAgent-9B**  | Zhipu AI        | 2408.16500 | 9B              | High-Resolution Visual Encoding + Dual-Branch Fusion        |
+UI-TARS-2 uses one model for perception, reasoning, and actions. The important change is the training object: language-model RL samples one response, whereas GUI RL alternates between the model and an environment, and each new observation depends on the previous action.
 
-## UI-TARS-2: End-to-End RL
+### Establish a Policy That Can Enter the Environment
 
-UI-TARS-2 treats Computer Use as a **pure LLM RL problem** — a single VLM simultaneously handles perception, reasoning, and action output. The model architecture has no explicit planner / actor division; all logic resides within a single transformer.
+If the initial policy cannot distinguish buttons and fields, most online trajectories fail in the first steps and the terminal verifier rarely returns positive reward. A common teaching pipeline is:
 
-### Four-Stage Training Process
-
-```
-Stage 1: Vision-Language Pretraining
-  └─ GUI screenshot + text pairs → foundational visual capabilities
-
-Stage 2: Supervised Fine-Tuning (SFT)
-  └─ Human demonstrations + model self-generated trajectories → foundational action capabilities
-
-Stage 3: Reflective RL (Reflection-enhanced RL)
-  └─ Multiple candidate trajectories + verifier selection → rejection sampling + SFT
-
-Stage 4: Online RL (Online Reinforcement Learning)
-  └─ Real GUI environment rollouts → PPO optimizes task completion rate
+```text
+visual-language pretraining
+  → demonstration SFT
+  → verifier-filtered successful trajectories
+  → resettable-environment rollout and online RL
 ```
 
-Stage 3's rejection sampling is the key transition: the model generates $K=8$ trajectories for the same task, and a programmatically defined verifier determines which ones are successful, then feeds the successful trajectories back as high-quality SFT data. This is more stable than direct online RL — online RL learns almost nothing when success rate is below 10%.
+This four-stage description explains data flow; it is not a claim that UI-TARS-2 discloses these exact fixed phases or a fixed number of sampled trajectories.
 
-### Reflection Augmentation
+### Record Where the Interface Failed to Change
 
-The core innovation of Phase 4 is the reflection mechanism. It allows the agent to explicitly output a `<reflection>` tag when it fails:
+[UI-TARS](https://arxiv.org/abs/2501.12326) includes reflection as one multi-step reasoning behavior. A trajectory can expose it explicitly:
 
-```
-<thought>I need to click the "submit" button</thought>
+```xml
+<thought>I should submit the form.</thought>
 <action>click(450, 320)</action>
-<observation>The button turns gray, but the page does not jump</observation>
-<reflection>It is possible that I clicked outside the clickable area. The clickable area of the "submit" button is (440-470, 310-330), and I clicked outside of it. I should move closer to the center on retry.</reflection>
+<observation>The button changed color, but the page did not advance.</observation>
+<reflection>The click may have missed the active region.</reflection>
 <action>click(455, 320)</action>
-<observation>The page jumps to the success page</observation>
+<observation>The success page appeared.</observation>
 <action>done</action>
 ```
 
-This self-correcting capability cannot be learned solely through SFT — it must be learned through the trial-and-error signals of RL. During RL training, we give an additional +0.3 reward to trajectories that successfully correct errors through reflection, encouraging the model to learn how to reflect.
+The useful training record is not simply “reflection occurred.” It preserves the expected state change, the observed mismatch, and the corrective action.
 
-### Multi-Task RL Reward
+### A Teaching Reward Decomposition
 
-The total reward function of UI-TARS-2 is:
+A minimal decomposition is
 
-$$r = r_{\text{task}} + \alpha \cdot r_{\text{format}} + \beta \cdot r_{\text{reflection}} - \gamma \cdot r_{\text{invalid}}$$
+$$
+r=r_{\text{task}}+\alpha r_{\text{format}}
+  +\beta r_{\text{recovery}}-\gamma r_{\text{invalid}}.
+$$
 
-- $r_{\text{task}} \in \{0, 1\}$: Whether the task is completed
-- $r_{\text{format}} \in \{0, 1\}$: Whether the output format is valid (XML tags are properly closed, coordinates are within range)
-- $r_{\text{reflection}} \in [0, 0.3]$: Quality of successful error correction through reflection
-- $r_{\text{invalid}}$: Penalty for executing unauthorized actions (e.g., attempting to close the browser)
+The terms check task completion, parseable actions, successful recovery, and illegal actions. Values such as $\alpha=0.1$, $\beta=0.3$, and $\gamma=2.0$ are starting points for a classroom ablation, not UI-TARS-2's disclosed fixed weights. Each environment needs new calibration, especially because a large illegal-action penalty may make the policy overly conservative.
 
-In practice, the weights are set as $\alpha = 0.1, \beta = 0.3, \gamma = 2.0$. $\gamma$ is intentionally large — the cost of an unauthorized action is much higher than the reward for completing a task.
+## Step 5: Use AutoGLM to Separate Planning, Grounding, and Device Interfaces
 
-## Open-AutoGLM: Open-Source Training Pipeline
+### Why Multiple Devices Need a Unified Action Space
 
-The AutoGLM series by Zhipu (Open-AutoGLM was open-sourced in December 2025) is optimized for the **Chinese internet environment** — platforms such as Weibo, Taobao, and WeChat Mini Programs perform poorly on English models (e.g., Operator, Mariner). Its training innovations include:
+For “search for wireless headphones,” a high-level planner may output “open the search field and enter the query,” while the grounding module locates the field in the current screenshot. A layout change can leave the plan valid while breaking grounding. Recording those errors separately tells us whether to add planning examples or visual-localization examples.
 
-### Chinese GUI Data Synthesis
-
-The data sources for English models are Common Crawl + RPA recordings, but Chinese GUI data is scarce. Open-AutoGLM's approach includes:
-
-1. **WeChat Mini Program Crawling**: Using the Android automation framework Appium to control over 100 real devices, automatically exploring mini programs, and recording screenshots and actions for each step.
-2. - **Chinese E-commerce Task Synthesis**: Automatically generating "search product → price comparison → add to cart → place order (or not)" task templates on platforms like Taobao, JD.com, and Pinduoduo.
-3. **Chinese Social Tasks**: Such as Weibo posts, Douyin comments, Xiaohongshu collections, etc.
-
-In total, **2.3 million Chinese GUI trajectories** were collected, which is **2.9 times** the number of English trajectories (800K).
-
-### Unified Action Space Across Platforms
-
-A key design of Open-AutoGLM is **cross-platform unification** — the same model can work on desktop browsers, Android apps, and iOS apps (via WebDriverAgent). The unified action space is defined as:
+A unified action representation can then map semantic actions to desktop or mobile adapters:
 
 ```python
 UNIFIED_ACTIONS = {
-    "tap":       {"x": float, "y": float},           # Tap/Touch
-    "long_press":{"x": float, "y": float, "ms": int},
-    "swipe":     {"start": [x,y], "end": [x,y]},     # Swipe/Drag
-    "type":      {"text": str},
-    "key":       {"name": str},                      # back, home, enter
-    "scroll":    {"dy": int},
-    "wait":      {"ms": int},
-    "done":      {"summary": str},
+    "tap": {"x": float, "y": float},
+    "long_press": {"x": float, "y": float, "ms": int},
+    "swipe": {"start": [x, y], "end": [x, y]},
+    "type": {"text": str},
+    "key": {"name": str},
+    "scroll": {"dy": int},
+    "wait": {"ms": int},
+    "done": {"summary": str},
 }
 ```
 
-The desktop "click" and mobile "tap" are unified as the same action `tap` — semantic differences across platforms are handled by environment adapters.
+### Run One Observable Device Loop First
 
-### Complete Open-Source
-
-Open-AutoGLM opensources **model weights, training data, environment simulators, and training scripts**, making it the most complete open-source GUI Agent training framework to date:
+The [Open-AutoGLM repository](https://github.com/zai-org/Open-AutoGLM) provides a practical device-control entry point. Begin with a read-only task and preserve every screenshot, raw output, parsed action, and final state:
 
 ```bash
-git clone https://github.com/zai-org/Open-AutoGLM
-cd Open-AutoGLM
+python -m open_autoglm.server \
+    --model Open-AutoGLM \
+    --base-url http://localhost:8000/v1
 
-# 1. Download pre-trained weights
-huggingface-cli download zhipuai/Open-AutoGLM-9B
-
-# 2. Start Android emulator
-bash scripts/start_emulator.sh
-
-# 3. RL Training (Single machine with 8×H100)
-bash train.sh \
-    --model Open-AutoGLM-9B \
-    --algo grpo \
-    --platform android \
-    --tasks curated-1k.jsonl
+python -m open_autoglm.run \
+    --device emulator-5554 \
+    --task "Open the shopping app and search for wireless headphones"
 ```
 
-In practice, on 8×H100, a single GRPO step processes about 256 prompts in approximately 4 minutes. Training for 5000 steps to convergence takes about 14 days.
+Exact commands and model identifiers depend on the repository revision.
 
-## MobileRL: Mobile RL
+## Step 6: Use MobileRL to Adjust Task Difficulty
 
-Tencent's MobileRL (arXiv:2509.18119) is specifically designed to address automation in mobile apps. Mobile environments are more challenging than desktop environments, for three reasons:
+[MobileRL](https://arxiv.org/abs/2509.18119) studies online reinforcement learning for mobile GUI agents. Mobile environments are more challenging than desktop environments for three reasons:
 
 - **Small screen, dense elements**: A mobile app's home page may have 30 clickable elements densely arranged.
 - **Complex gestures**: Long press, swipe, pinch, 3D Touch, and other gestures are far more diverse than mouse clicks.
 - **Frequent app switching**: Push notifications, incoming calls, and low battery alerts can interrupt tasks at any time.
 
-### Gradual Difficulty Curriculum
+### A Simplified Curriculum Constraint
 
-The core innovation of MobileRL is the **Gradual Difficulty Curriculum** (Curriculum Learning):
+MobileRL adapts replay and filtering from training feedback. To isolate the intuition, sample tasks that are possible but not yet mastered:
 
 $$\text{Curriculum}(\pi_\theta) = \arg\max_{\text{task } \tau} \; \text{Difficulty}(\tau) \quad \text{s.t.} \quad 0.3 \leq P_\theta(\text{success} \mid \tau) \leq 0.7$$
 
-Tasks are sampled only from the "Zone of Proximal Development" where the model's current success rate is between 30% and 70%, avoiding overly difficult tasks (too sparse signals) and overly easy tasks (no learning signal).
+This concentrates sampling on tasks with an intermediate success rate. The 30%–70% interval is an experimental teaching setting, not a threshold prescribed by the MobileRL paper.
 
 ### Quantification of Task Difficulty
 
-MobileRL defines task difficulty as a weighted sum of four dimensions:
+For a minimal scheduler, task difficulty can be approximated as a weighted sum of four inspectable dimensions:
 
 $$\text{Difficulty}(\tau) = w_1 \cdot \text{Steps}(\tau) + w_2 \cdot \text{Apps}(\tau) + w_3 \cdot \text{GestureComplexity}(\tau) + w_4 \cdot \text{Distraction}(\tau)$$
 
@@ -322,7 +285,7 @@ $$\text{Difficulty}(\tau) = w_1 \cdot \text{Steps}(\tau) + w_2 \cdot \text{Apps}
 - $\text{GestureComplexity}$: Number of gesture types required (tap=1, swipe=2, long_press=3, multi-touch=5)
 - $\text{Distraction}$: Number of simulated distraction events (push notifications, incoming calls)
 
-Empirical weights are $w_1=0.4, w_2=0.2, w_3=0.2, w_4=0.2$.
+The weights $w_1=0.4$, $w_2=0.2$, $w_3=0.2$, and $w_4=0.2$ are classroom defaults. A reproduction of MobileRL should use its published replay and filtering algorithm rather than attributing this simplified score to the paper.
 
 ### Curriculum Scheduler
 
@@ -355,9 +318,9 @@ class CurriculumSampler:
 
 The success rate of each task is re-evaluated at each epoch, allowing the curriculum to dynamically adjust according to the model's current capabilities.
 
-## ComputerRL: Backward Curriculum and Exploration Rewards
+## Step 7: Handle Reward Distance in Long-Horizon Tasks
 
-ComputerRL (arXiv:2508.14040) from Shanghai AI Lab discovers that pure task completion rewards are too sparse for long-horizon tasks (over 50 steps). Their solution is **backward curriculum + intermediate exploration rewards**.
+[ComputerRL](https://arxiv.org/abs/2508.14040) studies scalable end-to-end online Computer Use RL with API–GUI hybrid actions, parallel virtual desktops, and Entropulse, which alternates RL and supervised updates to mitigate entropy collapse. The backward curriculum and intermediate reward below are retained as a separate teaching experiment for the reward-distance problem; they are not a summary of ComputerRL's disclosed method.
 
 ### Backward Curriculum
 
@@ -377,7 +340,7 @@ Round 50: Start from $s_0$, complete the full task (50-step task)
 
 ### Intermediate Exploration Rewards
 
-The inverse curriculum addresses the issue of "sparse terminal rewards being too far," but intermediate steps still lack signals. ComputerRL introduces **intermediate state rewards**:
+The inverse curriculum addresses the issue of "sparse terminal rewards being too far," but intermediate steps still lack signals. The teaching experiment can add an **intermediate state reward**:
 
 $$r_t = \underbrace{r_{\text{task}}(t=T)}_{\text{Sparse Terminal Reward}} + \lambda \cdot \underbrace{r_{\text{progress}}(s_t, s_{t+1})}_{\text{Dense Progress Reward}}$$
 
@@ -403,7 +366,7 @@ This LLM-as-judge approach for intermediate rewards is similar to the idea in [C
 
 ### Comparison with Forward Curriculum
 
-The paper ComputerRL reports comparative experiments:
+The earlier course draft recorded the following illustrative measurements:
 
 | Method                                   | OSLevel-3 Success Rate | Average Steps | Training Cost |
 | ---------------------------------------- | ---------------------- | ------------- | ------------- |
@@ -411,74 +374,51 @@ The paper ComputerRL reports comparative experiments:
 | Forward Curriculum + Progress Reward     | 27.7%                  | 35            | 2.3×          |
 | **Reverse Curriculum + Progress Reward** | **51.2%**              | **28**        | 2.8×          |
 
-Reverse curriculum increases the success rate from 12% to 51%, but the training cost increases by 2.8 times — mainly due to the computational overhead of the progress evaluator LLM.
+In this record, reverse curriculum increases success from about 12% to about 51%, while training cost rises to 2.8 times the baseline because the progress evaluator is called repeatedly. These numbers are a teaching record rather than reported ComputerRL results; a reproduction must rerun the comparison in one fixed environment.
 
-## CogAgent: The Cost of High-Resolution Vision
+## Step 8: Balance High-Resolution Vision Against Latency
 
-The CogAgent-9B from Zhipu (arXiv:2408.16500) takes a different approach: **using higher-resolution visual encoding to improve accuracy**.
+[CogAgent](https://arxiv.org/abs/2312.08914) takes a different approach: **using higher-resolution visual encoding to improve recognition of small GUI elements**. The original paper describes an 18B model; a later repository release provides a 9B version. The previously cited arXiv:2408.16500 is CogVLM2, not the CogAgent paper.
 
 ### High-Resolution Visual Branch
 
-Standard VLMs input images at a resolution of 448×448, while CogAgent uses 1120×1120 — four times the number of pixels, which means four times the number of visual tokens, but allows for better recognition of small text on UIs (e.g., 9-point font in tables, PowerPoint toolbar icons).
+CogAgent accepts $1120\times1120$ input and combines low- and high-resolution image encoders. The low-resolution branch supplies global context, such as recognizing a shopping page, while the high-resolution branch preserves small labels and toolbar icons.
 
-CogAgent's architectural insight is the **dual-branch fusion**:
+Higher resolution increases visual encoding and multimodal-fusion cost. An earlier course draft recorded three configurations—$448\times448$ single branch, $1120\times1120$ single branch, and dual-branch fusion—with token, latency, and OSWorld numbers. Those measurements were not tied to a public CogAgent experiment configuration, so they must not be cited as paper results.
 
-```
-┌──────────────────────────────────────────┐
-│ Input screenshot (1120×1120)              │
-└────────────┬─────────────────────────────┘
-             ↓
-   ┌─────────┴─────────┐
-   │                   │
-   ↓                   ↓
-High-Resolution Branch   Low-Resolution Branch
-(EVA-CLIP)              (SigLIP)
-1120×1120               448×448
-→ 3136 tokens          → 256 tokens
-   │                   │
-   └─────────┬─────────┘
-             ↓
-        Cross-Attention
-             ↓
-         LLM Decoder
-```
+Use them only as a measurement template. A reproduction should run all configurations on the same hardware, task set, and step budget and report visual-token count, single-step latency, and task success together.
 
-The low-resolution branch provides global context ("This is a shopping page"), while the high-resolution branch provides details ("The shopping cart button is in the top right corner"). The two branches are fused through cross-attention, avoiding the computational overhead of having the LLM process all 3136 tokens.
+### Accuracy Versus Latency
 
-### Trade-off Between Accuracy and Latency
+Higher resolution increases visual encoding and cross-modal fusion cost. Compare configurations only on the same hardware, task set, maximum step budget, and decoding setup. Report visual-token count, per-step latency, and task success together; otherwise a faster setting may simply be doing less work.
 
-The cost is computational: high-resolution visual tokens make inference 3–5 times slower.
+## Step 9: Diagnose What a Failed Trajectory Needs
 
-| Configuration           | Visual Tokens | Inference Latency | OSWorld Accuracy |
-| ----------------------- | ------------- | ----------------- | ---------------- |
-| 448×448 Single Branch   | 256           | 0.8s              | 38.2%            |
-| 1120×1120 Single Branch | 3136          | 4.2s              | 47.5%            |
-| **Dual-Branch Fusion**  | 3392          | 1.6s              | **46.8%**        |
+A falling task-success curve does not locate the defect. Save the task, every screenshot, raw model output, parsed action, environment return, and verifier result, then separate four cases.
 
-The dual-branch approach maintains an accuracy close to that of the high-resolution branch while increasing latency only by a factor of 1. This trade-off is at the core of engineering decisions in GUI Agents—accuracy versus latency.
+**Grounding failure:** the action type is correct but its coordinate lands on an edge or adjacent control. Add localization examples across resolution, scale, and occlusion, and measure whether the click lies inside the target.
 
-## Three Challenges in Industrial Deployment
+**Planning failure:** the coordinate lands on a clickable element that does not serve the current subgoal—for example, submitting a form before entering an amount. This needs complete task-conditioned demonstrations or online trajectories, not more coordinate labels.
 
-Moving the above system from paper to production environment will encounter three challenges that are not thoroughly discussed in the literature.
+**State-check failure:** an action succeeds but the interface is still loading, so the policy repeats it and triggers a duplicate operation. Record expected state changes and train the choice among waiting, retrying, and stopping.
+
+**Verifier failure:** a success message earns reward even though the wrong record changed in the backend. Prefer structured application state and verify parameters, target objects, and side effects instead of matching one piece of text.
+
+[OSWorld](https://arxiv.org/abs/2404.07972) shows why GUI evaluation must combine grounding, software knowledge, and cross-application workflows. Report success rate, mean actions, invalid-action rate, environment-error rate, and per-step latency separately so that environment failures do not become indistinguishable from policy failures.
+
+## Step 10: Move Training Results to Real Desktops
+
+Moving the system from a benchmark to a user's desktop introduces distribution shift, long-tail tasks, and safety boundaries.
 
 ### Distributional Shift in Environments
 
-The training environments in the papers are controlled benchmarks such as OSWorld and AndroidWorld. In production, the environment is the real user's computer — each user has a different system version, browser plugins, and font size.
+The training environments in the papers are controlled benchmarks such as [OSWorld](https://arxiv.org/abs/2404.07972) and [AndroidWorld](https://arxiv.org/abs/2405.14573). In production, the environment is the real user's computer—each user has a different system version, browser extensions, and font scale.
 
-**Solutions**:
-
-- **Data Diversity**: UI-TARS-2 collects training environments with over 50 different Windows/macOS/Linux configurations.
-- **Domain Randomization**: During training, the UI theme, font, and resolution are randomly changed.
-- **Continual Learning**: After deployment, failure cases are collected, and the model is retrained periodically.
+Evaluation should deliberately vary operating-system versions, display scale, browser extensions, themes, fonts, and resolution, then report each slice separately. Failure trajectories from new configurations can be added to a controlled data flywheel, but deployment data collection must preserve user privacy and cannot silently broaden permissions.
 
 ### Long-Tail Tasks
 
-The benchmark tasks in the papers are all "mainstream tasks" (book a flight, check a calendar, write an email). In production, users may ask "Help me change this computer's BIOS to UEFI mode" — a task with very little training data.
-
-**Solutions**:
-
-- **Task Hierarchization**: Use pre-trained strategies for common tasks; for rare tasks, fall back to "tree search + LLM planning".
-- **Human-in-the Loop**: Actively ask the user for confirmation when the model's confidence is low.
+Public benchmarks cover reproducible common tasks. Real requests include rare software, internal workflows, and high-risk system changes. Validated common tasks can run automatically; tasks without test coverage should be limited to read-only exploration or handed back to a person. Pause when the goal is ambiguous, a new application appears, or the next action creates an external side effect.
 
 ### Safety Boundaries
 
@@ -492,16 +432,12 @@ GUI Agents can perform destructive actions — delete files, transfer money, sen
 
 See [22.2 Prompt Injection and Instruction-Level](./safety-swarm).
 
-## Summary of This Section
+## Summary
 
-Chinese laboratories have formed four clear paths in the training of GUI Agents using Reinforcement Learning (RL):
+A GUI agent learns a trajectory that changes its environment. Supervised fine-tuning first establishes element recognition, coordinate grounding, and basic actions. Online RL then uses resettable environments and task verifiers to improve complete multi-step tasks.
 
-- **UI-TARS-2**: End-to-end Vision-Language Model (VLM) + Reflection Enhancement, treating "Computer Use" as a pure Large Language Model (LLM) RL problem.
-- **Open-AutoGLM**: Chinese GUI data synthesis + cross-platform unification, with the highest level of engineering completeness.
-- **MobileRL**: Progressive difficulty curriculum, focusing on mobile apps.
-- **ComputerRL**: Reverse curriculum + intermediate exploration rewards, targeting long-term tasks.
-- **CogAgent**: High-resolution visual encoding, focusing on small text recognition.
+The representative papers fill different gaps. UI-TARS-2 studies stable multi-turn RL and sandboxes; AutoGLM connects planning and grounding; MobileRL adjusts sampling and reward from task difficulty; ComputerRL scales parallel desktop training and mitigates entropy collapse; CogAgent improves high-resolution interface perception. Backward curriculum and progress rewards remain separate teaching proposals for shortening the distance between an action and terminal reward.
 
-These four paths are not mutually exclusive. For instance, UI-TARS-2 later incorporated a reflection curriculum (similar to MobileRL's idea), and Open-AutoGLM also used a reverse curriculum (similar to ComputerRL's idea). **Industrial systems are often combinations of multiple approaches**.
+Evaluation must return to complete trajectories and inspect grounding, planning, state verification, environment errors, and the final verifier separately. One success rate cannot tell whether the next change belongs in data, reward, environment, or visual resolution.
 
-The next section [22.2 Prompt Injection and Instruction Level](./safety-swarm) shifts toward safety — once agents are truly deployed on users' computers, how to prevent malicious websites, forged UIs, and cross-application attacks from hijacking the system.
+The next section, [22.2 Prompt Injection and Instruction Hierarchy](./safety-swarm), turns to malicious web content, forged interfaces, and cross-application attacks.

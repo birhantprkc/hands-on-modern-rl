@@ -78,7 +78,7 @@ What can be inherited includes: policy gradient, advantage, KL regularization, P
 
 This is why work like DDPO first does something seemingly simple but very important: translating Diffusion's denoising process into states, actions, trajectories, and rewards[^ddpo]. Only when this translation is clear do we know what policy gradients are actually updating.
 
-## Starting from Diffusion's Sampling Process
+## 24.4.2 How an Image Emerges from Noise
 
 A diffusion model's generation process can be understood as "starting from noise, progressively denoising."
 
@@ -130,7 +130,7 @@ Given the current noisy latent, timestep, and prompt, the model chooses the next
 
 Of course, this statement only means "it can formally be viewed as a policy." It does not yet constitute RL. Only when we define a reward for the final image and use it to update $p_\theta$ does this sampling process truly become a reinforcement learning problem.
 
-## Translating Diffusion into MDP Language
+### Translating Diffusion into MDP Language
 
 DDPO (Denoising Diffusion Policy Optimization)'s key observation is: Diffusion's sampling process can be viewed as a finite-length MDP. Black et al.'s DDPO paper explicitly treats denoising as a multi-step decision-making problem, then uses policy gradients to directly optimize downstream rewards[^ddpo].
 
@@ -168,7 +168,7 @@ $$
 
 This reads: we want the average reward of the final image, sampled from the model's own trajectories, to be as high as possible.
 
-## DDPO: Updating the Denoising Policy with Policy Gradients
+## 24.4.3 DDPO: Propagating the Final Score Through the Denoising Trajectory
 
 With the MDP translation above, DDPO is no longer mysterious. It essentially applies policy gradients on Diffusion sampling trajectories.
 
@@ -449,7 +449,7 @@ This formula has a straightforward interpretation: if the actually sampled $x_{t
 
 This explains what `step.logprob` means in pseudocode: it is not an abstract RL symbol, but the log probability that the current model sampled this particular $x_{t-1}$ at step $t$.
 
-### From Maximizing Objective to Minimizing Loss
+## 24.4.4 From Policy Gradients to a Stable Training Loss
 
 Deep learning frameworks typically minimize loss, while policy gradient maximizes $J(\theta)$. So implementations write it with a negative sign:
 
@@ -764,215 +764,144 @@ If we compress DDPO into one engineering intuition:
 
 ## 24.4.5 DanceGRPO: Why Generate a Group for the Same Prompt?
 
-DDPO can compare images across a rollout batch, but an absolute reward is often difficult to calibrate. A score of 0.7 may be strong for a difficult counting prompt and weak for a simple portrait prompt. [DanceGRPO](https://arxiv.org/abs/2505.07818) changes the comparison unit: generate a group of candidates under the same condition, then ask which candidates are better relative to their siblings.[^dancegrpo]
+DDPO solves the basic problem of expressing diffusion sampling as policy gradients. Modern visual generation introduces two further difficulties.
 
-Consider three images for one prompt with rewards 1, 2, and 3. Their mean is 2. Before introducing any critic, we already know the first trajectory should become less likely, the second is near the group baseline, and the third should become more likely. A simplified group-normalized advantage is
+First, many models use rectified flow or flow matching. Their ordinary differential equation paths are often deterministic: once the initial noise is fixed, each step is fixed. Policy gradients then have no stochastic transition probability to optimize.
+
+Second, reward scales differ greatly across prompts. A simple composition may score highly across all samples, while a prompt with complex spatial relations may score poorly. Absolute rewards alone cannot distinguish an improved model from an easier prompt.
+
+The [DanceGRPO paper](https://arxiv.org/abs/2505.07818) addresses both problems[^dancegrpo]. It rewrites diffusion and rectified-flow sampling as stochastic differential equations so that the transitions again have computable probabilities. It then generates $G$ outputs for the same condition and estimates advantage from their relative performance.
+
+```mermaid
+flowchart LR
+    P[Same prompt c] --> V1[Output 1]
+    P --> V2[Output 2]
+    P --> V3[Output 3]
+    P --> VG[Output G]
+    V1 --> J[Shared reward model]
+    V2 --> J
+    V3 --> J
+    VG --> J
+    J --> A[Group mean and standard deviation<br/>relative advantages]
+    A --> U[Clipped probability ratio<br/>update denoising or flow policy]
+```
+
+Consider three outputs with rewards `1, 2, 3`. Their mean is `2`, so subtracting it gives the first, second, and third outputs negative, zero, and positive update directions. Training also divides by the within-group standard deviation to keep advantages on comparable scales across conditions:
 
 $$
-A_i=\frac{r_i-\bar r}{s_r+\epsilon},
+\hat A_i
+=
+\frac{r_i-\operatorname{mean}(r_1,\ldots,r_G)}
+{\operatorname{std}(r_1,\ldots,r_G)+\varepsilon}.
 $$
 
-where $\bar r$ and $s_r$ are the reward mean and standard deviation within that prompt's group. The same relative advantage is attached to the denoising steps that produced candidate $i$, while PPO-style clipping limits how far the updated sampler moves.
+The mean removes whether this prompt is generally easy or hard. The standard deviation stabilizes the reward scale. Training still uses a clipped probability ratio; only the advantage now comes from a group generated under the same condition.
 
-The distinction is now concrete. DDPO establishes how to treat a denoising chain as a policy trajectory and propagate terminal feedback through it. DanceGRPO adds same-condition group comparison, removing the need for a separately learned value critic and making reward scales easier to compare within each prompt. Neither method fixes a misspecified reward; both will optimize whatever evaluator we provide.
+DanceGRPO's public experiments cover image generation, text-to-video, and image-to-video with Stable Diffusion, FLUX, HunyuanVideo, and SkyReels-I2V. They combine aesthetic, text-image alignment, motion, and binary verifiable rewards[^dancegrpo-repo]. This demonstrates that the method spans diffusion and flow models. It does not show that every production video model uses DanceGRPO, nor does it reveal the internal algorithms of Seedance, Kling, or Hailuo.
+
+### What DDPO and DanceGRPO Each Solve
+
+- DDPO establishes the basic translation: denoising transitions are actions, a complete sample is a trajectory, and the final image score is the reward.
+- DanceGRPO handles modern flow sampling and within-condition relative advantages, extending the same framework to more generators and tasks.
+- Neither requires a differentiable reward. When reward gradients are reliable, DRaFT directly optimizes differentiable rewards, while VADER backpropagates reward gradients through video diffusion[^draft][^vader].
+
+An algorithm name does not determine the hardware budget. The official DanceGRPO repository's paper-scale recipes use 8 H800 GPUs for Stable Diffusion, 16 for FLUX, and more for HunyuanVideo and SkyReels-I2V[^dancegrpo-repo]. These are reproduction configurations, not minimum requirements for learning the method. A smaller model, fewer sampling steps, and offline rewards are enough to validate the data flow first.
 
 ## 24.4.6 The Reward Model Determines What the Generator Learns
 
-At this point, the algorithm is in place. But the difficulty of generation RL often lies not in "can we write policy gradients," but in "is the reward actually trustworthy?"
+Reinforcement learning only increases the supplied reward. If that reward omits a property users care about, training will reliably optimize the wrong target.
 
-If the reward model is too weak, it provides no useful direction; if it is biased, the generation model learns the bias; if the reward is too complex, different objectives may pull against each other.
+### Human Preference: Which of Two Plausible Images Is Better?
 
-Visual generation rewards typically come from three types of signals.
+Pick-a-Pic collects pairwise image preferences under the same prompt and uses those comparisons to train PickScore[^pickapic]. Annotators need not assign precise scalar scores; they select the image that follows the prompt more naturally, or indicate that neither is satisfactory.
 
-### Type One: Human Preference
-
-The most common form of human preference data is pairwise comparison. Given the same prompt, users choose which of two candidate images they prefer. Pick-a-Pic is a representative publicly collected text-to-image user preference dataset, and HPS v2 further provides a human-preference-oriented evaluation benchmark and reward model[^pickapic][^hpsv2].
-
-![Pick-a-Pic Preference UI](../../chapter26_vlm/images/ref-pick-a-pic-ui.png)
+![Pick-a-Pic preference interface](../../chapter26_vlm/images/ref-pick-a-pic-ui.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>Figure 2: Pick-a-Pic's human preference collection interface. Users perform preference selection between two candidate images under the same prompt. This type of data can train reward models like PickScore. Source: <a href="https://stability.ai/research/pick-a-pic" target="_blank" rel="noopener noreferrer">Stability AI Research</a>, corresponding paper Kirstain et al., 2023</em>
+  <em>Figure 2: Pick-a-Pic's pairwise preference interface. Annotators compare two results for the same prompt and may reject both. Source: <a href="https://stability.ai/research/pick-a-pic" target="_blank" rel="noopener noreferrer">Pick-a-Pic project page</a>.</em>
 </div>
 
-Pick-a-Pic's contribution is not just providing UI screenshots, but organizing large-scale text-to-image pairwise preference data into trainable, evaluable public resources[^pickapic].
+HPS v2 also studies human preference with a more systematic dataset and evaluation protocol[^hpsv2]. Preference rewards capture composition and naturalness that pixel metrics miss, but they also inherit biases from annotators, data distributions, and presentation choices.
 
-Such data can be written as:
+### Text Alignment: Did the Attractive Image Complete the Task?
 
-$$
-\mathcal{D}_{\text{pref}}=\{(c,x^+,x^-)\}
-$$
+Return to the opening example with three red umbrellas. An aesthetic reward may miss a counting error, while a text-image alignment model checks whether the image satisfies the condition. A complex prompt can be decomposed into verifiable questions:
 
-where $x^+$ is the user-preferred image and $x^-$ is the rejected image. The reward model's training objective typically makes $x^+$'s score higher than $x^-$'s:
+- Are there exactly three umbrellas?
+- Are the umbrellas red?
+- Is the sign on the right?
+- Is the sign blue?
 
-$$
-\mathcal{L}_{\text{rm}}
-=
--\mathbb{E}_{\mathcal{D}_{\text{pref}}}
-\log\sigma\left(r_\phi(c,x^+)-r_\phi(c,x^-)\right)
-$$
+This decomposition makes errors easier to locate. It also creates a risk: if the counter, detector, or vision-language judge has a systematic bias, the generator can learn to satisfy the judge rather than the user.
 
-This is Bradley-Terry style preference modeling. It does not require humans to give absolute scores — only to compare which of two images is better. Datasets like Pick-a-Pic use exactly this pairwise preference to train or evaluate image preference models[^pickapic].
-
-This signal's advantage is proximity to real user preferences. The disadvantage is high cost, and preference data inherits the aesthetics, culture, and task distribution of the annotator population.
-
-### Type Two: Text-Image Alignment
-
-Text-image alignment checks whether the image truly matches the prompt. This can be decomposed from coarse to fine:
-
-- **Level — Global semantics**
-  - Example: Does it roughly generate the specified scene
-  - Possible Check Methods: CLIP Score, VLM judgment
-- **Level — Object presence**
-  - Example: Do key objects from the prompt appear
-  - Possible Check Methods: Detectors, VLM QA
-- **Level — Attribute matching**
-  - Example: Are colors, materials, sizes correct
-  - Possible Check Methods: Fine-grained caption then item-by-item comparison
-- **Level — Relationship matching**
-  - Example: Are left/right, up/down, occlusion, interaction correct
-  - Possible Check Methods: Relationship extraction, VLM judge
-- **Level — Count matching**
-  - Example: Is the specified count correct
-  - Possible Check Methods: Counting models, object detection, VLM check
-
-This level connects directly with the VLM RL from previous sections. A VLM trained to better understand images can serve as a captioner, judge, or reward model, helping the generation model judge "was it drawn correctly."
-
-### Type Three: Visual Quality
-
-Visual quality checks whether the image itself is natural, clear, with good composition and lighting. Common signals include aesthetic scores, no-reference image quality assessment, and human ranking. Benchmarks like HPS v2 attempt to make "which generation results humans prefer" into reproducible evaluation and model signals[^hpsv2].
-
-It is very useful, but cannot be used alone. Visual quality models typically reward images that "look premium" rather than "strictly follow the prompt." A generation model chasing only this score may become prettier but less obedient.
-
-### Reward Is Not Better Just Because the Formula Is More Complex
-
-Weighted-summing all rewards is natural:
-
-$$
-R_{\text{total}}
-=
-w_1R_{\text{align}}
-+w_2R_{\text{quality}}
-+w_3R_{\text{instruction}}
-$$
-
-But this formula is only a starting point, not an answer. The biggest problem with multi-component rewards is: each component can be exploited by the model, and components may conflict with each other.
-
-A more stable engineering approach is to use rewards hierarchically:
-
-1. First use rules or VLM to check hard constraints, such as count, color, and object satisfaction.
-2. Then use preference models to rank passing samples.
-3. Finally use manual spot-checks or offline benchmarks to find the reward model's blind spots.
-
-This way, reward is no longer a universal score, but a filtering and calibration pipeline.
-
-![PickScore Ranking Examples](../../chapter26_vlm/images/ref-pickscore-ranking.png)
+![PickScore ranking candidate images for the same prompt](../../chapter26_vlm/images/ref-pickscore-ranking.png)
 
 <div style="text-align: center; font-size: 0.9em; color: var(--vp-c-text-2); margin-top: -10px; margin-bottom: 20px;">
-  <em>Figure 3: PickScore re-ranks candidate generation results using a preference model. This illustrates that visual reward is not just an offline evaluation number — it can directly change which results are shown to users during sampling or ranking. Source: <a href="https://stability.ai/research/pick-a-pic" target="_blank" rel="noopener noreferrer">Stability AI Research</a></em>
+  <em>Figure 3: Candidates for one prompt can receive different preference rankings. Ranking is useful for relative preference training, but independent evaluation is still needed to detect overfitting. Source: PickScore.</em>
 </div>
 
-## Two Ways to Use Reward: During Training or During Inference?
+### Visual Quality: A High Score Must Not Come Only from Pleasing the Judge
 
-Having a reward model does not mean immediately doing RL fine-tuning. There are two common usage patterns.
-
-The first is **inference-time use**, also called reward-guided sampling or reranking. For example, generate $N$ images for the same prompt, rank them with the reward model, and select the highest-scoring one. This method is simple, safe, and suitable for first validating whether the reward model is reliable.
-
-The second is **training-time use**, which is RL fine-tuning like DDPO and DPOK[^ddpo][^dpok]. The model is not just filtered — its parameters are actually updated, internalizing preferences into the generation policy.
-
-- **Method — Best-of-$N$ / reranking**
-  - What It Does: Generate more, then select with reward model
-  - Advantage: Simple to implement, no model changes
-  - Disadvantage: High inference cost, capability not internalized
-- **Method — Reward-guided sampling**
-  - What It Does: Use reward to guide direction during sampling
-  - Advantage: More active than pure reranking
-  - Disadvantage: Still requires extra evaluation per generation
-- **Method — RL fine-tuning**
-  - What It Does: Use reward to update model parameters
-  - Advantage: Can internalize preferences
-  - Disadvantage: More expensive training, more prone to instability
-
-In practice, reranking is often done first. If the reward model cannot even rank well, it should not be used directly for RL.
-
-## Video Generation: Same Problem, One More Time Axis
-
-Video generation can be viewed as an extension of image generation, but cannot be simply understood as "generating more images." Video adds a time axis, so rewards need an additional layer. Work like Emu Video separates image conditioning and video generation[^emu]; subsequent video alignment work explores using reward gradients or MLLM feedback to optimize video generation results[^vader][^t2vfeedback].
-
-A video must simultaneously satisfy three things:
-
-1. Every frame must be clear, natural, and match the prompt.
-2. Adjacent frames must be coherent; the subject cannot suddenly change.
-3. The entire video must express the event sequence in the prompt.
-
-Therefore, video rewards are often written in a hierarchical form. This is not a fixed formula from any particular paper, but abstracts three common evaluation signals — single-frame quality, temporal consistency, and overall event alignment — into one reward:
+Clarity, composition, color, and artifacts can be evaluated by aesthetic or quality models such as [LAION-Aesthetics](https://laion.ai/blog/laion-aesthetics/). A common engineering starting point combines alignment, preference, and image quality. The following is a **teaching template**, not a fixed objective prescribed by one paper:
 
 $$
-R_{\text{video}}
+R
 =
-\alpha \cdot \frac{1}{T}\sum_t R_{\text{frame}}(x_t,c)
-+ \beta \cdot \frac{1}{T-1}\sum_t R_{\text{temporal}}(x_t,x_{t+1})
-+ \gamma \cdot R_{\text{overall}}(\{x_t\}_{t=1}^T,c)
+\lambda_{\mathrm{align}}R_{\mathrm{align}}
++
+\lambda_{\mathrm{pref}}R_{\mathrm{pref}}
++
+\lambda_{\mathrm{quality}}R_{\mathrm{quality}}.
 $$
 
-These three components correspond to:
+Each $\lambda$ expresses a product tradeoff. More aesthetic weight can hurt exact counting; more alignment weight can produce rigid compositions. Adding components does not resolve their conflicts. Save every component separately, plot separate training curves, and validate with task metrics and human judgments that were not used to train the reward model.
 
-- **Component — $R_{\text{frame}}$:** Single-frame quality and single-frame text alignment
-- **Component — $R_{\text{temporal}}$:** Inter-frame consistency and motion naturalness
-- **Component — $R_{\text{overall}}$:** Whether the entire video completes the prompt's events
+## 24.4.7 Reward Can Be Used During Training or Inference
 
-Video RL's difficulties also increase:
+Once a reward model is reliable, it has two common uses.
 
-- **Challenge — Temporal consistency**
-  - Why Harder: Individual frames being good doesn't mean they're coherent together
-  - Common Mitigation: Optical flow consistency, trajectory consistency, video VLM evaluation
-- **Challenge — Long horizon**
-  - Why Harder: Video token and latent counts far exceed images
-  - Common Mitigation: Segmented optimization, short-clip reward shaping
-- **Challenge — Computational cost**
-  - Why Harder: Each sampling and scoring is more expensive
-  - Common Mitigation: Latent-space training, low-frame-rate evaluation, candidate reranking
-- **Challenge — Text-video alignment**
-  - Why Harder: Prompt may include sequential order
-  - Common Mitigation: Segmented captions, event-level rewards
+Inference-time reranking generates several candidates for the same condition, scores each one, and returns the highest-scoring result. It leaves model parameters unchanged and has lower deployment risk, but every request requires multiple samples.
 
-Intuitively, image generation errors are often "something was drawn wrong"; video generation errors are often "continuity was broken." This is why video rewards rely more on segment-level and overall-level evaluation.
+RL fine-tuning writes the preference back into the generator's parameters. A single future sample is then more likely to score well, at the cost of more expensive and riskier training. Any loophole in the reward can also become embedded in the output distribution.
 
-## On-Policy Distillation: Solidifying RL-Acquired Capabilities
+DPOK fine-tunes diffusion models with KL-regularized reinforcement learning[^dpok], while DRaFT directly backpropagates through differentiable rewards[^draft]. For video, Emu Video factorizes text-to-video generation through explicit image conditioning[^emu], MLLM-feedback methods evaluate videos with multimodal models[^t2vfeedback], and VADER propagates differentiable reward gradients through video diffusion[^vader]. The reward enters at different points, but each method asks how to make the final visual result satisfy the intended objective.
 
-A model after RL fine-tuning may better match preferences, but it may also be slower, more expensive, or only suited for a specific sampling setup. On-policy distillation's goal is to turn the high-quality samples produced by the RL-trained model on the current distribution back into cheaper supervised learning signals.
+## 24.4.8 Distilling Capabilities Discovered Online
 
-This can be understood in three steps:
+Online sampling for visual RL is expensive, and a trained model may still require too many denoising steps for high-volume serving. On-policy distillation provides a continuation path: let the RL policy keep generating, retain high-reward samples, and train a smaller or faster-sampling student on them.
 
-1. Use the RL-trained teacher model to generate samples online.
-2. Use the reward model or rules to filter and keep high-quality samples.
-3. Have the student model learn from these samples, reproducing the teacher's behavior at lower cost.
+A minimal loop has three steps:
 
-This is consistent with the distillation idea from Chapter 8: the strong model handles exploration and filtering, the weak model compresses capabilities into cheaper inference paths. The difference is that visual generation distillation typically occurs in latent, denoising trajectory, or video token space, rather than ordinary text token space.
+1. Generate images or denoising trajectories with the current RL policy.
+2. Remove low-quality, duplicate, and suspected reward-hacking samples with rewards and rules.
+3. Supervise the student on retained samples, periodically resampling from the updated online policy.
+
+"On-policy" means that the data comes from the current policy. As the policy changes, old samples become less representative and must be refreshed. Distillation lowers inference cost; it does not correct reward bias. If the filter prefers one fixed composition, the student will further consolidate that preference.
+
+## 24.4.9 How to Audit a Visual-Generation Experiment
+
+Do not report only that training reward increased. Check at least four things:
+
+1. Fix a set of held-out prompts and random seeds, then compare images before and after training.
+2. Report text alignment, visual quality, preference, and diversity separately so that one aggregate score cannot hide degradation.
+3. Include prompts that expose loopholes: exact counts, left-right relations, negation, and rare combinations.
+4. Ask human reviewers who did not train the reward model to evaluate results blindly, including uncertain and “both poor” outcomes.
+
+If training reward rises without an improvement in human preference, inspect the reward model and sample distribution first. The algorithm is following the supplied objective.
 
 ## Connections to Previous Chapters
 
-Visual generation RL may seem far from VLM QA, but it reuses several main threads from earlier in the book.
+This section brings several earlier threads into one visual-generation problem. REINFORCE supplies policy gradients for terminal rewards, PPO supplies probability ratios and clipping, and GRPO supplies relative advantages within one condition. A vision-language model can then serve as an image judge, turning counts, attributes, and spatial relations into rewards.
 
-- **Earlier Chapter — Chapter 6 REINFORCE:** DDPO treats denoising chains as policy trajectories, updating each step's sampling with terminal reward
-- **Earlier Chapter — Chapter 25 Reward Hacking:** Generation models may please the reward model while sacrificing real user intent
-- **Earlier Chapter — Chapter 15 RLVR:** Fine-grained attributes, counts, relationships can become locally verifiable signals
-- **Earlier Chapter — Chapter 19 Agentic RL:** Long-horizon credit assignment, multi-component rewards, and KL constraints reappear
-- **Earlier Chapter — Sections 11.1-11.3 VLM RL:** VLMs can in turn serve as judges, captioners, and reward models for generation models
-
-The last point is especially important. Understanding models and generation models are connected. After VLMs learn to see images better, they can check whether generated images match prompts; generation models can synthesize richer data to train VLMs in turn. In the multimodal post-training stage, "seeing" and "generating" will increasingly reinforce each other.
+This connection also motivates the next chapter's treatment of reward hacking. A generator has an enormous output space; once a judge has a stable loophole, the policy can amplify the corresponding high-scoring pattern.
 
 ## Summary
 
-Visual generation RL's goal is not simply to make the model "draw prettier," but to decompose user intent into learnable feedback signals, enabling the generation model to continuously improve under preferences, rules, and multimodal evaluation.
+Visual-generation RL begins with a concrete translation: write denoising as states, actions, and trajectories, then use the final image reward to update the full trajectory.
 
-This section's four most important conclusions:
+DDPO establishes this translation. PPO-style probability ratios, clipping, and KL regularization stabilize the update. DanceGRPO further places diffusion and rectified flow inside stochastic sampling processes with computable probabilities, then estimates relative advantages from a group of outputs under the same condition.
 
-1. **Diffusion can be viewed as an MDP**: denoising trajectories are episodes, the final image receives a reward, and policy gradients distribute the reward back to each step.
-2. **DDPO's core is a translation problem**: treating denoising probabilities as policies and final image scores as rewards enables the use of policy gradients.
-3. **Reward models are the bottleneck of generation RL**: human preferences, text alignment, and visual quality are all important, but reward hacking must be prevented.
-4. **Rewards can be used at both training and inference time**: reranking is safer, RL fine-tuning better internalizes capabilities, and video generation further amplifies temporal and computational challenges.
-
-With this, we have covered both visual understanding and visual generation in RL training. Chapter 25 next turns to reward hacking, alignment failures, and evaluation.
+The reward ultimately limits training quality. Aesthetics, text alignment, and human preference each cover only part of what makes an image good. The next section, [24.5 Temporal Consistency in Video](./video-generation-modern), adds the time axis and examines identity, event order, and physical causality in rewards and evaluation.
 
 ## References
 
@@ -982,7 +911,9 @@ With this, we have covered both visual understanding and visual generation in RL
 
 [^ddpo]: Black, K., Janner, M., Du, Y., et al. (2024). Training Diffusion Models with Reinforcement Learning. _ICLR_. <https://arxiv.org/abs/2305.13301>
 
-[^dancegrpo]: Xue, Z. et al. (2025). DanceGRPO: Unleashing GRPO on Visual Generation. <https://arxiv.org/abs/2505.07818>; official implementation: <https://github.com/XueZeyue/DanceGRPO>
+[^dancegrpo]: Xue, Z. et al. (2025). DanceGRPO: Unleashing GRPO on Visual Generation. <https://arxiv.org/abs/2505.07818>
+
+[^dancegrpo-repo]: DanceGRPO official implementation and reproduction recipes. <https://github.com/XueZeyue/DanceGRPO>
 
 [^dpok]: Fan, Y., Watkins, O., Du, Y., et al. (2023). DPOK: Reinforcement Learning for Fine-tuning Text-to-Image Diffusion Models. _NeurIPS_. <https://arxiv.org/abs/2305.16381>
 
