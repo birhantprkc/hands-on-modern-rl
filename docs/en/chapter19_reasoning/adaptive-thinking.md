@@ -4,6 +4,8 @@ Section 16.4 introduced the concept of a mode switch and a reasoning budget for 
 
 Adaptive reasoning allows the model to decide, based on the task and current progress, how much computation to invest. The system then uses a hard upper bound to control the worst-case latency. This section first introduces the concept of a continuous budget, then uses a research-oriented task to illustrate how difficulty can change during execution. We then discuss cost and safety constraints, and finally explain why this mechanism connects to process rewards and the Agent.
 
+<img src="../../chapter19_reasoning/images/adaptive-thinking-budget.svg" alt="The model uses current evidence to decide whether to continue computing or stop and answer, subject to a hard resource limit">
+
 ## 1. How Does the Model Judge Task Difficulty?
 
 The model is not required to judge a fixed "difficulty label," but rather whether the next segment of computation is still useful. If the current evidence is already sufficient, further generation will only increase length. If a tool just returned conflicting results, the system may need to perform additional search and comparison. A continuous budget is used to describe this gradual decision.
@@ -31,9 +33,9 @@ In actual deployment, it is common to allow the model to stop adaptively within 
 
 Anthropic has not publicly released the full training details. Based on the [official blog](https://www.anthropic.com/news/claude-opus-4-6) and the [Extended Thinking documentation](https://docs.anthropic.com/en/docs/build-with-claude/extended-thinking), we can observe how the interface controls the budget; whether an independent difficulty estimator is used internally cannot be directly determined from the interface.
 
-#### Allocating Computation Based on Prompt Difficulty
+#### Teaching Derivation: Allocating Computation Based on Prompt Difficulty
 
-To have the model allocate computation based on difficulty, the training signal must simultaneously reflect the quality of the answer and the computational cost. For example, the reward can be written as
+Anthropic has not published the complete objective used for adaptive thinking. To understand how quality and cost can be balanced, we can write a generic cost-sensitive objective. The formula below is a teaching derivation, not a published Claude training recipe:
 
 $$
 r_{\text{total}} = r_{\text{task}} - \lambda C,

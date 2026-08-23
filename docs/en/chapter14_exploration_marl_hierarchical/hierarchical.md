@@ -42,6 +42,8 @@ $$\mathcal{L}_M = -\langle g_t,\ \hat{z}_{t+c} - \hat{z}_t\rangle$$
 
 Here, $\hat z_t$ is the representation produced by the shared encoder at step $t$, and angle brackets denote an inner product. If actual change $\hat z_{t+c}-\hat z_t$ is aligned with $g_t$, their inner product is large and the leading negative sign makes the loss small. This auxiliary objective trains the Manager to specify directions the Worker can execute; task return still determines which directions are useful.
 
+For a two-dimensional example, let the Manager output $g_t=(1,0)$, pointing right in latent space. If the representation moves by $(0.9,0.2)$ over the next $c$ steps, the inner product is $0.9$ and the loss is $-0.9$: the directions largely agree. If it moves by $(-0.8,0)$, the inner product is $-0.8$ and the loss is $0.8$, strongly penalizing a direction that the Worker followed in reverse.
+
 FeUdal demonstrated the potential of this hierarchy on long-horizon tasks such as _Montezuma's Revenge_, while also revealing sensitivity to hyperparameters when the Manager and Worker are trained jointly.
 
 ### 2.3 HIRO: Learning Continuous Subgoals from Off-Policy Data
@@ -49,8 +51,10 @@ FeUdal demonstrated the potential of this hierarchy on long-horizon tasks such a
 Data-Efficient Hierarchical Reinforcement Learning (HIRO, Nachum et al. 2018) modernizes FeUdal through **off-policy training and goal relabeling**:
 
 - The high level outputs a continuous subgoal $g_t \in \mathbb{R}^d$, directly representing a displacement in state space, and changes it every $c$ steps.
-- The low-level reward is $r^l_t=-\|(s_{t+1}-s_t)-g_t\|$: the closer the actual displacement is to high-level displacement $g_t$, the smaller the distance and the greater the reward.
+- The low-level reward is $r^l_t=-\|s_{t+1}-(s_t+g_t)\|$: the target point is the current state displaced by $g_t$, and the reward increases as the next state approaches it.
 - The high level is trained with an off-policy algorithm such as TD3.
+
+For example, suppose the state is a robot's ground position and the high level outputs $g_t=(10,0)$, meaning “move ten meters east.” From current position $(2,0)$, the target is $(12,0)$. After one step to $(3,0)$, the remaining distance is 9 and the intrinsic reward is $-9$. At $(11,0)$, the remaining distance is 1 and the reward is $-1$. The low level does not need to understand the external task; it only needs to move closer to the target, while the external reward is assigned to the high level.
 
 The main technical difficulty is **off-policy bias**. An old subgoal $g$ sampled by the high level from the replay buffer was executed by an earlier low-level policy, but the low-level policy has since changed. HIRO addresses this with **goal relabeling**: it remaps old subgoal $g$ to a new subgoal $g'$ that would account for the observed trajectory under the current low-level policy, keeping the high-level training data consistent.
 
@@ -104,6 +108,8 @@ Genie 3 further introduces **latent actions**: the model automatically discovers
 $$z_t = \text{LatentAction}(x_t, x_{t+1}),\quad x_{t+1} = \text{Decoder}(x_t, z_t)$$
 
 $z_t$ represents the latent factor responsible for the transition from $x_t$ to $x_{t+1}$. If these factors can be controlled consistently, $z_t$ can serve as an action and the decoder can predict the frame that follows its execution. An important limitation remains: whether latent actions correspond to executable controls must be verified in each environment.
+
+Consider a Super Mario video. Frame 100 shows Mario in front of a pipe and frame 101 shows him jumping over it. A latent action that consistently explains this transition will eventually correspond roughly to pressing Jump. Clouds may move between the same frames, but no control action explains their motion, so the latent-action model learns to ignore it. In the reverse direction, the decoder receives “Mario in front of the pipe” together with the Jump latent action and predicts the next frame in which Mario clears the pipe.
 
 ## 4. Using Generated Environments for Exploration, Cooperation, and Hierarchy
 

@@ -33,6 +33,8 @@ The central idea of the Intrinsic Curiosity Module (Pathak et al. 2017) is that 
 
 Direct prediction in pixel space fails because the next frame contains too many details and irrelevant high-frequency noise dominates the error. ICM first uses an **inverse model** $g_\phi$ to learn a feature space $\Phi(s)$: given $(s_t,s_{t+1})$, it predicts action $a_t$. These features retain components affected by actions while filtering irrelevant changes such as background flicker and camera shake.
 
+The filtering mechanism is easier to see as a prediction problem. Give the inverse model two consecutive Mario frames and ask which key was pressed. Mario moving half a tile to the right directly reveals the Right key. Leaves changing angle and a score indicator flickering at the same moment reveal nothing about the action. Encoding those details would only make action prediction harder, so the learned $\Phi(s)$ retains controllable information such as Mario's position, terrain, and enemies while suppressing unrelated animation.
+
 Given features $\Phi(s_t)$, forward model $f_\psi$ predicts the next-state features from the current features and action:
 
 $$\hat{\Phi}(s_{t+1}) = f_\psi(\Phi(s_t), a_t)$$
@@ -127,9 +129,11 @@ $$r^{\text{int}}_t(s) = r^{\text{episodic}}_t(s) \cdot r^{\text{life-long}}_t(s)
 
 The **episodic component** $r^{\text{episodic}}$ maintains a fixed-capacity table of controllable states visited during the current episode. A state far from every stored feature under k-nearest-neighbor distance has high novelty; novelty decays for frequently visited states:
 
-$$r^{\text{episodic}}_t = \frac{1}{\sqrt{k} + c \sum_{i=1}^{k} \frac{1}{\sqrt{N(s_i)}}}$$
+$$r^{\text{episodic}}_t = \frac{1}{\sqrt{k} + c \sum_{i=1}^{k} \frac{1}{\sqrt{d(s_t,s_i)}}}$$
 
-This simplified expression aids intuition. $k$ is the number of neighbors, $N(s_i)$ is the visit count of a similar state, and $c$ controls decay from repeated visits. Closer neighbors and more frequent visits reduce within-episode novelty.
+Here, $s_i$ denotes one of the $k$ stored states nearest to $s_t$, $d(s_t,s_i)$ is the distance to that neighbor, and $c$ controls the decay caused by revisiting nearby states. A close neighbor makes $1/\sqrt d$ large, increasing the denominator and reducing within-episode novelty.
+
+For a numerical example, take $k=1$ and $c=1$. If the nearest stored state has distance $d=4$, novelty is $1/(1+1/\sqrt4)=1/1.5\approx0.67$. If the agent has already visited almost the same state and $d=0.01$, novelty falls to $1/(1+10)\approx0.09$. Within one episode, the second visit to a location therefore receives about one seventh of the earlier intrinsic reward.
 
 The **life-long component** $r^{\text{life-long}}$ uses RND across episodes to identify states that are new in the current episode but have been visited repeatedly in earlier episodes. After multiplication, only states rare both within the current episode and over long-term training receive high intrinsic reward.
 

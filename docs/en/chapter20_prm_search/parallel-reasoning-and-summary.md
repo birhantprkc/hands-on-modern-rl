@@ -6,6 +6,8 @@ For example, the same math problem can simultaneously try factoring, the quadrat
 
 This section first compares serial depth with parallel breadth, then uses PaCoRe to illustrate how a coordinator reads multiple paths, followed by extending this coordinator to GenRM and LLM-as-Judge. Finally, we return to the verifier and reasoning strategies from Chapter 17 and place them into a unified selection order.
 
+<img src="../../chapter20_prm_search/images/parallel-reasoning-aggregation.svg" alt="Several reasoning paths are generated in parallel, normalized, and aggregated into one answer">
+
 ## 1. How to Allocate Reasoning Compute to Depth and Breadth
 
 After fixing the total token budget, we can either let one path think longer or generate multiple shorter paths. The former retains continuous states, while the latter increases method diversity. Whether the task has multiple feasible solutions, whether the paths can be executed in parallel, and whether there is a reliable aggregator at the end will collectively determine the choice.

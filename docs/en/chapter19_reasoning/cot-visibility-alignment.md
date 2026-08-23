@@ -4,6 +4,8 @@ In Section 16.5, the model is allowed to decide the depth of reasoning on its ow
 
 Here, it is essential to distinguish three entities: the internal reasoning used by the model for further generation, the execution trace recorded by the system, and the explanation presented to the user. These three can either coincide or be handled separately. Hiding the internal CoT can protect training assets and increase the space for safe handling, while visible reasoning facilitates checking and reproducibility; regardless of the choice, the text presented cannot automatically prove that the model arrived at the answer along that path.
 
+<img src="../../chapter19_reasoning/images/cot-visibility-layers.svg" alt="Internal reasoning, system execution traces, and user-visible explanations are three distinct layers">
+
 This section first explains what problems hiding and displaying reasoning chains respectively solve, then compares product strategies, and finally discusses how to supervise the intermediate process to ensure consistency with the final behavior.
 
 ## 1. Why Hide Reasoning Chains

@@ -1,4 +1,4 @@
-# 26.4 How LLMs Search for New Algorithms: Evolutionary Search and Scientific Discovery
+# 26.4 LLM-Driven Algorithm Search
 
 Suppose we want a faster matrix-multiplication kernel. A language model proposes a program, an evaluator compiles it and checks correctness, and a search procedure keeps the strongest candidates. The next proposal is generated from programs that survived the previous round. Here the model is not selecting one action in a fixed episode; it is expanding a population of executable hypotheses.
 

@@ -1,19 +1,14 @@
 # 20.2 Code World Model and DeepSWE
 
-In the previous section, we observed the core bottleneck of Meta SWE-RL — **unstable training with long horizons**. Trajectories longer than 16 steps are difficult for RL to learn credit assignment.
+After an agent edits a file and runs `pytest`, it must infer from the error log, current patch, and repository state what its action changed. A model that writes code without predicting consequences will repeat similar failed patches.
 
-A deeper issue is: **each rollout requires running real tests, which is slow and costly**. A trajectory involves multiple `pytest` calls, each taking several seconds to several minutes. If an RL training requires one million rollouts, the total time may be several weeks.
+This section separates two works that are easily conflated. **CWM** is an open-weight 32B dense model trained on Python-interpreter and agentic Docker trajectories before multitask reasoning RL; it studies whether model weights can learn regularities of software execution. **DeepSWE** places Qwen3-32B in real R2E-Gym environments and trains a long-horizon coding agent with verifiable outcomes and pure RL. The former emphasizes learning from environment trajectories, while the latter emphasizes scaling rollouts and optimization in real environments.
 
-In the second half of 2025, two breakthrough directions emerged:
-
-- **Code World Model (CWM)**: Train a model to "simulate" code execution, avoiding real testing
-- **DeepSWE**: Use world model + long sequence RL to train deep agents
-
-This section will discuss these two directions in detail.
+<img src="../../chapter23_rl_based_swe/images/cwm-vs-deepswe.svg" alt="CWM and DeepSWE share software execution environments but respectively learn environment regularities and train long-horizon coding agents">
 
 ## 20.2.1 Code World Model (CWM)
 
-[Code World Model](https://arxiv.org/abs/2510.02387) (CWM, 2025.09) has the core idea: **model code execution as an MDP and train a world model to predict the state changes of code**.
+[Code World Model](https://arxiv.org/abs/2510.02387) (CWM, 2025.09) releases a 32B dense decoder-only model. It learns from observation-action trajectories in a Python interpreter and agentic Docker environments, followed by reasoning RL on verifiable code, mathematics, and multi-turn software tasks. Its “world model” is primarily the execution regularities learned in the model weights, not a separate transition model that has already replaced real tests.
 
 ### CWM's MDP Definition
 
@@ -26,9 +21,9 @@ Modeling SWE tasks as an MDP:
 | Transition $T(s_{t+1} \| s_t, a_t)$ | Code execution — how the state changes after file modifications |
 | Reward $r_t$                        | Step feedback (intermediate state) + final reward (test pass)   |
 
-### Training the World Model
+### Teaching Extension: An Explicit Next-State Model
 
-CWM trains an independent **world model** $\hat{T}$:
+CWM itself emphasizes mid-training one language model on environment trajectories. A more explicit model-based RL extension would train a separate transition model $\hat T$. The following formula and implementation are retained as a teaching derivation, not attributed to CWM's published recipe:
 
 $$\hat{T}(s_{t+1} | s_t, a_t) \approx T(s_{t+1} | s_t, a_t)$$
 
@@ -51,7 +46,7 @@ Training data:
 │ Phase 2: RL with World Model                               │
 │   - Policy interacts with the world model                  │
 │   - The world model quickly simulates "code execution"    │
-│   - No need for real testing; 100x faster                  │
+│   - Reduce some real test calls; speedup must be measured  │
 ├────────────────────────────────────────────────────────────┤
 │ Phase 3: Real Testing Fine-tuning                          │
 │   - Fine-tune the policy trained with the world model in  │
@@ -103,9 +98,9 @@ Reference: [Chapter 8: Model Planning in Long-Horizon Tasks](../chapter10_ppo/rl
 
 ### Core Idea of DeepSWE
 
-The key insight of DeepSWE: **the fundamental reason for instability in long horizon RL is the difficulty of credit assignment**. A 32-step trajectory only has the final test reward. How can this reward be backpropagated to all 32 steps?
+[DeepSWE-Preview](https://www.together.ai/blog/deepswe), trained by Agentica and Together AI, starts from Qwen3-32B and runs pure RL for six days on 64 H100 GPUs across roughly 4,500 R2E-Gym software-engineering tasks. The published SWE-bench Verified result is 42.2% Pass@1 and about 59% with test-time scaling.
 
-DeepSWE solves this with three techniques:
+The public material shows that stable environments, rollout infrastructure, and verifiable outcomes can produce a strong long-horizon coding agent with pure RL. It also discusses system support for trajectory-level and step-level GRPO/PPO and verifiers for test-time scaling. The three techniques below—step shaping, a value model, and hierarchy—are useful teaching alternatives for credit assignment; they are not DeepSWE's disclosed architecture.
 
 **Technique One: Step-level Reward Shaping**
 
@@ -259,22 +254,22 @@ Beam Search allows DeepSWE to trade computational resources for higher accuracy 
 
 By mid-2026, mainstream SWE-RL industrial solutions include:
 
-| Solution                    | Representative   | Features               | SWE-bench Verified |
-| --------------------------- | ---------------- | ---------------------- | ------------------ |
-| Simple GRPO                 | Meta SWE-RL      | Open-source, simple    | 41.0%              |
-| + World Model               | Code World Model | Fast training          | ~45%               |
-| + Value + Search            | DeepSWE          | Long horizon           | 50.0%              |
-| + Multi-agent Collaboration | Claude Opus 4.7  | Closed-source, complex | 65%+               |
+| Route                           | Representative           | Publicly Supported Description                       | SWE-bench Verified                       |
+| ------------------------------- | ------------------------ | ---------------------------------------------------- | ---------------------------------------- |
+| Simple GRPO                     | Meta SWE-RL              | Open-source and simple                               | 41.0% Pass@1                             |
+| Environment-trajectory modeling | Code World Model         | Mid-training on environment traces plus multitask RL | 65.8% with test-time scaling             |
+| Long-horizon pure RL and search | DeepSWE                  | R2E-Gym training plus test-time scaling              | 42.2% Pass@1; about 59% scaled           |
+| Multi-agent workflows           | Commercial coding agents | Training and orchestration often undisclosed         | Record by exact model and evaluation log |
 
-As can be seen, **algorithm complexity is positively correlated with performance** — from simple GRPO to multi-agent collaboration, each improvement brings a few percentage points of performance gain.
+These values use different scaffolds and test-time budgets and do not form one monotonic score ladder. A fair comparison records the environment, sampling budget, verifier, and aggregation procedure.
 
 ## Summary
 
 Code World Model and DeepSWE represent two significant breakthroughs in SWE-RL:
 
-- **CWM**: Uses a world model to accelerate training, avoiding the high cost of real testing
-- **DeepSWE**: Uses a value model + hierarchical RL + test-time search to handle long horizons
+- **CWM** learns software-execution regularities from environment trajectories in model weights. Replacing real tests with an explicit transition model remains a separate research extension.
+- **DeepSWE** scales pure RL in real R2E-Gym environments and improves further with test-time scaling. Its public recipe should not be rewritten as a fixed value-model or hierarchical-RL architecture.
 
-Both approaches reflect a common characteristic of SWE-RL: **long-horizon tasks require more refined algorithms**. Simple GRPO is suitable for short tasks (< 8 steps), but SWE tasks with 16–64-step trajectories require stronger tools.
+Both approaches show that long-horizon SWE requires reliable environments, verifiers, rollout infrastructure, and carefully stated evaluation settings. More algorithmic components are hypotheses to test, not automatic evidence of higher performance.
 
 In the next section, we will examine Self-play SWE-RL — **letting models generate their own training data** — further reducing the reliance on human-generated data.

@@ -4,6 +4,8 @@ Section 16.3 explains that the same model can achieve higher success rates by us
 
 **Hybrid Thinking** enables a single model to support both direct answering and deep thinking behaviors. The problem is then divided into three layers: how to coexist two modes during training, how to choose during inference whether to allocate the budget to a long chain or multiple short answers, and how to compress redundant steps once the model has learned long thinking. Finally, the deployment system must ensure that mode switching, answer consistency, and graceful shutdown when the budget is exhausted are all under control.
 
+<img src="../../chapter19_reasoning/images/hybrid-thinking-routing.svg" alt="A request is routed between direct answering and extended reasoning under a budget constraint">
+
 ## 1. How a Single Model Can Support Two Modes
 
 The most straightforward approach is to maintain two separate models: one for fast answering and one for complex reasoning. However, this approach leads to two sets of weights, two sets of deployment, and potential synchronization issues between the two models. Hybrid Thinking instead shares a single set of parameters and uses training samples or control tokens to specify the current mode.
@@ -99,6 +101,8 @@ $$
 $$
 
 $\lambda_i$ decreases as the answer length increases. The final length reward is determined by combining $\lambda_i$ with the correctness of the answer. If all answers in the group have the same length, the length term is set to 0. This design learns to "prefer shorter answers among those that can solve the problem," without requiring a fixed target length for all questions in advance.
+
+For three correct responses of 800, 1,200, and 2,000 tokens, the normalized lengths are $0$, about $0.33$, and $1$. Their length coefficients are therefore $0.5$, about $0.17$, and $-0.5$. The comparison is relative to the current response group rather than to one universal target length.
 
 ### 3.3 Effect Before and After Compression
 

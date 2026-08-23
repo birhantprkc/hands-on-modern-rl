@@ -2,7 +2,7 @@
 title: 26.2 Where Should Additional Compute Go? RL and Test-Time Scaling
 ---
 
-# 26.2 Where Should Additional Compute Go? RL and Test-Time Scaling
+# 26.2 Scaling at Training Time and Test Time
 
 Assume a reasoning model answers one problem correctly with probability 0.30. If we sample independently five times and keep a correct answer whenever a verifier finds one, the probability of at least one success is
 

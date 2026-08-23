@@ -1,403 +1,256 @@
 # 18.3 Training Stability
 
-[18.2](./industrial-post-training) introduces data preparation, sampling, reward calculation, and model updates. After the training process truly begins, the first thing to do is usually to look at the reward curve: if the reward keeps increasing, it seems to indicate that the model is making progress.
+> **Goal of this section**: learn the four-layer order for diagnosing training stability—data and rewards, policy change, numerical updates, and the training system. You will learn to read KL and entropy alongside loss and gradient norms, then use public cases to identify the layer at which a stability technique operates.
 
-Suppose the training reward of a mathematical model increases from 0.4 to 0.7, but the accuracy on an independent test set remains unchanged, while the average length of the answers doubles. The model may have learned that "writing longer answers leads to higher scores." Another scenario is more direct: after an update, the loss and gradients suddenly become NaN, and the parameters after that point are no longer usable. Some issues arise from the system itself—such as the version of the model that generates answers being out of sync with the training side, and the recorded probabilities not matching the current policy.
+[18.2](./industrial-post-training) assembled the post-training loop: data → SFT → RL → evaluation → data feedback. Once that loop is running, the first thing people usually inspect is the reward curve.
 
-These issues will be reflected in different curves. Looking only at the reward curve cannot distinguish whether the model has truly learned to solve problems, exploited a reward loophole, or whether the parameter updates have already gone wrong. Therefore, during training, it is necessary to compare the loss, gradient norms, KL divergence, entropy, and independent evaluations on the same timeline.
+Consider a real pattern from mathematical RL. A 7B model runs GRPO on MATH for 200 steps. Training reward rises smoothly from $0.30$ to $0.80$, yet MATH-500 accuracy remains at $42\%$, AIME pass rate falls from $18\%$ to $15\%$, and the average response grows from $400$ to $1{,}200$ tokens. The team first lowers the learning rate from $1\mathrm{e}{-6}$ to $3\mathrm{e}{-7}$. Reward keeps rising and evaluation remains flat. At step $312$, loss suddenly becomes NaN and the gradient norm reaches $10^4$, corrupting every subsequent parameter. Until that point, the rising reward curve had made training look healthy.
 
-## First Use Four Categories of Signals to Locate the Fault
+The same rising reward admits at least four explanations. The model may truly be learning to solve problems. It may merely have discovered that longer answers score better. The optimizer may already be driving parameters into an unstable region while NaNs propagate. Or the generation worker may sample with an old model while the trainer recomputes probabilities with a new one, so the logged probabilities do not belong to the policy that generated the trajectory.
 
-Place the curves on the same timeline to first determine the source of the anomaly, and then choose the appropriate tools. There is a clear causal order between the four layers: data and rewards determine what the model learns, strategy indicators describe how the model changes, numerical indicators reflect whether the parameters can be updated normally, and the training system determines whether the probabilities in the logs are truly from the policy that generates the answers.
+A reward curve alone cannot distinguish these cases. Loss, gradient norm, KL, entropy, and independent evaluation must be compared on the same timeline. We will diagnose them in causal order—data and rewards, policy change, numerical updates, and the training system—then connect GLM, Llama 4, Seed-Thinking, and Kimi K2 to representative failures at those layers.
 
-| Layer            | Main Signals                                                 | First Check What                                                            |
-| ---------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------- |
-| Data & Reward    | Reward increases, independent evaluation remains unchanged   | Reward rules, data duplication, evaluation contamination, and answer length |
-| Strategy Change  | KL divergence rapidly increases or entropy rapidly decreases | Update magnitude, KL constraints, sampling difficulty, and strategy version |
-| Numerical Update | Loss, gradient norms explode or become NaN                   | Learning rate, computational precision, abnormal batch, and clipping        |
-| Training System  | Rollout and training-side probabilities, versions mismatch   | Weight synchronization, token, precision, operator, and MoE routing         |
+::: info Core idea
+Training-stability diagnosis follows a four-layer causal order. Data and rewards determine what the model learns; policy metrics describe how it changes; numerical metrics show whether parameters can be updated normally; and the training system determines whether logged probabilities really come from the policy that generated each response. Optimizers and clipping operate only at the third layer. They cannot repair a wrong objective at the first layer or replace version alignment at the fourth. A tool applied at the wrong layer can make a stable bias even more stable.
+:::
 
-## 1. Trustworthiness of Data and Rewards
+---
 
-First, examine whether the training rewards and independent evaluations improve together. If the reward increases and the average response length also increases, while the independent test set accuracy remains unchanged, this suggests that the model has learned a form of output that is easier to obtain rewards, rather than improving its goal-oriented capability. The model may have simply memorized the training tasks, or it may have exploited vulnerabilities in the answer parser and test procedures.
+## A Four-Layer Diagnostic Framework
 
-At this level, we first check the training samples, answer parser, test environment, and reward direction, then check for training set repetition and evaluation contamination. Once the goal signal is wrong, the more stable the subsequent optimization becomes, the more the model will consistently deviate from the true goal.
+When four curves are on the screen, which should you inspect first?
 
-## 2. Whether the Strategy is Updating Too Quickly
+The answer follows the causal order. Data and rewards determine what the model learns. Policy metrics describe how it changes. Numerical metrics describe whether the update is valid. The training system determines whether logged probabilities actually belong to the generation policy. An upstream error disturbs downstream curves, but a downstream tool cannot repair an upstream objective. Gradient clipping can limit one update; if the reward measures the wrong target, every clipped update still moves toward that wrong target.
 
-After ensuring the trustworthiness of data and rewards, we then observe KL divergence and entropy. KL divergence measures how far the current model's output distribution is from the reference model's; a rapid increase indicates that one or multiple updates have pushed the model out of its original capability range. Entropy represents how dispersed the output distribution is; a rapid decrease suggests that a few tokens or response patterns have taken up most of the probability, and the model is prematurely stopping exploration.
+| Layer             | Main Signal                                             | First Checks                                                        | Typical Tools                              |
+| ----------------- | ------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------ |
+| Data and rewards  | Reward rises while independent evaluation stays flat    | Reward rules, duplicates, evaluation contamination, response length | Rewrite rewards, clean data                |
+| Policy change     | KL rises quickly and entropy falls quickly              | Update size, KL constraint, sampling difficulty, policy version     | Lower learning rate, tighten KL            |
+| Numerical updates | Loss or gradients explode, or NaNs appear               | Learning rate, precision, anomalous batches, clipping               | Gradient clipping, optimizer               |
+| Training system   | Probabilities disagree across engines or versions drift | Weight synchronization, tokenization, precision, MoE routing        | Align versions and recompute probabilities |
 
-At this point, we should compare the old policy during sampling with the updated new policy, and check whether the learning rate, clipping range, KL constraints, and experience have become outdated. When the task is too simple, the model may quickly concentrate on a few high-reward answers, so the difficulty of the data should be considered together with the strategy metrics.
+Work from top to bottom: first confirm that the target is correct, then check whether the policy moves too quickly, inspect individual numerical updates, and finally verify the distributed system. This avoids using numerical tools to treat a reward problem or using data cleaning to conceal a synchronization failure.
 
-## 3. Whether Parameters Can Be Updated Normally
+## Data and Rewards
 
-Loss reflects the change in the current training objective, and the gradient norm reflects how far this step is going to push the parameters. A sudden spike in either, or the direct appearance of NaN, indicates a numerical issue in the forward, backward, or parameter update step. When troubleshooting, first fix a batch and run it repeatedly, then check the learning rate, low-precision computation, gradient clipping, abnormal samples, and optimizer state.
+The first layer asks one question: does the training reward measure the capability we actually want?
 
-AdamW, Muon, and various clipping methods all operate at this level: they convert gradients into more controllable parameter updates. Optimizers cannot fix erroneous rewards or corrupted data, nor can they allow the generative end and training end to automatically use the same model version. Therefore, when seeing a loss spike, we can check the optimizer; when seeing a separation between rewards and evaluations, continuing to switch optimizers is meaningless.
+Return to the first 200 steps of the mathematics example. Reward rises from $0.30$ to $0.80$, MATH-500 accuracy remains at $42\%$, and average response length rises from $400$ to $1{,}200$ tokens. The model has learned an output form that earns reward—longer answers that cover more cases and trigger favorable parser decisions—without improving the target problem-solving ability.
 
-## 4. Is the System Training the Same Policy?
+Two other causes are common. First, the model may memorize repeated training tasks or exploit overlap between training and evaluation data. Reward then reflects memory rather than generalization. Second, it may exploit the verifier. A parser might recognize only a fixed format such as `\boxed{}`, awarding partial credit to a wrong answer with the right wrapper. A test harness might check new tests without ensuring that existing tests remain intact, teaching the model to delete old tests.
 
-When the first three layers are functioning correctly, the final step is to verify the alignment between the rollout engine and the training engine. The generation side may use an earlier model version, FP8 precision, and a set of inference operators, while the training side uses the updated weights, BF16/FP32 precision, and another set of operators. Even if both sides read the same parameters, the log probability of tokens may still differ; MoE models are further affected by differences in expert routing.
+Inspect training examples, answer parsers, test environments, and reward direction before checking duplicates and evaluation contamination. This layer comes first because a wrong target makes stable optimization harmful: the optimizer faithfully amplifies its signal without judging whether the signal is correct.
 
-At this level, we must align the model versions, tokens, log probabilities, computational precision, and expert routing to confirm that the old policy described in the training logs is indeed the policy that generates the trajectories. [18.4](./distributed-sync) will continue to elaborate on weight synchronization and training-inference consistency.
+## Policy Change
 
-The four-layer troubleshooting must be carried out in sequence: first, confirm that the model is learning the correct objective, then check whether the policy is moving too fast, then inspect the per-step updates, and finally verify the distributed system. This ensures that we avoid using numerical tools to fix reward issues or using data cleaning to mask weight synchronization errors.
+After confirming the target, measure how quickly the policy itself moves. KL measures the distance between the current output distribution and the reference model. Entropy measures how dispersed that distribution remains and therefore how much exploration is left.
 
-## 5. Understanding the Four-Layer Failures with Public Cases
+Take a two-action reference policy $[0.5,0.5]$. Early in training, suppose the current policy is $[0.80,0.20]$. It already favors action A but retains some uncertainty:
 
-Below are the complete public cases for GLM, Llama, Seed, and Kimi. These are not four consecutive training steps, but rather illustrate different issues within the four layers: GLM demonstrates the system constraints of MoE and multi-stage training; Llama 4 shows why evaluations must also change after architectural changes; Seed-Thinking illustrates how data difficulty affects the reward signal; and Kimi K2 directly addresses anomalies in parameter updates and attention calculations.
+$$
+D_{\mathrm{KL}} = 0.80\ln\frac{0.80}{0.50} + 0.20\ln\frac{0.20}{0.50}
+= 0.80\times 0.47 + 0.20\times(-0.92) \approx 0.19.
+$$
 
-| Case              | Key Observation                                           | Corresponding Instability Signal                            |
-| ----------------- | --------------------------------------------------------- | ----------------------------------------------------------- |
-| GLM-4.5 / GLM-4.6 | MoE routing, multi-stage training, and mode switching     | Expert load imbalance, capability regression between stages |
-| Llama 4           | Multimodal, long context, and evaluation version          | Training scores inconsistent with real task performance     |
-| Seed-Thinking     | Data difficulty, curriculum learning, and self-validation | Reward sparsity, group internal advantage close to zero     |
-| Kimi K2           | Optimizer update and attention score                      | Loss spike, gradient or attention value anomalies           |
+The entropy of the same distribution is $-(0.80\ln0.80+0.20\ln0.20)\approx0.50$. If the distribution later concentrates to $[0.95,0.05]$, KL becomes about $0.49$ and entropy about $0.20$.
 
-## 6. GLM: How Multi-Stage Training Affects System Stability
+KL has more than doubled, so the model is moving away from its reference. Entropy has fallen by more than half, so its exploration space is shrinking. “The policy is moving too quickly” therefore means that KL increases too rapidly per training step while entropy falls at an accelerating rate. Neither signal is decisive alone: KL may rise during healthy departure from the SFT model, and entropy may fall because the model found a better solution. Together they show that the model is leaving the reference distribution while losing the capacity to correct a bad mode.
 
-[GLM-4.5](https://github.com/zai-org/GLM-4.5) (Zai AI, released in July 2025) and GLM-4.6 (released in October 2025) both adopt multi-stage training. This case is suitable for observing how MoE, reasoning RL, general RLHF, and dual-mode output can be integrated into a single training pipeline.
+Real language-model actions span the full vocabulary, but the curves are read the same way. A steepening KL curve indicates movement away from the reference; accelerating entropy loss indicates collapsing exploration.
 
-### Model Architecture and Capability Alignment
+When these signals appear, compare the old sampling policy with the updated policy. Check the learning rate, clipping range, KL coefficient, and whether rollout experience has become stale. Also inspect task difficulty. If every task is easy, a model can reasonably concentrate on a few high-reward answers; an all-correct group has zero within-group variance. Entropy then falls because the data is too easy, not because the update is too large.
 
-First, let's examine the constraints that the model itself imposes on subsequent training:
+The full definitions are:
 
-- **MoE Architecture**: GLM-4.5 has a total of 355B parameters, with 32B parameters activated during each forward pass. RL updates also need to pay attention to expert load and routing stability.
-- **Thinking and Non-Thinking Dual Modes**: The same model needs to learn when to perform reasoning and when to directly answer.
-- **Open Data**: Public weights, training methods, and some data are available, providing an entry point for reproducing experiments.
-- **Code and Agent Capabilities**: Training data must cover code generation, tool invocation, and multi-step execution.
+$$
+D_{\mathrm{KL}}\bigl(\pi_\theta\,\|\,\pi_{\mathrm{ref}}\bigr)
+= \sum_a \pi_\theta(a)\ln\frac{\pi_\theta(a)}{\pi_{\mathrm{ref}}(a)},
+\qquad
+H(\pi_\theta) = -\sum_a \pi_\theta(a)\ln \pi_\theta(a).
+$$
 
-### Multi-Stage Training of GLM-4.5
+Here $\pi_\theta$ is the current policy and $\pi_{\mathrm{ref}}$ is usually the SFT model before RL. KL is zero when the distributions match and grows as they diverge. Entropy is larger for a more even distribution and smaller when probability concentrates on a few actions.
 
-```text
-┌──────────────────────────────────────────────────────────┐
-│ Phase 1: Base Pre-training (MoE Architecture)             │
-│   - 15T tokens of high-quality data                      │
-│   - MoE: 355B total / 32B active                         │
-│   - RoPE scaling supports long context                   │
-├──────────────────────────────────────────────────────────┤
-│ Phase 2: General SFT                                       │
-│   - Multilingual dialogue data                           │
-│   - Training on tool invocation format                   │
-├──────────────────────────────────────────────────────────┤
-│ Phase 3: Reasoning RL                                     │
-│   - Math, code, and reasoning tasks                      │
-│   - GRPO + Rule-based Rewards                            │
-│   - Integration of Self-validation                       │
-├──────────────────────────────────────────────────────────┤
-│ Phase 4: General RLHF                                     │
-│   - Dialogue quality and safety                          │
-│   - Helpfulness / Harmlessness dual objectives           │
-├──────────────────────────────────────────────────────────┤
-│ Phase 5: Unified Thinking / Non-Thinking                 │
-│   - Mixed data SFT                                        │
-│   - Let the model learn to switch modes                  │
-└──────────────────────────────────────────────────────────┘
-```
+## Numerical Updates
 
-This process first uses SFT to establish basic behavior, then employs reasoning RL to improve accuracy on verifiable tasks, followed by general RLHF to refine dialogue quality and safety, and finally unifies the two response modes. [The training process of DeepSeek-R1](../chapter18_grpo/deepseek-dapo) adopts a similar stage division.
+The first two layers describe behavior: what the model learns and where its policy moves. The third asks whether parameters can be updated normally. Loss measures the current objective, while the gradient norm measures how far the step is trying to push the parameters. Sudden spikes or NaNs indicate a numerical failure in the forward pass, backward pass, or update.
 
-### Training Improvements for GLM-4.6
+NaNs are dangerous because they propagate. One NaN parameter becomes an entire region of NaNs after a matrix multiplication. A few steps later, the model is unusable. There is often a warning period in which gradient norms grow and loss spikes before the first NaN appears.
 
-GLM-4.6 continues to refine the reasoning length, tool usage, and mode control:
+A useful diagnostic is to disable data shuffling and repeat one fixed batch. If the NaN reproduces reliably, the cause lies in that batch or a deterministic computation path, such as division by zero, a logarithm of a negative value, or an overflowing attention score. If it appears randomly, inspect low-precision overflow or underflow, kernels, and optimizer state. Then check the learning rate, precision, clipping threshold, and anomalous examples with extreme length or repetition.
 
-- **Longer Thinking**: Supports reasoning trajectories of 100K+ tokens.
-- **More Agent Tools**: Covers search, code execution, and file operations.
-- **Multimodal Coordination**: Works in conjunction with the GLM-4.5V visual model.
-- **Finer Thinking Budget**: Users can control the reasoning budget.
+AdamW, Muon, and clipping all operate here. AdamW scales gradients with second moments. Muon orthogonalizes update matrices so that a few singular directions are not repeatedly amplified. Clipping limits the norm of one update. None can repair a wrong reward, damaged data, or mismatched model versions. A loss spike justifies inspecting the optimizer and clipping; rising reward with flat evaluation and exploding length does not.
 
-### Benchmark Results for GLM-4.6
+## The Training System
 
-| Benchmark     | GLM-4.5 | GLM-4.6 |
-| ------------- | ------- | ------- |
-| AIME 2025     | 75.3    | 83.6    |
-| MATH-500      | 92.1    | 95.4    |
-| LiveCodeBench | 56.2    | 62.7    |
-| GPQA Diamond  | 68.5    | 72.4    |
+If the first three layers look healthy, verify that the rollout and training engines are using the same policy. This failure is subtle because loss, KL, entropy, and reward may all look normal while the recorded probabilities themselves are wrong.
 
-These benchmarks evaluate mathematical, coding, and scientific reasoning capabilities. When reading the results, one should also consider the specific evaluation settings, and not judge the training stability solely based on a single average score.
+The generation side may use a slightly older model, FP8, and throughput-oriented inference kernels, while the training side uses updated weights, BF16 or FP32, and different kernels. Even with the same parameter file, precision truncation, kernel implementation, and attention paths can change token log probabilities. In an MoE model, a routing difference can send the same token to different experts and alter the forward pass fundamentally.
 
-### Engineering Insights from GLM
+Suppose generation with model version $v_t$ records one token's log probability as $-1.32$, while training has advanced to $v_{t+1}$ and recomputes it as $-1.51$. The importance ratio is
 
-This case provides three engineering insights:
+$$
+\frac{\pi_{v_{t+1}}(a)}{\pi_{v_t}(a)}
+= e^{-1.51-(-1.32)} = e^{-0.19} \approx 0.83.
+$$
 
-1. **MoE and Inference RL should be jointly debugged.** In addition to rewards and KL divergence, it is also necessary to monitor expert load, routing, and cross-card communication.
-2. **Dual modes require separate evaluation.** The accuracy, length, and cost of the Thinking mode cannot substitute for the response quality of the Non-Thinking mode.
-3. **Code and tool tasks require real execution.** Static answer scores cannot cover environmental states, tool returns, and long trajectory failures.
+Without any sampling noise, the ratio is already about 17% away from 1. Version and precision differences are silently interpreted as policy-gradient signal. Over thousands of steps they can move the policy off course. Align model versions, tokenization, log-probability computation, numerical precision, and expert routing. The old policy described in the log must be the policy that actually generated the trajectory. [18.4](./distributed-sync) develops this issue further.
 
-## 7. Llama 4: How to Maintain Evaluation Consistency After Architectural Changes
+::: details Extra: a quick checklist for four training curves
 
-[Llama 4](https://ai.meta.com/blog/llama-4-multimodal-intelligence/) (Meta, released in April 2025) places MoE, native multimodality, and long context within the same series. It demonstrates how changes in model architecture continue to affect post-training data and evaluation methods.
+1. **Reward versus independent evaluation**: rising reward with flat or falling evaluation and growing response length points to data and reward problems.
+2. **KL and entropy**: rapidly rising KL and accelerating entropy decline point to policy movement. Check the learning rate, KL coefficient, clipping range, and the ratio of correct to incorrect responses within groups.
+3. **Loss and gradient norm**: spikes, exploding norms, or NaNs point to numerical updates. Check anomalous batches, precision, clipping, and optimizer state.
+4. **Everything looks normal but behavior is wrong**: compare generation-side and training-side log probabilities for the same token. A discrepancy points to synchronization, precision, or MoE routing.
 
-### Model Series and Parameter Scale
+Do not diagnose from the bottom upward by reflexively adding gradient clipping for NaNs or lowering the learning rate for high KL. If the objective itself is wrong, those changes only optimize the wrong target more smoothly.
+:::
 
-Llama 4 includes three variants:
+## Public Cases
 
-- **Llama 4 Scout**: 109B total / 17B active (MoE), 10M context
-- **Llama 4 Maverick**: 400B total / 17B active, 1M context
-- **Llama 4 Behemoth** (unreleased): 2T total / 288B active, trained internally by Meta
+The framework is now ready for four public cases:
 
-### Architecture and Training Improvements
+- **GLM-4.5 / GLM-4.6**: MoE routing, staged training, and mode switching; watch for expert imbalance and capability regression between stages.
+- **Llama 4**: multimodality, long context, and evaluation versions; watch for disagreement between benchmark scores and real tasks.
+- **Seed-Thinking**: data difficulty, curricula, and self-verification; watch for sparse rewards and near-zero within-group advantages.
+- **Kimi K2**: optimizer updates and attention scores; watch for loss spikes and anomalous gradient or attention values.
 
-**Native Multimodality.**
+### GLM and Multi-Stage Training
 
-Llama 4 processes text and image tokens simultaneously from the pretraining stage. As a result, post-training requires the simultaneous preparation of text tasks, multimodal tasks, and cross-modal consistency evaluations.
+GLM-4.5 and GLM-4.6 use multi-stage training. They expose first- and fourth-layer issues: routing stability imposed by an MoE architecture and preventing capability regression between training stages.
 
-**Early Fusion.**
+GLM-4.5 has 355B total parameters and activates 32B per forward pass. RL monitoring therefore includes expert load and routing stability alongside reward, KL, and entropy. A few experts can be overloaded or idle even while aggregate loss looks normal. The same model also supports Thinking and Non-Thinking modes and must learn when to reason and when to answer directly. Its data must cover code generation, tool use, and multi-step execution.
 
-Early Fusion allows text and image information to interact at earlier layers of the model. Multimodal rewards must also assess whether the response genuinely utilizes image evidence.
-
-**MoE Architecture.**
-
-Llama 4 employs MoE across its entire series. Each token is processed by only a subset of experts, enabling an increase in total parameters while keeping the activation parameters during a single forward pass at a low level; the training system must also handle additional responsibilities such as expert routing and communication.
-
-**Long Context.**
-
-Llama 4 Scout supports a context of up to 10M tokens and utilizes iRoPE (interleaved RoPE) and sparse attention. Long-context evaluations must simultaneously check evidence retrieval, answer accuracy, and inference cost.
-
-### Multi-Stage Training Methods
-
-Meta has not publicly disclosed the full training details. The following stage divisions are based on publicly available papers and blogs, and the content is inferred and should be distinguished from official disclosures:
+GLM-4.5 uses five stages:
 
 ```text
-┌─────────────────────────────────────────────────────────┐
-│ Phase 1: Multimodal Pretraining                         │
-│   - Joint training of text, image, and video            │
-│   - Level of 22T tokens (estimated)                     │
-│   - Early fusion architecture                           │
-├─────────────────────────────────────────────────────────┤
-│ Phase 2: Mid-training (Intermediate SFT)                │
-│   - General instruction following                       │
-│   - Tool call format                                    │
-├─────────────────────────────────────────────────────────┤
-│ Phase 3: Post-training RL                                │
-│   - Hybrid of RLHF + RLVR                              │
-│   - Multi-objective: Helpfulness / Safety / Reasoning   │
-└─────────────────────────────────────────────────────────┘
+Phase 1: Base pretraining (MoE)
+  - 15T high-quality tokens
+  - 355B total / 32B active
+  - RoPE scaling for long context
+
+Phase 2: General SFT
+  - Multilingual dialogue
+  - Tool-call formatting
+
+Phase 3: Reasoning RL
+  - Mathematics, code, and reasoning
+  - GRPO + rule-based rewards
+  - Self-validation
+
+Phase 4: General RLHF
+  - Dialogue quality and safety
+  - Helpfulness / Harmlessness
+
+Phase 5: Unify Thinking / Non-Thinking
+  - Mixed-data SFT
+  - Learn mode switching
 ```
 
-### Public Evaluation and Controversy
+The order has explicit dependencies. SFT first establishes usable dialogue and tool behavior. Reasoning RL can then obtain meaningful reward differences on verifiable tasks. General RLHF repairs dialogue quality and safety, and mixed data finally unifies the two response modes. Stage transitions create a first-layer problem: later preference training can overwrite mathematical ability gained during reasoning RL. Cross-stage distillation or data replay is needed to retain earlier capabilities; GLM-5's on-policy cross-stage distillation addresses this problem.
 
-The public scores of Llama 4 and the actual user experience have sometimes diverged, with the main issues concentrated in two areas.
+GLM-4.6 extends reasoning length beyond 100K tokens, broadens agent tools to search, code execution, and file operations, and adds finer Thinking Budget controls. Its improvements on AIME 2025, MATH-500, LiveCodeBench, and GPQA Diamond still have to be interpreted under the exact evaluation configuration.
 
-**Benchmark Scores versus Real-World Task Performance.**
+Three lessons follow. MoE and reasoning RL must be debugged together with expert-load, routing, and communication metrics. Thinking and Non-Thinking modes require separate evaluations of correctness, length, cost, and response quality. Code and tool tasks require real execution because static answer scores do not cover environment state or long-trajectory failure.
 
-Llama 4 Maverick achieved high scores on multiple benchmarks, but users found it to be less effective in practice compared to Claude 3.5 / GPT-5. Meta later acknowledged that there was a gap between benchmark evaluations and real-world experience.
+### Llama 4 and Evaluation Consistency
 
-**Evaluation Version versus Open-Source Version.**
+Llama 4 combines MoE, native multimodality, and long context. Scout has 109B total and 17B active parameters with a 10M context; Maverick has 400B total and 17B active parameters with a 1M context; Behemoth was announced with 2T total and 288B active parameters.
 
-The Maverick version running on LM Arena is a **specialized optimized version** — it uses adjusted chat templates and prompt engineering. The open-source Maverick version differs from the Arena version.
+Each architectural change reaches post-training. Early Fusion processes text and image tokens together from pretraining, so post-training requires textual, multimodal, and cross-modal consistency tasks. A multimodal reward must check whether an answer actually uses image evidence. MoE adds expert routing and communication. A 10M-token context requires evaluation of evidence retrieval, answer correctness, and reasoning cost; accepting the input is only the minimum.
 
-Such version differences highlight the necessity of recording the weight version, chat templates, system prompts, and sampling parameters when comparing models. [Modern Model Failures](../chapter30_alignment_failures/modern-incidents) also discuss evaluation risks such as data contamination.
+The key stability lesson is the gap between “training score” and real experience. Maverick scored well on benchmarks while many users found the released model weaker than contemporary alternatives. The version evaluated in LM Arena used chat-template and prompt adjustments that differed from the released version. The scores therefore compared different evaluation configurations.
 
-### Engineering Insights from Llama 4
+This is first-layer evaluation contamination. Model comparisons must record weight version, chat template, system prompt, and sampling parameters. Otherwise a score difference can reflect configuration rather than capability. The same principle applies during training: an evaluation configuration that differs from deployment acts like a flawed reward function.
 
-From the perspective of training systems, this case leaves three reusable lessons:
+### Seed-Thinking and Data Difficulty
 
-1. **MoE requires independent routing monitoring.** Even when the total loss is normal, local expert load imbalance can still occur.
-2. **Early Fusion changes the training samples.** Text and images must form a verifiable correspondence within the same task.
-3. **Long context increases the evaluation dimensions.** In addition to whether the model can accommodate the input, it must also check whether the model can find evidence and control the generation cost.
+Seed1.5-Thinking combines data organization, policy optimization, self-verification, and curriculum learning. Its failure signal lies between the first and second layers: rewards are too sparse and within-group advantage approaches zero.
 
-## 8. Seed-Thinking: How Data Difficulty Affects Policy Signals
+GRPO learns from reward differences within a response group. If all 16 responses are correct or all are wrong, the within-group standard deviation is zero and the batch produces no gradient. Early in training, all-wrong groups are common; with overly easy data, all-correct groups waste the same rollout compute.
 
-[Seed1.5-Thinking](https://arxiv.org/abs/2504.13914) (Byte Seed, April 2025) combines data curation, policy optimization, self-verification, and curriculum learning into a single reasoning training pipeline. Below, we explain the role of each component in sequence.
+Seed-Thinking addresses this in four ways. Mathematics data includes contest and generated problems bucketed by base-model pass rate; code data covers Codeforces, SWE-bench, and function generation. Problems that the current model solves 30%–70% of the time have the greatest training value because they are likely to produce mixed groups.
 
-### Core Components of the Training Framework
+Dynamic KL constrains the policy strongly early and relaxes later. Adaptive clipping changes the clipping range over training. Group-size scheduling uses larger groups early, such as 32 rollouts per prompt, to increase the chance of mixed outcomes, then smaller groups later to save compute. These are second-layer controls on policy movement.
 
-Seed-Thinking focuses on combining multiple existing components and enabling them to collaborate within the same training process.
+Self-Verification gives $1.0$ for a correct answer that passes verification, $0.5$ for a wrong answer whose error the model detects, and $0$ for a wrong answer the model fails to recognize. Without the middle level, rewards $(1,0,0)$ suppress “wrong but self-aware” and “wrong and unaware” equally. With it, verification behavior earns partial credit and an otherwise all-zero difficult group can produce a gradient.
 
-**Data Curation.**
+Curriculum learning addresses the other side of the problem. Start with tasks that the current model can sometimes solve, then increase difficulty. Because difficulty is defined by current pass rate, the curriculum must change as the model improves.
 
-```text
-Mathematical Data:
-  - High-quality math problems (AIME, Putnam historical problems)
-  - Automatically generated problems (using strong LLMs to create new problems)
-  - Difficulty grading (based on the pass rate of the base model)
+Thus difficulty bucketing and curricula increase reward density at the first layer, while dynamic KL, adaptive clipping, and Self-Verification control policy learning at the second. Deployment must still monitor length, latency, and regression in general capability.
 
-Code Data:
-  - Codeforces problems (with test cases)
-  - SWE-bench / SWE-smith (with PR data)
-  - Function generation (extension of HumanEval)
-```
+### Kimi K2 and Constraints on Anomalous Updates
 
-**Improvements to GRPO and DAPO.**
+Kimi K2's representative signals lie at the third layer: loss spikes and anomalous gradient or attention values. MuonClip constrains parameter updates; QK-clip constrains attention scores.
 
-Seed-Thinking incorporates four engineering improvements from [DAPO](../chapter18_grpo/deepseek-dapo) plus some new enhancements:
+Muon is a momentum-orthogonalization optimizer. It accumulates directional information across updates and orthogonalizes update matrices. Gradient matrices often have uneven singular values, allowing a few directions to dominate over thousands of steps. Orthogonalization evens those directions.
 
-- **Dynamic KL:** Strong KL in the early training phase, weakened later
-- **Adaptive Clip:** Adjust clip range based on training progress
-- **Group Size Scheduling:** Large groups early, small groups later
+MuonClip adds a norm limit after orthogonalization. If the update exceeds the threshold, it is scaled proportionally. This constrains how far one step moves, but it does not identify a bad example or reward that caused the spike. Learning-rate schedules, gradient monitoring, and data checks remain necessary.
 
-**Self-Verification.**
+QK-clip handles attention scores. As query and key norms grow in long contexts, $QK^\top$ can reach tens or hundreds. Softmax then concentrates on a few tokens and magnifies low-precision errors. QK-clip clamps $QK^\top$ to $[-clip\_value,clip\_value]$ before Softmax. This is a numerical safeguard, not a policy-level change.
 
-The model performs self-verification after generating an answer:
+The published result reports that the combination reduced loss spikes from about once per 1T tokens to once per 10T tokens and trained about 15% faster than Adam. The methodological lesson is to match the tool to the failure layer. MuonClip constrains update norms; QK-clip constrains extreme attention scores. Neither repairs reward hacking.
 
-```python
-def self_verification_reward(response, ground_truth):
-    answer = extract_answer(response)
+### Sources
 
-    # Let the model re-read the question and verify the answer
-    verification_prompt = f"Check if this answer is correct: {answer}"
-    verification = model.generate(verification_prompt)
+- [GLM-4.5 technical report](https://arxiv.org/abs/2508.06471)
+- [GLM-5 technical report](https://arxiv.org/html/2602.15763v1)
+- [Llama 4 technical report](https://ai.meta.com/blog/llama-4-multimodal-intelligence/)
+- [Seed1.5-Thinking technical report](https://arxiv.org/abs/2504.13914)
+- [DAPO: An Open-Source LLM RL System at Scale](https://seed.bytedance.com/en/public_papers/dapo-an-open-source-llm-reinforcement-learning-system-at-scale)
+- [Kimi K2 technical report](https://arxiv.org/abs/2507.20534)
+- [Muon optimizer](https://arxiv.org/abs/2502.16982)
 
-    if "correct" in verification and answer == ground_truth:
-        return 1.0  # Answer is correct and verification passes
-    elif "incorrect" in verification and answer != ground_truth:
-        return 0.5  # Answer is incorrect but the model detects the error
-    else:
-        return 0.0  # Answer is incorrect and the model fails to detect the error
-```
+---
 
-This reward simultaneously checks the final answer against the self-verification result. The model retains partial signals even when it answers incorrectly but can identify the error, thereby ensuring the training objective covers both the "answering" and "checking" steps.
+## Where Stability Methods Operate
 
-**Curriculum Learning.**
+Public method names—GRPO, GSPO, DAPO, CISPO, VAPO, and MuonClip—address different problems:
 
-Training data is sorted by difficulty, allowing the current model to first gain effective rewards on easier tasks before gradually increasing the difficulty. This approach reduces the issue of all samples in the initial training phase failing, leading to near-zero advantage signals.
+- **Layer 1, data and rewards**: DAPO Dynamic Sampling filters all-correct and all-wrong groups, while Overlong Reward Shaping handles truncated responses; VAPO Length-Adaptive GAE normalizes reward scale across response lengths; Seed-Thinking Self-Verification increases gradient density; Skywork-OR1 monitors entropy collapse; MiMo uses test-difficulty-driven rewards.
+- **Layer 2, policy change**: GRPO and GSPO use group-relative advantage and KL constraints; DAPO Clip-Higher preserves exploration through asymmetric clipping, and Token-Level Policy Gradient avoids dilution on long sequences; MiniMax-M1 CISPO clips importance weights; Hunyuan-T1 uses curricula and policy resets; DeepSeek-R1 uses staged domain-specific RL.
+- **Layer 3, numerical updates**: MuonClip, QK-clip, gradient clipping, mixed-precision switches, and optimizer-state monitoring.
+- **Layer 4, training system**: GLM-5/SAO asynchronous RL with version tags, LongCat DORA streaming RL, generation-training log-probability alignment, MoE routing consistency, weight synchronization, and checkpoint management.
 
-### Public Evaluation Results
+Classify a method before combining it with others. Two clipping methods at the same policy layer may conflict, while a policy-level method and a numerical safeguard are often complementary. More tools do not automatically create stability; if the reward is flawed, additional optimizers only stabilize exploitation.
 
-Seed-Thinking 1.5 achieves the following scores on multiple benchmarks:
+::: details Extra: identify a method's layer quickly
 
-| Benchmark         | Score |
-| ----------------- | ----- |
-| AIME 2024         | 86.4% |
-| MATH-500          | 96.2% |
-| GPQA Diamond      | 75.1% |
-| Codeforces Rating | 1822  |
+1. **Does it change rewards or data?** Reward functions, filtering, or sampling usually act at layer 1 or 2.
+2. **Does it change gradients or parameter updates?** Optimizers, gradient clipping, and attention clipping act at layer 3.
+3. **Does it change distribution or generation-training consistency?** Synchronization, version checks, and weight alignment act at layer 4.
 
-These results reflect the performance of the entire training setup across mathematical, scientific reasoning, and coding tasks. Further product deployment requires continued checks on answer length, inference latency, and the regression of general capabilities.
+If a method touches several layers, as DAPO does, classify each component separately.
+:::
 
-## 9. Kimi K2: How to Limit Abnormal Parameter Updates
+## Additional Checks at Scale
 
-[Kimi K2](https://arxiv.org/abs/2507.20534) (Moonshot, July 2025) simultaneously uses MuonClip and QK-clip to control abnormal updates during training. The former acts on parameter updates, while the latter acts on attention scores.
+The four-layer framework diagnoses one training run. Each layer acquires additional checks as scale grows.
 
-### Muon Optimizer
+### Very Large Models and Long Contexts
 
-[Muon](https://kellerjordan.github.io/posts/muon/) (February 2025) combines momentum with orthogonalization:
-
-- **Momentum**: Accumulates directional information across consecutive updates.
-- **Orthogonalization**: Orthogonalizes the update matrix.
-
-Orthogonalization adjusts the singular values of the update matrix, limiting certain directions from being overly amplified. It addresses the shape of updates at the optimizer level.
-
-### MuonClip Update Constraints
-
-The following simplified code illustrates where clipping occurs:
-
-```python
-def muon_clip_update(grad, momentum, clip_threshold=1.0):
-    # Muon main process
-    momentum = beta * momentum + (1 - beta) * grad
-    orthogonalized = orthogonalize(momentum)
-
-    # Clip to prevent explosion
-    norm = torch.norm(orthogonalized)
-    if norm > clip_threshold:
-        orthogonalized = orthogonalized * (clip_threshold / norm)
-
-    return -lr * orthogonalized
-```
-
-Clipping restricts the norm of the single-step update, reducing abrupt parameter changes caused by abnormal batches. It still needs to be used in conjunction with learning rate, gradient monitoring, and data checks.
-
-### QK-clip and Attention Stability
-
-QK-clip directly restricts the range of $QK^\top$ in attention:
-
-```python
-def attention_with_qk_clip(Q, K, V, clip_value=30.0):
-    # Standard attention
-    scores = Q @ K.T / sqrt(d)
-
-    # QK-clip: Prevent attention scores from becoming too large
-    scores = torch.clamp(scores, min=-clip_value, max=clip_value)
-
-    # Softmax + weighted sum
-    attn = softmax(scores)
-    output = attn @ V
-
-    return output
-```
-
-In long-context scenarios, attention scores may continuously increase, causing the Softmax to concentrate excessively on a few tokens and amplify numerical errors. QK-clip limits the score range before entering the Softmax, thereby reducing outliers at the attention computation layer.
-
-### Training Performance
-
-Public results report the effectiveness of this combination in terms of stability, speed, and final performance:
-
-- **Training Stability**: Loss spikes decrease from occurring on average once every 1T tokens to once every 10T tokens.
-- **Training Speed**: Compared to Adam, there is an improvement of about 15%.
-- **Final Performance**: Kimi K2 achieves high results on multiple public benchmarks.
-
-### Engineering Insights from MuonClip
-
-This case illustrates that stability tools need to be aligned with specific failure layers:
-
-- **Parameter Update Layer**: MuonClip restricts the norm of abnormal updates.
-- **Attention Computation Layer**: QK-clip limits extreme attention scores in long contexts.
-- **Engineering Implementation Layer**: Training logs must separately record update norms and attention statistics to determine which layer is effective.
-
-## 10. Putting Public Methods Back into the Four Layers
-
-The previous four cases demonstrate that "training stability methods" do not all operate at the same location. The following table adds other teams' public methods, indicating which layer they primarily address:
-
-| Team              | Representative Model | Public Method               | Main Target Layer                                   |
-| ----------------- | -------------------- | --------------------------- | --------------------------------------------------- |
-| **DeepSeek**      | R1, V3.2             | GRPO and variants           | Policy variation                                    |
-| **Ali Qwen**      | Qwen3 series         | GSPO                        | Policy variation, MoE system                        |
-| **Byte Seed**     | Doupan Pro, Seedance | DAPO, VAPO                  | Data and reward, policy variation                   |
-| **Moonshot Kimi** | K2, K2.5             | GRPO, MuonClip              | Policy variation, numerical update                  |
-| **GLM**           | GLM-4.6              | GSPO-style                  | Policy variation, MoE system                        |
-| **MiniMax**       | M1, M2               | CISPO                       | Policy variation, low-precision numeric computation |
-| **StepFun**       | Step3                | Multimodal training methods | Data and reward, multimodal evaluation system       |
-
-These names correspond to different issues. GRPO, GSPO, DAPO, CISPO, and VAPO primarily adjust policy objectives, advantage estimation, or clipping methods, while MuonClip addresses optimizer updates. When comparing methods, one should first confirm which layer they target and then determine whether they can be combined.
-
-## 11. What to Check After Scaling Model Size
-
-### Super Large Models and Long Context
-
-- The total number of parameters and the activated parameters continue to increase, making MoE routing and cross-device communication part of the stability metrics.
-- The requirement of 10M+ token context necessitates controlling memory usage, attention values, and the cost of long trajectories during training.
-- While optimizer clipping can handle parameter updates, it still needs to be combined with data, reward, and system monitoring.
+MoE routing and cross-GPU communication become stability signals themselves. Persistent routing imbalance leaves some experts undertrained and others overfit, causing abrupt regression on particular task types. Contexts beyond 10M tokens add memory, attention-value, and trajectory-cost constraints. Attention scores overflow more easily, and KV-cache precision requires separate monitoring.
 
 ### Native Multimodal RL
 
-- Text, images, and environment actions enter the same training trajectory, and rewards must also check cross-modal evidence.
-- Llama 4's Early Fusion demonstrates a way to unify modalities from the pre-training stage.
-- Multimodal RL requires replayable images, videos, and interactive environments.
+Text, images, and environment actions can occupy one trajectory, so rewards must verify cross-modal evidence. Did the response use the image, or guess from textual priors? Llama 4 Early Fusion shows one way to unify modalities from pretraining. Multimodal RL also needs replayable images, video, and interactive environments. Otherwise a failed trajectory cannot distinguish perception error, reasoning error, and tool error.
 
-### Industrialization of Agentic RL
+### Industrial Agentic RL
 
-- Training tasks expand from software engineering to customer service, research, and computer operations.
-- Agent trajectories need to record tool parameters, environment returns, and intermediate states.
-- Trajectories of varying lengths increase the cost of environment scheduling, fault recovery, and asynchronous training.
+Agent tasks extend from software engineering to support, research, and computer use. Trajectories must record tool arguments, environment returns, file-system snapshots, and intermediate state. Uneven trajectory lengths increase scheduling, recovery, and asynchronous-training costs. As sandboxes expand to browsers, phones, and desktop GUIs, environment failures—dependency errors, page timeouts, and tool crashes—become stability metrics.
 
 ### Training Cost and Efficiency
 
-- Training cost is composed of pre-training, data generation, Rollout, model updates, and evaluation.
-- Higher generation throughput, smaller activated parameters, and more accurate data screening can reduce unnecessary computation.
-- Small teams can first reproduce a complete closed-loop on a verifiable small task before deciding whether to scale the model and cluster size.
+Total cost includes pretraining, data generation, rollouts, updates, and evaluation. Higher generation throughput, smaller activated parameter counts, and better filtering reduce wasted computation. Asynchronous training reduces idle GPU time but introduces version drift and therefore requires explicit data-version management. Small teams should first reproduce the complete four-layer monitoring loop on a small verifiable task before scaling the model and cluster.
 
-## 12. How the Four Cases Connect Back to the Troubleshooting Order
+## Summary
 
-The four cases fall into different levels:
+Training stability requires observing data and rewards, policy change, numerical updates, and the training system in causal order. First verify the objective, then read KL and entropy, inspect loss and gradients, and finally align model versions and probabilities.
 
-- **GLM-4.6 and Llama 4**: MoE, multimodal, and long context change the constraints of the training system.
-- **Seed-Thinking**: Data organization, strategy optimization, self-validation, and curriculum learning form the reasoning training process.
-- **MuonClip and QK-clip**: Parameter updates and attention computation require separate control of outliers.
-- **Public Methods from Different Teams**: Algorithm goals, optimizers, and system frameworks need to be compared according to their hierarchical roles.
+1. **Four-layer chain**: data and rewards → policy change → numerical updates → training system. Diverging reward and independent evaluation indicate layer 1; NaNs and exploding gradients indicate layer 3; generation-training probability disagreement indicates layer 4.
+2. **Reading policy metrics**: concentrating from $[0.80,0.20]$ to $[0.95,0.05]$ raises KL from 0.19 to 0.49 and lowers entropy from 0.50 to 0.20. Data that is too easy can produce the same entropy decline, so read difficulty alongside these slopes.
+3. **Optimizer boundaries**: AdamW, Muon, and clipping only turn gradients into controlled updates. They can treat loss spikes, not reward-evaluation divergence.
+4. **Version consistency**: a log-probability gap of 0.19 moves the importance ratio about 17% away from 1 even without sampling noise. Precision, kernels, tokenization, and MoE routing must align.
+5. **Cases and layers**: GLM illustrates MoE routing and cross-stage regression; Llama 4 illustrates evaluation-version contamination; Seed illustrates task difficulty and self-verification rewards; Kimi K2 illustrates update-norm and attention-score control.
 
-These cases illustrate how model architecture, reasoning training, and numerical stability affect large-scale RL training.
-
-Related Chapters:
-
-- [Chapter 16: Reasoning Models](../chapter19_reasoning/r1-zero-pure-rl-reasoning) — Detailed discussion of reasoning models
-- [Chapter 17: PRM](../chapter20_prm_search/outcome-vs-process) — Industrial practice of process rewards
-- [Chapter 20: RL-based SWE](../chapter23_rl_based_swe/swe-bench-and-rlvr) — Training of code agents
-
-## 13. Summary of This Section
-
-Training stability requires simultaneous observation of data and rewards, policy changes, numerical updates, and the training system. When troubleshooting, follow this order: first confirm that the training objective is trustworthy, then check whether KL divergence and entropy are abnormal, followed by examining the loss, gradients, and optimizer, and finally verifying the model versions and probabilities at both the generation and training ends. Optimizers and clipping only control parameter updates and cannot fix issues related to data, rewards, or weight synchronization.
-
-[18.4](./distributed-sync) will continue to explore the last layer of issues: when generation, rewards, and training are distributed across multiple GPUs, how does the system ensure that data and model versions flow correctly.
+[18.4 Distributed RL Training](./distributed-sync) continues with the fourth layer: keeping data and model versions correct when generation, rewards, and training run across many GPUs.

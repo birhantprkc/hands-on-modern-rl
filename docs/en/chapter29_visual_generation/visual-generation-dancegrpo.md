@@ -2,7 +2,7 @@
 title: '24.4 How RL Aligns Image Generation: From DDPO to DanceGRPO'
 ---
 
-# 24.4 How RL Aligns Image Generation: From DDPO to DanceGRPO
+# 24.4 Reinforcement-Learning Alignment for Image Generation
 
 Start with one prompt:
 

@@ -4,6 +4,8 @@ In Section 16.2, we trained models that tend to perform more extensive reasoning
 
 Once the parameters are fixed, the system has three ways to increase computation: generating more candidate answers in parallel, revising a single answer repeatedly, or searching across multiple intermediate steps. All of these fall under **Test-Time Compute Scaling**. This section continues with a single math problem, first explaining why additional computation may be effective, then examining the three approaches separately, and finally discussing when the gains may plateau and how to set stopping conditions.
 
+<img src="../../chapter19_reasoning/images/test-time-compute-options.svg" alt="Test-time compute can be allocated to parallel candidates, iterative revision, or search over intermediate steps">
+
 ## 1. Why Increase Computation During Reasoning
 
 A model's failure to generate a correct answer in one attempt may have two causes: it either lacks the required knowledge or it has the correct method but selected the wrong path or made a calculation error in this particular sampling. Increasing reasoning computation can only alleviate the second type of problem. To determine where to allocate the additional budget, we must first distinguish between training computation and single-task computation.
@@ -44,6 +46,8 @@ P(\text{At least one correct}) = 1 - (1 - p)^N.
 $$
 
 This is because the probability of all $ N $ samples being incorrect is $ (1 - p)^N $, and we subtract this from 1. For example, when $ p = 0.2 $ and $ N = 5 $, the probability of at least one correct answer is approximately $ 1 - 0.8^5 = 67.2\% $. This is just the coverage probability; the final step still requires the verifier to select the correct candidate from the pool.
+
+At $p=0.2$, coverage is $20.0\%$ for $N=1$, $36.0\%$ for $N=2$, $59.0\%$ for $N=4$, $83.2\%$ for $N=8$, and $97.2\%$ for $N=16$. The marginal gain from one additional candidate falls from $16.0$ percentage points after the first sample to about $0.6$ points after sixteen samples. Parallel sampling therefore has sharply diminishing returns even before verifier errors are considered.
 
 ```python
 # Parallel sampling illustration

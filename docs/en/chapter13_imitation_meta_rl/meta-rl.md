@@ -30,6 +30,13 @@ Here, $\alpha$ is the inner-loop learning rate, and $\theta_i'$ is the parameter
 
 $$\min_{\theta} \; \mathbb{E}_{T_i \sim p(T)}\left[\mathcal{L}_{T_i}\left(\theta - \alpha \nabla_\theta \mathcal{L}_{T_i}(\theta)\right)\right]$$
 
+Consider a family of small mazes with the same walls but a different exit in each task. Task A places the exit in the upper-left corner, while Task B places it in the lower-right. Compare two initializations:
+
+- The first already drives the policy toward the upper-left. It begins Task A with high performance, but its bias is wrong for Task B and one gradient step cannot undo it.
+- The second initially favors neither exit, but one gradient step raises performance to about 80% on either task.
+
+The first initialization has the better score before adaptation on Task A. MAML's outer objective evaluates performance **after one adaptation step**, so it prefers the second. This is the concrete meaning of learning an initialization that is easy to adapt.
+
 Because $\theta_i'$ is itself computed from $\theta$, the outer gradient with respect to $\theta$ passes through the inner update:
 
 $$\nabla_\theta \mathcal{L}_{T_i}(\theta_i') = \nabla_{\theta_i'} \mathcal{L}_{T_i}(\theta_i') \cdot (I - \alpha \nabla^2_\theta \mathcal{L}_{T_i}(\theta))$$
@@ -156,6 +163,8 @@ def ad_inference(transformer, env, n_adapt_episodes=10):
 Decision Transformer (Chen et al. 2021) showed earlier that RL can be transformed into sequence modeling: feed $(R,s,a)$ triplets to a Transformer, where $R$ is return-to-go. Conditioned on target return $R^*$, the model generates actions that attain that return.
 
 $$a_t = \text{Transformer}\left(R_t, s_t, a_{t-1}, R_{t-1}, s_{t-1}, \ldots\right)$$
+
+For example, suppose an expert scores 900 points in one episode and has already collected 300 points by step 20. Then $R_{20}=900-300=600$: the return still available from the current step to the end of the episode. Each state in the training data carries such a remaining-return label. DT learns which next action is consistent with that return under the current state and history.
 
 DT is not in-context RL; it is a **conditional policy**. It nevertheless inspired subsequent work such as Online DT and Elastic DT, which gradually converged with in-context RL.
 

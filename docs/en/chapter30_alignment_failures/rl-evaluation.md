@@ -1,4 +1,4 @@
-# 25.5 How to Evaluate an RL Model Reliably: From Benchmarks to Harnesses
+# 25.5 Evaluation Protocols and Reproducibility
 
 Suppose two teams evaluate the same coding model. Team A uses one prompt, extracts the first code block, and allows five samples. Team B uses a chat template, executes the last code block, and allows one sample. They can report different pass rates without changing the model at all.
 

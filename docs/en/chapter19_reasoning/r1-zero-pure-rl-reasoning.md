@@ -4,7 +4,11 @@
 
 [Chapter 15](../chapter18_grpo/grpo-practice-and-mechanism) introduced GRPO, RLVR, and DAPO. Here we follow the R1-Zero training process: which model and data it starts from, how GRPO turns outcome rewards into policy updates, how longer reasoning and self-checking emerge, and why pure RL still needs cold-start data and later alignment.
 
+The [DeepSeek-R1 paper](https://arxiv.org/abs/2501.12948), released in January 2025, starts R1-Zero directly from a pretrained base model without a supervised cold start on human-written chains of thought. GRPO uses only correctness and format rewards. Later checkpoints develop longer reasoning, self-checking, and changes of method; the paper calls one trajectory that actively re-evaluates its approach an “aha moment.”
+
 Throughout this section, the same problem is repeatedly sampled. Suppose the model faces the equation $x^2 - 5x + 6 = 0$: some answers directly guess $x = 2$, some fully calculate $x = 2$ or $3$, and some have correct formulas but make substitution errors. The verifier only checks the final solution set, and GRPO compares the rewards of the same group of answers. As training repeats, the derivation methods that can stably produce correct results will appear more frequently.
+
+<img src="../../chapter19_reasoning/images/r1-zero-training-loop.svg" alt="R1-Zero repeatedly samples response groups, verifies outcomes, and updates the policy with relative rewards">
 
 ## 1. What Model Does Pure RL Start With
 
@@ -80,6 +84,8 @@ Therefore, pure RL training also requires managing problem difficulty:
 
 This is the same issue as the dynamic sampling in [Chapter 15 DAPO](../chapter18_grpo/deepseek-dapo): concentrating computation on problems where there is still group-level variation.
 
+For a group of eight binary-reward responses and a per-sample success rate $p$, the probability that the whole group is all correct or all wrong is $p^8+(1-p)^8$. It is about $0.43$ at $p=0.9$ or $0.1$, about $0.06$ at $p=0.7$ or $0.3$, and only about $0.008$ at $p=0.5$. Problems of medium difficulty therefore produce mixed outcomes—and usable gradients—far more reliably.
+
 ## 3. How Self-Checking Emerges in Training
 
 Intra-group comparisons can increase the probability of correct answers, but there is no direct rule written as "Please check your calculations." To understand why self-checking emerges, we need to observe which generated behaviors lead to higher final rewards.
@@ -94,6 +100,8 @@ As training continues, we can observe several types of behaviors:
 4. **Self-Verification**: The model substitutes the obtained answer back into the conditions to check whether it satisfies the problem.
 
 These behaviors are not labeled step-by-step, but are indirectly selected by the final correctness reward. Any behavior that consistently improves success rate will appear more frequently in subsequent sampling.
+
+For example, suppose a short direct guess is sampled with probability $0.7$ but succeeds only $10\%$ of the time, contributing $0.7\times0.1=0.07$ expected reward. A longer derive-and-check strategy is sampled with probability $0.3$ but succeeds $60\%$ of the time, contributing $0.3\times0.6=0.18$. Outcome optimization gradually shifts probability toward the longer strategy even though no rule explicitly rewards length or self-checking.
 
 ### 3.1 How to Understand the Aha Moment
 

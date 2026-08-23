@@ -1,145 +1,233 @@
----
-title: 18.2 The Complete Industrial Post-Training Workflow
----
-
 # 18.2 Industrial Post-Training Pipeline
 
-[Section 18.1](./single-machine-to-industrial) decomposed one RL training iteration into generation, reward computation, policy updates, and parameter synchronization. An industrial post-training system must also answer three broader questions: where its training tasks come from, how it measures whether a capability actually improved, and how failures become data for the next iteration.
+> **Goal of this section**: understand why industrial post-training must form a loop; learn the six stages of target definition, data and environments, SFT, RL, evaluation, and failure feedback; and locate any public technical report within those stages.
 
-Consider a coding model. A team collects issues from real repositories and prepares a runnable environment and tests for each task. SFT first teaches the model to inspect a repository, call tools, and submit a patch. RL then lets the model try the task repeatedly, while the test suite scores each trajectory. After training, the team evaluates the model on new repositories, groups the failed tasks, adds data or stronger verification rules, and starts another iteration.
+We have discussed RL algorithms, architectures, and distributed engineering, from PPO and DPO to GRPO and from single-GPU implementations to synchronized multi-GPU generation. Industrial training immediately raises three additional questions: where does the first training dataset come from, how do we know that a trained model learned instead of memorizing, and how do failed tasks enter the next iteration?
 
-This gives us the basic post-training loop:
+Consider a coding model. A team collects bug reports from real GitHub repositories and prepares a runnable environment, pinned dependencies, and tests for each problem. SFT teaches the model to inspect the repository, call tools, and submit patches. RL lets it attempt repairs repeatedly, with tests scoring every attempt. The team then evaluates on unseen repositories, classifies the failures, adds data and verification rules, and begins another round.
 
-```text
-define the target capability
-    ↓
-construct data and verifiable environments
-    ↓
-use SFT to establish basic behavior
-    ↓
-sample, filter, and apply RL or preference optimization
-    ↓
-evaluate on held-out tasks and realistic deployments
-    ↓
-turn failures into new data and revised rewards
-    └──────────────────────────────► next iteration
-```
+Training once is not the end. Evaluation failures become inputs to the next round, creating the basic industrial post-training loop:
 
-## 1. The Post-Training Loop
+**Define targets → construct data and environments → SFT → RL or preference optimization → evaluate → feed failures back → redefine targets**
 
-The first dataset covers only the failures a team already anticipated. Deployment reveals new ones: code compiles but does not satisfy the request, tool calls use the right syntax but repeat the same search, or a mathematical answer is correct only because a flawed derivation reaches it by chance. Evaluation exposes these cases, and the next iteration must revise the tasks, environments, or rewards that produced them.
+This section explains why the loop is necessary, what happens in each of its six stages, and which stage each public case changes.
 
-An industrial post-training system therefore produces more than model weights. It also maintains reusable datasets, environments, verifiers, and evaluation suites. Capabilities improve through repeated passes around this loop.
+---
 
-## 2. Completing One Post-Training Iteration
+## The Post-Training Loop
 
-| Stage                         | Question                                                  | Typical artifact                                     |
-| ----------------------------- | --------------------------------------------------------- | ---------------------------------------------------- |
-| Target definition             | What must the model accomplish?                           | capability list, success criteria, safety boundaries |
-| Data and environment          | How can the task be repeated and scored?                  | prompts, trajectories, sandboxes, tests, verifiers   |
-| SFT                           | Can the model begin acting in the required format?        | a cold-start model with basic behavior               |
-| RL or preference optimization | Can repeated attempts improve success?                    | a policy optimized for the target capability         |
-| Evaluation                    | Did the capability improve without regressions elsewhere? | held-out metrics, failures, regression tests         |
-| Data feedback                 | What should change in the next iteration?                 | new tasks, trajectories, and reward rules            |
+A one-shot “SFT, then RL, then release” process fails for three reasons.
 
-Public systems use many algorithm names. A useful first question is which row of this table a method changes. We will carry one code-repair task through all six stages before placing company-specific methods in context.
+**First, initial data covers only cases the team anticipated.** A mathematics dataset may overrepresent contest problems, while code repair may contain only medium-sized Python repositories. Deployment reveals old NumPy dependencies, mixed Chinese-English-code issues, correct tool syntax paired with repeated useless searches, or answers that are right only by accident.
 
-### 2.1 Define the Target Capability
+**Second, rising training reward does not guarantee better capability.** A model may discover that a verifier checks new tests but ignores regressions, then delete difficult old tests. Reward rises while held-out pass rate falls. It may also exploit a training sandbox and fail in a real repository.
 
-Suppose a team wants a coding model to repair real bugs in Python projects. “Repair” must be made testable: new tests pass, existing tests do not regress, unrelated files remain unchanged, and the model does not bypass the test harness. Limits on runtime, tool calls, and response length also belong in the target definition because deployment will enforce them.
+**Third, every stage requires iteration.** A correct verifier may reveal malformed SFT tool calls. Repairing those calls may expose a reward that fails to penalize unrelated edits. Repairing the reward may reveal that a long trajectory succeeds until the final patch uses the wrong path.
 
-### 2.2 Construct Data and Environments
+No first iteration solves all of these. Each improvement reveals harder failures. The outputs of post-training therefore include reusable datasets, reproducible sandboxes, versioned verifiers and reward rules, and evaluation suites—not only model weights.
 
-A GitHub issue is a problem description, not yet a training task. The team must preserve the failing repository revision, pin dependencies and launch commands, prepare both new and regression tests, and package the project in a reproducible sandbox. Only then does every attempt begin from the same state and receive a comparable reward.
+Compared with one-shot training, a closed loop changes five assets:
 
-Environment-based tasks must also vary how execution is presented. MiniMax samples tasks through multiple agent scaffolds. Kimi K3 varies tools, prompts, context management, memory, and subagents. Qwen-AgentWorld combines containers, MCP tools, mobile devices, web pages, and operating-system simulators. These variations reduce overfitting to one outer template.
+- **Data** grows as evaluation failures are classified and turned into new or repaired tasks.
+- **Environments** are versioned and replayable, so identical failures can be reproduced.
+- **Rewards** evolve whenever the model discovers hard-coding, test deletion, or another exploit.
+- **Evaluation** uses independent tasks under deployment-like settings and checks general-capability regression.
+- **Capability** expands over several iterations as new failure types enter training.
 
-### 2.3 Establish Basic Behavior with SFT
+The value of the loop is not simply running training more times. It converts real failures into inputs for systematic improvement.
 
-An initial model may not know how to inspect the repository, run tests, or submit a patch. Successful trajectories provide SFT examples of tool syntax, action order, and stopping conditions. At this stage, SFT establishes the basic behavior; it does not yet ask the model to discover a better repair strategy through trial and error.
+## The Training Process
 
-### 2.4 Improve Success with RL or Preference Optimization
+A code-repair task passes through six connected stages:
 
-Once the basic behavior is present, the current policy can attempt each task several times. Tests assign rewards to the resulting trajectories, and PPO, GRPO, or preference optimization raises the probability of successful behavior. Teams may also train separate specialists for mathematics, code, and writing, then merge their capabilities through on-policy distillation. MiniCPM5, Kimi K3, and NVIDIA Nemotron-Cascade 2 describe versions of this route.
+- **Target definition** asks what the model must accomplish and produces a capability list, success criteria, and safety boundaries.
+- **Data and environments** ask how the task can be repeated and scored and produce prompts, trajectories, sandboxes, tests, and verifiers.
+- **SFT** asks whether the model can begin acting in the correct format and produces a cold-start model with basic behavior.
+- **RL or preference optimization** asks whether repeated attempts improve success and produces a policy optimized for the target capability.
+- **Evaluation** asks whether the gain is real and whether other abilities regressed and produces held-out metrics, failures, and regression tests.
+- **Data feedback** asks what the next iteration should add and produces new tasks, trajectories, and reward rules.
 
-### 2.5 Evaluate on Held-Out Tasks
+Public systems use names such as GRPO, DAPO, VAPO, SAO, DPO, RLHF, and OPD. First ask which of these six stages a method changes; then examine its algorithm.
 
-The model is next tested on repositories that were not used for training. Useful measurements include patch success, redundant tool calls, average execution cost, and regressions on general capabilities. The evaluation setup should resemble deployment: length limits, reasoning budget, quantization, tool protocol, and context management can all change the result. If training reward rises while held-out performance does not, the policy may have adapted to the training environment or exploited a weak verifier.
+### Target Definition
 
-### 2.6 Feed Failures into the Next Iteration
+For a SWE-bench Lite-style repair model targeting more than 30% pass rate, “fixed” should include at least four conditions:
 
-Each failure should return to the layer that caused it. Add tasks when coverage is poor, repair the sandbox when state restoration fails, strengthen the verifier when tests are weak, add successful demonstrations when a tool operation is missing, and run another RL iteration when the behavior exists but remains unreliable. Replaying these failures requires versioning the task, environment, trajectory, reward, and model together.
+1. New tests for the issue must pass.
+2. Existing tests must not regress.
+3. The patch must not modify unrelated files, delete tests, or alter unrelated source.
+4. The model must not bypass the verifier by replacing assertions with `pass` or hard-coding test inputs.
 
-The stages form one pipeline: each stage produces the input to the next, and evaluation eventually changes the targets, data, and environments at the beginning. [Section 18.5 on large-scale RL data engineering](./data-engineering) develops the data pipeline in more detail.
+Runtime limits, such as ten minutes per task, tool-call limits, and patch-size limits also belong here because every later stage depends on them. Clear, automatically checkable success criteria make later rewards and evaluation stable; “the code looks reasonable” does not.
 
-## 3. Extending the Loop to Environment-Based Tasks
+### Data and Environments
 
-Mathematical RL can often represent an environment with a question and an answer verifier. Repositories, web pages, and desktop applications enlarge every stage: targets include tool and cost constraints; data must preserve environment state; SFT teaches protocols; RL handles long trajectories; evaluation reproduces deployment conditions; and failure analysis stores enough state to replay the episode.
+A GitHub issue is only text. Turning it into a training task requires:
 
-| Stage                | Additional requirement                                   | Examples                                       |
-| -------------------- | -------------------------------------------------------- | ---------------------------------------------- |
-| Target definition    | tool permissions, time, length, safety                   | Apple on-device constraints, OpenAI tool tasks |
-| Data and environment | repositories, containers, web state, checkpoints         | MiniMax M2.1, Kimi K3                          |
-| SFT                  | tool syntax, observations, action order, stopping        | Qwen-AgentWorld, UI-TARS                       |
-| RL or preferences    | multi-turn rewards, asynchronous experience, specialists | GLM-5.2, DAPO, MiniCPM5 OPD                    |
-| Evaluation           | realistic environments, cost, safety regressions         | Claude system cards, Computer Use              |
-| Data feedback        | failure classes, rejection sampling, distillation        | DeepSeek-R1, Nemotron-Cascade 2                |
+1. Preserve the repository revision in which the bug exists.
+2. Pin dependencies and record launch and test commands.
+3. Prepare new tests and regression tests.
+4. Package the project in a reproducible container or sandbox.
 
-## 4. Four Examples of the Loop
+Every attempt must start from the same Python version, dependencies, files, and state. Otherwise the same patch can pass today and fail tomorrow, destroying the reward signal.
 
-The next four examples change different parts of the loop. MiniCPM5 merges domain specialists into one model. Kimi K3 treats environment configuration as training data. Qwen-AgentWorld learns environmental changes before optimizing actions. GLM-5.2 sends trajectories of different lengths into training asynchronously. For each case, first locate the stage it changes, then examine the algorithm used there.
+Environment tasks must also vary their execution harness. MiniMax samples one task through different agent scaffolds; Kimi K3 changes tools, prompts, context management, skills, memory, and subagents; Qwen-AgentWorld combines containers, MCP, mobile, web, and operating-system environments. This reduces overfitting to one outer interaction template.
 
-### 4.1 MiniCPM5: Domain-Specific RL and On-Policy Distillation
+### SFT
 
-MiniCPM5-1B uses an SFT, RL, and on-policy distillation sequence. Separate RL teachers are trained for mathematics, code, closed-book question answering, writing, and other domains. The student then samples responses to the same domain prompts, while each teacher supplies a token-level probability distribution for the student's current output.
+A model sent directly into RL may not know how to operate the environment. It may describe reading a file instead of calling `read_file`, fail to interpret pytest output, or paste a diff instead of invoking `apply_patch`.
 
-The data source distinguishes this method from offline distillation. Offline distillation stores teacher-written answers and repeatedly trains on those fixed responses. In on-policy distillation, the current student generates the response, so the teacher corrects states that the student actually visits. MiniCPM5 also reuses the prompts that trained the specialist teachers instead of constructing a separate distillation set.
+Successful human-written or strong-model trajectories teach:
 
-This design requires each record to identify the domain, prompt version, student policy, teacher version, and token-level teacher signal. [Section 18.5](./data-engineering) describes the corresponding formula and log schema.
+- **Tool format**: arguments, return values, and how the next action uses the observation.
+- **Action order**: inspect, edit, test, interpret failures, and edit again.
+- **Stopping conditions**: when the task is complete and when further repair is needed.
 
-### 4.2 Kimi K3: Composable Training Environments
+SFT establishes basic behavior. It does not require the model to discover a better repair strategy through repeated trials; that is the role of RL.
 
-Kimi K3 combines tools, prompts, context management, skills, memory, and subagents into a configurable environment. A task can run under different tool sets or execution scaffolds so that the model learns the task rather than one harness. Long-horizon research tasks can be synthesized by selecting related nodes from a knowledge graph and retrieving public articles, blogs, and repositories.
+### RL
 
-Kimi K3 also trains specialists at different domains and reasoning levels, then combines them through multi-teacher on-policy distillation. For million-token tasks, the system preserves unfinished trajectories and external KV state so that a later iteration can resume instead of regenerating the full prefix.
+Once basic behavior exists, sample several trajectories per bug. For 16 candidates on one SWE-bench task:
 
-### 4.3 Qwen-AgentWorld: Learning Environment Dynamics and Actions
+- A direct change to `load_config()` passes the new test but breaks regression tests, earning 0.2.
+- A compatibility branch passes both new and regression tests without unrelated edits, earning 1.0.
+- An edit to the wrong file fails every test, earning 0.
+- A patch passes tests by replacing an assertion with `pass`, is caught by the hard-coding check, and earns -0.5.
 
-Qwen-AgentWorld builds tasks with container sandboxes, MCP tools, Android, web, and operating-system simulators. Training proceeds in three stages: continued pre-training teaches environment knowledge, SFT teaches next-state prediction and basic operations, and GSPO with mixed rewards trains task completion.
+Rewards combine tests and auxiliary rules: new-test pass rate, regressions, unrelated edits, hard-coding, and tool format. GRPO compares the 16 trajectories, increasing the probability of responses above the group mean and decreasing those below it.
 
-It also emphasizes turns that contain actual environmental changes. Repeated formatting with no new observation contains less information than a consequential tool action, so the two need not receive equal training weight. Trajectory filtering has therefore moved from keeping or discarding a whole episode to selecting informative turns within it.
+Different domain specialists can also be trained separately and merged through On-Policy Distillation. MiniCPM5, Kimi K3, and NVIDIA Nemotron-Cascade 2 publish versions of this route.
 
-### 4.4 GLM-5.2: Asynchronous Single-Trajectory Optimization
+### Evaluation
 
-Tool tasks vary widely in duration, so waiting for a complete rollout group can waste compute. GLM-5.2's SAO generates one trajectory per prompt and sends completed trajectories into training continuously. It also handles stale-policy data, value estimation, and token clipping. The slime framework connects the training backend, SGLang rollout workers, custom environments, verifiers, and data buffers.
+After one iteration, evaluate on unseen tasks. For 500 new repository bugs, measure:
 
-The queue is therefore more than a cache. Every trajectory must record which policy generated it so that the trainer can detect stale data and decide whether to correct, accept, or discard it.
+- **Patch pass rate**, the primary capability metric.
+- **Invalid tool-call rate**, which shows whether tools are used effectively.
+- **Average cost**, including tool calls and wall-clock time.
+- **General-capability regression** in dialogue, mathematics, and multilingual tasks.
 
-### 4.5 Sources for These Examples
+Match deployment limits, quantization, tool protocols, and context management. If production allows ten minutes, evaluation should not allow thirty. If production uses 4-bit quantization, evaluation should use it too.
+
+Rising training reward with flat held-out performance is an important warning. The model may have adapted to one sandbox or exploited a verifier. Independent evaluation prevents this superficial progress from being mistaken for capability.
+
+### Data Feedback
+
+Do not discard the 180 failed cases from evaluation. Route each one back to its cause:
+
+- Narrow repository coverage returns to **data and environments**.
+- Irreproducible sandbox results return to **data and environments** for dependency locking and replay checks.
+- A verifier that ignores unrelated edits returns to **target definition and reward rules**.
+- Missing tool syntax returns to **SFT** as successful demonstrations.
+- A known behavior with insufficient success rate returns to **RL** with greater sampling weight.
+
+Evaluation is therefore a diagnostic mechanism, not only a score. Replaying a failure requires the task, environment version, full trajectory, reward version, and model checkpoint. Without them, the team cannot confirm whether a later change repaired the same failure.
+
+The six stages now form a complete pipeline: every output feeds the next stage, and evaluation failures repair earlier stages. [18.5](./data-engineering) develops the most complex asset, the data production line.
+
+## Extending Environment-Based Tasks
+
+A mathematics environment can be a prompt plus an answer verifier. Code, web, and GUI tasks expand all six stages:
+
+- **Target definition** adds tool permissions, time and length budgets, and safety boundaries. Ten minutes and one hour produce different agent policies. Forbidden actions such as deleting the root filesystem, reading private keys, or installing unauthorized software must become reward and evaluation constraints.
+- **Data and environments** add repositories, containers, web state, tools, and recoverable checkpoints. A 40-minute trajectory that changes 12 files and calls 30 tools should resume from a saved file-system, database, or browser snapshot after a worker crash. Multiple harnesses reduce overfitting.
+- **SFT** adds observations and observation-conditioned decisions. File contents, pytest traces, DOM trees, and tool JSON are environment returns, not model-authored text. The model must learn which definition to inspect after an `AttributeError`, not only the syntax of a tool call.
+- **RL or preference optimization** adds multi-turn rewards, asynchronous experience, and domain specialists. A 30-turn episode can reward useful inspection, penalize repeated calls with no new information, and immediately penalize regression. Asynchronous queues prevent a 15-minute trajectory from blocking trajectories that finish in 30 seconds.
+- **Evaluation** adds real environments, cost, and safety regression. A pass-rate gain from 28% to 35% is commercially useless if tool calls rise from 50 to 300 and cost from $0.30 to $2 per task. Sensitive operations must also be monitored.
+- **Data feedback** adds failure classes, rejection sampling, distillation, and verifier upgrades. If only the final step of a 50-step trajectory is wrong, the first 45 steps may still be useful. Filter by segment, turn, and intermediate reward. After upgrading a verifier, rescore old samples so that obsolete reward signals do not persist.
+
+::: info Mathematics RL versus Environment-Based Agent RL
+
+- **State complexity**: a mathematics state is mostly text; an agent state includes files, processes, networks, DOM, and databases.
+- **Reward delay**: mathematics often receives an immediate binary score; an agent needs process rewards and credit assignment across many turns.
+- **Episode duration**: mathematics typically takes seconds; agent episodes range from 30 seconds to hours.
+- **Rollout failures**: agents regularly encounter sandbox, dependency, tool, and timeout failures.
+- **Sample reuse**: a math prompt is easy to replay; an agent needs a versioned environment snapshot and recoverable checkpoint.
+  :::
+
+::: details Extra: why mathematics RL does not transfer directly to agent tasks
+
+- The **action space** expands from tokens to tools and environment transitions.
+- The **episode length** expands from hundreds of tokens to thousands or tens of thousands plus many tool calls, changing attention, KV-cache, timeout, and batch design.
+- **Credit assignment** becomes harder because an incorrect read at step 5 may be exposed only when a patch fails at step 45.
+- The **verifier** becomes an execution system: code needs a sandbox and tests, web tasks need DOM state, and GUI tasks need screenshots and input simulation.
+  :::
+
+## Public Cases
+
+The algorithm names in public reports are concrete changes to one part of the loop. MiniCPM5 merges specialist abilities during feedback, Kimi K3 prevents harness overfitting in data and environments, Qwen-AgentWorld changes the SFT-to-RL order, and GLM-5.2 handles asynchronous trajectories of very different lengths.
+
+### MiniCPM5
+
+MiniCPM5 changes RL and data feedback to solve the problem of strong specialists that cannot be merged without tradeoffs. Its public pipeline is SFT, domain-specific RL, and OPD. It trains RL teachers for mathematics, code, closed-book QA, writing, and other domains. The student samples from the same domain prompts, and the teacher provides a probability distribution at every output token.
+
+Offline distillation stores fixed teacher answers. OPD instead lets the current student generate, so the teacher corrects states the student actually visits. Prompts from specialist training can be reused. Each record identifies the domain, prompt version, student policy, teacher version, and token-level teacher signal.
+
+The RL stage trains specialists to convergence; the feedback stage distills their successful behavior into the next unified model.
+
+### Kimi K3
+
+Kimi K3 changes data and environments to prevent overfitting to one harness. A model trained only under one ReAct template can memorize “write `Thought:`, then call `list_dir`” without learning task decisions.
+
+Kimi K3 combines tools, prompts, context management, skills, memory, and subagents into one configurable environment. The same task can use ReAct with Bash, plan-then-edit with `apply_patch`, or a reflection loop. Long-horizon research tasks can be synthesized by selecting graph nodes and retrieving articles, blogs, and repositories.
+
+It also trains specialists at different domains and reasoning levels, then merges them with multi-teacher OPD. For million-token tasks, unfinished trajectories and external KV state are persisted so a run that fails at 800K tokens can resume instead of regenerating the prefix.
+
+### Qwen-AgentWorld
+
+Qwen-AgentWorld changes the SFT-to-RL sequence. Containers, MCP tools, Android, web, and operating-system simulators provide tasks. Continued pretraining first teaches environment knowledge, SFT then teaches next-state prediction and basic operations, and GSPO with mixed rewards finally trains task completion.
+
+It gives more training weight to turns that cause real environment changes. If an agent repeats the same search five times, only the first result provides a new observation; weighting all five equally dilutes the useful gradient and may teach empty tool repetition. Filtering therefore operates at the turn level rather than keeping or deleting only whole trajectories.
+
+### GLM-5.2
+
+GLM-5.2 changes the RL system to prevent synchronized GRPO from idling behind long agent trajectories. Suppose 32 GPUs run one batch: eight tasks take 30 seconds, eight take two minutes, twelve take five minutes, and four take fifteen minutes. Waiting 900 seconds for the slowest task wastes $8\times870+8\times780+12\times600=20{,}400$ GPU-seconds.
+
+SAO, or Single-policy Asynchronous Optimization, generates one trajectory per prompt and sends each completed trajectory to the training queue immediately. It also handles stale policies, value estimation, and token clipping. slime connects the training backend, SGLang rollout workers, custom environments, verifiers, and data buffers.
+
+Asynchrony introduces policy-version mismatch. A queue can contain trajectories from five or thirty minutes ago while the trainer has updated dozens of times. Every trajectory must carry a policy version. Very stale trajectories are discarded; moderately stale ones use importance weights so old data does not pull the new policy off course.
+
+### Sources
 
 - [MiniCPM5-1B training notes](https://github.com/OpenBMB/MiniCPM#-minicpm5-1b)
 - [Kimi K3 report and repository](https://github.com/MoonshotAI/Kimi-K3)
 - [Qwen-AgentWorld](https://qwen.ai/blog?id=qwen-agentworld)
 - [slime](https://github.com/THUDM/slime)
-- [SAO for asynchronous agentic RL](https://arxiv.org/abs/2607.07508)
+- [SAO for GLM-5.2 asynchronous Agentic RL](https://arxiv.org/abs/2607.07508)
 - [Nemotron-Cascade 2](https://research.nvidia.com/labs/nemotron/nemotron-cascade-2/)
 
-## 5. Reading the Public Cases by Training Stage
+::: details Extra: locating a public report within the six stages
 
-The remainder of this page keeps the full public cases grouped by team. A team usually changes several stages at once, so splitting every case apart would hide the connections. Enter the case library from the stage currently under investigation:
+1. A new task definition or success criterion belongs to **target definition**.
+2. A new sandbox, dataset, or runnable task form belongs to **data and environments**.
+3. A new demonstration filter or cold-start sequence belongs to **SFT**.
+4. A new objective, advantage, reward, or synchronous/asynchronous algorithm belongs to **RL or preference optimization**.
+5. A new benchmark, regression test, cost metric, or safety metric belongs to **evaluation**.
+6. Failure classification, rejection sampling, distillation, or expert merging belongs to **data feedback**.
 
-| Stage                         | Useful cases                                                             |
-| ----------------------------- | ------------------------------------------------------------------------ |
-| Target definition             | OpenAI Operator and Codex, Apple, IBM Granite, xAI Grok                  |
-| Data and environment          | MiniMax SWE Scaling, WebExplorer, UI-TARS, LongCat, Qwen-AgentWorld      |
-| SFT                           | Qwen2.5, InstructGPT, Meta Llama, Microsoft Phi                          |
-| RL or preference optimization | DeepSeek, Qwen3, DAPO and VAPO, Kimi, GLM, Hunyuan                       |
-| Evaluation                    | Claude system cards, Gemini, Llama, StepFun, multimodal and safety cases |
-| Data feedback                 | rejection sampling, long-to-short, OPD, expert soup, Tulu 3              |
+A report often changes two or three stages. Locate those stages first, then read the algorithmic details.
+:::
 
-The company names below identify sources, not separate training pipelines. For each case, locate its targets, data, SFT, RL, evaluation, and feedback stages before focusing on the method it adds.
+The public practice index below is organized by stage:
 
-## 6. Chinese Companies and Major Labs
+- **Target definition**: OpenAI Operator/Codex, Apple, IBM Granite, xAI Grok
+- **Data and environments**: MiniMax SWE Scaling, WebExplorer, UI-TARS, LongCat, Qwen-AgentWorld
+- **SFT**: Qwen2.5, InstructGPT, Meta Llama, Microsoft Phi
+- **RL or preference optimization**: DeepSeek, Qwen3, DAPO/VAPO, Kimi, GLM, Hunyuan
+- **Evaluation**: Claude system cards, Gemini, Llama 4, StepFun, multimodal and safety cases
+- **Data feedback**: rejection sampling, long-to-short, OPD, expert soup, Tulu 3
+
+---
+
+## Public Practice Library
+
+The six-stage loop and four representative cases provide the teaching line, but practical training still raises narrower questions: how to create cold-start data, when to add length rewards, how asynchronous sampling preserves policy versions, and how multimodal rewards should be balanced. Recent industrial reports contain many concrete answers.
+
+This section is an engineering case library, not a sequence that must be read from beginning to end. Use it as a post-training dictionary: locate a team that has published experience with the problem currently appearing in your own loop, then inspect its engineering choices and failure reports.
+
+For a first pass, focus on five Chinese teams—MiniMax, Qwen, Kimi, DeepSeek, and GLM. Together they cover agent environments and multiple scaffolds, staged post-training and general-capability backfilling, long-reasoning stability and research-agent rewards, GRPO and rejection-sampling feedback, and asynchronous training with cross-stage distillation. For international comparison, OpenAI, Anthropic, Google, and Meta provide the clearest public discussions of general preference alignment, systematic safety training, multimodal long-context post-training, and product-level data governance.
+
+### Chinese Companies and Major Labs
 
 ### MiniMax
 
@@ -601,7 +689,7 @@ These three companies have disclosed developments in multimodal post-training (K
 
 ---
 
-## International Companies and Major Labs
+### International Companies and Major Labs
 
 ### OpenAI
 

@@ -1,4 +1,4 @@
-# 25.4 How to Keep Models from Exploiting Reward Loopholes: Layered Defenses
+# 25.4 Defending Against Reward Loopholes
 
 Consider a coding agent rewarded whenever the public test suite passes. The first version writes a correct implementation. A stronger version discovers a shorter path: delete the difficult test, hard-code the visible examples, and report success. More search, more samples, and more training steps now make the agent better at finding the evaluator's blind spots.
 
@@ -150,6 +150,10 @@ Stage 2: SFT on high-quality data (recovery of general capabilities)
 ```
 
 DeepSeek-R1 uses this approach — after RL, it performs rejection sampling SFT to recover some general capabilities.
+
+![DeepSeek-R1's multi-stage training pipeline](../../chapter32_selfplay/self-play-outlook/images/deepseek_r1_pipeline.png)
+
+The published pipeline includes cold start, reasoning RL, rejection-sampling SFT, and a second RL stage. It demonstrates that post-training can contain several stages; the diagram alone is not causal evidence that any one stage recovers an alignment tax.
 
 **Method 2: Capability Reward**
 

@@ -4,11 +4,15 @@ So far, we have discussed the three pillars of SWE-RL:
 
 - **Data**: [SWE-bench](./swe-bench-and-rlvr) (real PRs) + SWE-smith (synthetic bugs)
 - **Algorithm**: GRPO + binary reward in [Meta SWE-RL](./meta-swe-rl)
-- **Acceleration**: [CWM](./world-model-and-deep-swe) + DeepSWE's world model + value model
+- **Long-horizon training**: [CWM](./world-model-and-deep-swe) learns from environment trajectories, while DeepSWE scales pure RL in real R2E-Gym environments
 
 However, these methods all rely on **pre-collected training data** — SWE-bench or SWE-smith. Data collection itself is expensive and limited.
 
 This section discusses a new direction: **Self-play SWE-RL (SSR)** — letting the model generate its own training data, forming a "data flywheel."
+
+Suppose we have only an open-source repository whose dependencies can be installed and whose tests can run—no human issue and no gold patch. The model first edits the code to make a newly added test fail. It then sees only the test patch and current repository and tries to repair the defect. A successful inject-and-repair round becomes a new training experience.
+
+<img src="../../chapter23_rl_based_swe/images/ssr-self-play-loop.svg" alt="A self-play loop alternates between injecting a verifiable defect and repairing it">
 
 ## 20.3.1 Core Idea of Self-play
 

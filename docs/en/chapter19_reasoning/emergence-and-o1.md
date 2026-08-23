@@ -6,6 +6,8 @@ The reasoning model changes this execution process. Before providing the final a
 
 Chapter 16 follows this transformation: Section 16.1 first explains why reasoning models emerge; Section 16.2 enters the pure RL training of R1-Zero; Sections 16.3 and 16.4 and 16.5 address how to increase reasoning computation while keeping parameters fixed; Sections 16.6 further discusses how to present and supervise the reasoning content. This section first answers four questions: what changes in the product form, what reasoning behaviors have been observed in public experiments, what aspects are reinforced by RL, and how the system distinguishes reasoning from the final answer.
 
+<img src="../../chapter19_reasoning/images/reasoning-model-loop.svg" alt="Comparison between direct generation and a reasoning model's problem-solving loop">
+
 ## 1. o1 How to Bring Reasoning Capabilities into the Product
 
 Still using the math problem as an example, a direct answer model only performs a single continuous generation. In contrast, a reasoning model allows for a process of "listing conditions—trying methods—checking—revising" before arriving at the answer. The significance of o1 lies in embedding this process into a callable product, enabling users to trade more waiting time for higher task success rates.
@@ -22,11 +24,17 @@ At the time of its release, o1 significantly outperformed GPT-4o on several reas
 
 The reasoning computation used for single responses, majority voting, and re-ranking differs. When presenting metrics together, it is essential to retain the evaluation methodology to prevent readers from conflating "model strength" with "more sampling."
 
+For the missing comparison point, GPT-4o reached about 56% with 64-response consensus on AIME 2024. If a model's single-sample accuracy is $p=0.12$, 64 samples contain at least one correct answer with probability $1-(1-0.12)^{64}\approx99.97\%$. Finding a correct candidate and selecting it are different problems: correlated errors and answer aggregation still limit majority voting. o1's approximately 74% single-response result therefore cannot be explained simply by candidate coverage.
+
 o1 does not display its internal Chain-of-Thought (CoT) to users, only returning the final answer or a curated explanation. This approach reduces the risk of internal reasoning being directly copied and prevents users from inspecting the model's actual reasoning process step by step. Therefore, the system also needs to establish credibility through verifiable answers, citations, and external evaluations.
 
 ### 1.2 Reasoning Budget as a Product Interface
 
 After models can benefit from more thinking, the server also needs to decide how much computation to allocate per request. OpenAI introduced the `reasoning_effort` parameter when officially releasing o1 in December 2024. Developers can choose between a lower or higher reasoning investment. This parameter does not guarantee a fixed number of tokens; instead, it expresses a tier in terms of quality, latency, and cost.
+
+- **Low effort:** short reasoning and low latency for translation, rewriting, simple questions, and format conversion.
+- **Medium effort:** moderate checking for ordinary coding and medium-difficulty mathematics.
+- **High effort:** longer derivations for competition problems, multi-constraint planning, and complex debugging.
 
 In the same month, OpenAI previewed o3, and it was officially released in April 2025. The official report on o3 continued to expand the computational resources allocated to RL training compared to inference computation, and it outperformed o1 under the same latency and cost conditions. The important change is not in a particular number on an ever-updating leaderboard, but rather in the product interface, which now allows the system to adjust the reasoning investment according to the task.
 
@@ -99,6 +107,8 @@ This distinction is important in practice:
 - Finally, decide whether to supplement with more pre-training or SFT (Supervised Fine-Tuning) data, or to increase RL data and compute.
 
 The experiments with DeepSeek-R1 also support this distinction: pre-training provides knowledge and basic reasoning capabilities, while RL makes the reasoning behaviors that can receive rewards appear more stably.
+
+For example, sample one mathematics problem 100 times from the base model. Suppose 72 responses jump directly to an incorrect answer, 22 contain reasoning with a calculation error, and 6 contain a complete correct derivation with verification. The base model is not wholly incapable: correct trajectories already have 6% probability. Group-based RL can use those six trajectories as positive evidence and raise their probability. If no correct trajectory appears even under broad sampling, the missing capability must first be supplied by pretraining or SFT.
 
 ## 4. How Reasoning Models Organize Output and Tools
 

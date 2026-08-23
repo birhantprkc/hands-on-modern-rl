@@ -1,4 +1,79 @@
-# 24.5 Why Videos Contradict Themselves: Video RLHF and Physical Evaluation
+# 24.5 Temporal Consistency in Video
+
+Imagine four sharp, naturally lit frames of a red ball hitting toy blocks. A frame-by-frame inspection passes. The prompt also passes: it asks for a collision followed by the ball stopping, and all of those objects and events appear. The timeline reveals a different failure. The ball's path breaks between seconds three and four, and the blocks fall before contact occurs.
+
+This example needs four separate checks:
+
+1. **Single-frame quality** checks anatomy, edges, lighting, and composition independently in every frame.
+2. **Text and event alignment** checks whether the requested objects, actions, and event order appear.
+3. **Temporal consistency** checks whether identity, position, appearance, and background structure remain explainable from one frame to the next.
+4. **Physical and causal consistency** checks whether contact precedes its effect and whether motion follows a continuous path.
+
+A single total score can hide the third and fourth failures behind high image quality. Training and evaluation must preserve these component signals.
+
+For a video $x=(x_1,\ldots,x_F)$, $F$ is the frame count. Five seconds at 16 fps produces 80 frames; at 24 fps it produces 120. A generator must satisfy spatial constraints within each frame and temporal constraints across adjacent frames.
+
+## Why One Terminal Reward Is Not Enough
+
+Video generation can be treated as a sampling trajectory $\tau$. The simplest objective gives one reward after the final video:
+
+$$
+R(\tau)=R_{\text{quality}}+R_{\text{alignment}}+R_{\text{temporal}}+R_{\text{physics}}.
+$$
+
+A five-second video may require roughly 50 denoising steps, each making decisions over latent representations for 80 frames—on the order of four thousand model evaluations. A teleportation defect at second three may arise from only a small part of that decision chain, while the terminal evaluator returns one scalar.
+
+Suppose candidate A scores $(0.9,0.8,0.3,0.35)$ on the four components and candidate B scores $(0.6,0.55,0.6,0.65)$. Equal weighting produces 0.59 for A and 0.60 for B. The totals say only that B is slightly better. The components reveal that A has a localized temporal and causal failure, while B is uniformly mediocre. Those diagnoses require different updates.
+
+The formula above is a teaching template, not a shared objective disclosed by VADER, DanceGRPO, and Seedance. Every component can itself be exploited. Adjacent-frame similarity rewards nearly static videos; unconstrained motion rewards meaningless camera shake. Each reward therefore needs an independent evaluation that was not used for training.
+
+## Three Ways to Apply Video Rewards
+
+### VADER: Differentiate Through the Denoising Chain
+
+[VADER](https://arxiv.org/abs/2407.08737) differentiates a reward through a video diffusion model:
+
+$$
+J(\theta)=\mathbb{E}_{c,\,x_0\sim p_\theta(x_0\mid c)}[R(x_0,c)],
+$$
+
+$$
+\nabla_\theta R(x_0,c)=\sum_{t=0}^{T}
+\frac{\partial R(x_0,c)}{\partial x_t}
+\frac{\partial x_t}{\partial\theta}.
+$$
+
+Backpropagating through the entire chain is memory intensive. VADER keeps gradients only through the last $K$ denoising steps and stops gradients earlier. It combines frame-level HPSv2 and PickScore alignment, a VideoMAE action score, and V-JEPA temporal predictability. Smooth representation dynamics improve temporal stability but do not by themselves prove Newtonian physics.
+
+VADER also extends Stable Video Diffusion autoregressively by feeding the last generated frame into the next segment. Direct extension fails because the model has not trained on its own outputs; a V-JEPA consistency reward reduces the resulting distribution shift. The route is sample efficient because a differentiable evaluator supplies dense pixel-directed gradients, but it requires a stable differentiable reward whose bias becomes the optimization direction.
+
+### DanceGRPO: Normalize Each Black-Box Reward
+
+[DanceGRPO](https://arxiv.org/abs/2505.07818) constructs stochastic transitions for diffusion and rectified-flow sampling, generates a group under one condition, and updates from relative advantages. When rewards have different scales, it normalizes each reward within the group before summing:
+
+$$
+A_i=\sum_{k=1}^{K}\frac{r_i^k-\mu^k}{\sigma^k}.
+$$
+
+The paper reports that HPS-v2.1 alone can produce an unnatural glossy appearance; adding CLIP constrains that failure. In image-to-video generation, the input image already fixes much of content and alignment, leaving motion quality as the principal degree of freedom. Using VideoAlign's motion score produced a 118% relative improvement on that dimension. DanceGRPO can also learn from thresholded binary feedback, but each update must generate a complete group of videos.
+
+### Industrial Reports: Separate Disclosed Facts from Unknown Recipes
+
+Seedance uses a DiT backbone with visual tokens from a VAE and text encoded by a tuned decoder-only language model. Its report describes pretraining, continued training, supervised fine-tuning, and RLHF, plus a separately trained super-resolution refiner. Continued training filters for aesthetics and optical-flow motion; short captions omit static information already supplied by the first frame, forcing alignment toward motion. SFT trains specialized models on curated categories and then merges them.
+
+The report describes direct maximization of multiple rewards during simulated inference and alternating updates of the diffusion model and reward models. It applies RLHF to the refiner as well. Distillation reduces sampling steps, a redesigned VAE decoder gives about a 2× decoding speedup, and the public measurement reports 41.4 seconds for a five-second 1080p video on an NVIDIA L20—about a 10× end-to-end speedup.
+
+LongCat-Video unifies text-to-video, image-to-video, and continuation by varying the number of conditioning frames. It first generates 480p at 15 fps, then uses a LoRA refinement expert for 720p at 30 fps. Block-sparse attention selects the most relevant three-dimensional key blocks and retains under 10% of dense attention computation in the reported setting.
+
+Its GRPO post-training uses LoRA and stabilizes reward normalization with the maximum standard deviation across groups:
+
+$$
+\hat A_{k,t}^{i}=\frac{R_k(x_0^i,c_j)-\mu_k}{\sigma_{\max}}.
+$$
+
+The four disclosed signals cover visual quality, motion, and text-video alignment. A gray-scale VideoAlign reward isolates motion, while a color model checks alignment. Training only HPSv3 drives the model toward static video; the motion reward counteracts that exploit. For a 720p, 93-frame sample, the report reduces 1429.5 seconds for dense 50-step generation to 244.6 seconds after 16-step distillation and 116.5 seconds after coarse-to-fine generation and block-sparse attention.
+
+Product pages for Sora and Veo demonstrate capabilities but disclose only parts of their data, reward composition, and optimizer. Undisclosed industrial recipes should remain labeled as unknown.
 
 Consider a five-second clip of a red ball rolling behind a box and emerging on the other side. Every individual frame can look sharp while the clip still fails: the ball changes size, disappears too early, or emerges before it reaches the box. An image scorer sees several attractive frames. A viewer sees one broken event.
 

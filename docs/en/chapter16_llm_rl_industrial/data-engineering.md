@@ -1,280 +1,190 @@
 # 18.5 Large-Scale RL Data Engineering
 
-[18.2](./industrial-post-training) has already explained that industrial post-training continuously sends failure samples back to the next training round. Now, tracing back along a failure trajectory: how does the team find the original task, how do they recover the environment as it was running, how do they determine whether the model completed the task, and how do they decide whether this trajectory is worth training?
+In a single-machine experiment, training data may be a script, a JSONL file, or one dataset. In industrial RL training, a trajectory passes through task generation, environment execution, scoring, storage, further processing, model updates, and feedback into the next round. A distributed run can generate hundreds of thousands of trajectories per hour. If any stage is poorly managed, large amounts of data are lost or erroneous trajectories repeatedly return to training.
 
-Let's look at a code task. A user reports, "The page does not update after clicking Save." With only this sentence, the model can provide a segment of code modification suggestions, but it cannot obtain reliable rewards through real execution. To turn this into RL data, one also needs to prepare a code repository, the commit before the problem occurred, dependencies, startup commands, tests, and a sandbox. The model's process of reading files, modifying code, and running tests must also be fully recorded. Only after the tests pass can this trajectory become a verifiable training sample.
+This section follows the lifecycle of one trajectory: how a task pool grows from existing datasets and real failures, how the runtime records trajectories, rewards, and intermediate states, how quality control removes invalid samples and non-executable trajectories, and how high-quality data returns to the next round of SFT or reward-model training.
 
-Therefore, a typical data sample in large-scale RL usually contains the following parts:
+---
+
+## Task Production: From Fixed Datasets to Real Failures
+
+**Why one data source is insufficient.** Early RL training often starts from public mathematics, coding, or reasoning datasets. Their quality is stable, but their task distribution is fixed. Once a model has learned those patterns, improvement slows. Failures from real use contain new tool combinations, long reasoning chains, and boundary cases that fixed datasets rarely cover.
+
+Industrial training therefore combines several sources:
+
+- **Academic and public benchmarks:** MATH, GSM8K, AIME, MMLU, HumanEval, MBPP, and similar datasets cover common mathematical and coding skills and work well for cold starts and regression tests.
+- **Synthetic tasks:** templates, programmatic construction, model rewriting, and difficulty control expand the task pool and target specific formats or reasoning patterns.
+- **Interactive-environment tasks:** trajectories involving terminals, browsers, code sandboxes, or external tools cover computer use, software engineering, and multi-turn tool use.
+- **Real failure samples:** failures from internal testing, public testing, or production use include incorrect answers, failed tool calls, malformed output, and inappropriate refusals.
+- **Safety and adversarial data:** jailbreak attempts, sensitive questions, prompts designed to trigger formatting failures, and high-risk tasks teach the model to preserve constraints while solving the task.
+
+MiniCPM 5 uses about 30,000 high-quality seed prompts: roughly two thirds cover general reasoning, mathematics, and coding, while one third covers tool use and agent tasks. In addition to public competition datasets, Kimi K3 extracts tasks from pretraining corpora and combines them with real-world feedback. Qwen-AgentWorld begins with 5,000 seed tasks across 20 domains and expands them to 30,000 tasks over two weeks by running on 60 GPUs in parallel.
+
+**Difficulty control and data scheduling.** Once the task pool grows, tasks should not all appear at the same frequency. Tasks that are too easy provide little update signal; tasks that are too hard fail continuously and create high-variance gradients. Production systems commonly combine the following policies:
+
+- **Prioritize the capability boundary:** track success rates by difficulty and task type, then sample tasks whose recent success rate is between $0.3$ and $0.7$ more frequently.
+- **Emphasize failure cases:** return real errors and high-value failures to the task pool with increased sampling probability.
+- **Counter-skew sampling:** reduce the frequency of task types that already succeed at high rates and allocate capacity to weaker areas.
+- **Stage the curriculum:** emphasize foundational skills early, then add long-horizon, multi-tool, and multi-constraint tasks later.
+- **Continue injecting safety tasks:** even after the main task stabilizes, retain a small proportion of safety and formatting constraints so that capability gains do not erase boundaries.
+
+**Task formats and prompt construction.** The same task can be presented through several prompt forms. A mathematics problem may request only the conclusion or require the reasoning steps. A coding task may provide partial code or only a natural-language description. A tool task may specify the procedure or state only the goal.
 
 ```text
-Task Objective
-  + Initial Environment
-  + Complete Interaction Trajectory of the Model and Tools
-  + Sub-item Results Provided by the Verifier
-  + Generated, Environment, and Model Versions
+Goal: Fix a Python function
+Input: Faulty code and failed test output
+Format A: Modify the code directly
+Format B: Explain the cause, then modify the code
+Format C: Run the tests, inspect the error, modify the code, and run the tests again
 ```
 
-This is significantly different from ordinary SFT data. SFT typically uses "Question—Demonstration Answer" format; RL data must also be **runnable, scorable, replayable, and version-traceable**.
+If training uses only one form, the model may learn only one response pattern. Industrial data pipelines prepare multiple prompt templates, output formats, and context lengths for the same task and mix them during sampling.
 
-## 1. Production Tasks: From Requirements to Training Data
+**Building executable environments.** Tool use, code execution, and browser tasks require a runnable environment rather than a static prompt.
 
-The code problem we discussed earlier is not yet ready for training. It must first be transformed into a clear task, a recoverable environment, a reliable verifier, and a complete trajectory, before it can be added to the training set or evaluation set. The entire process can be broken down into six steps:
+- **Sandbox isolation:** code execution, terminal access, and web access run in isolated environments so that training tasks cannot affect external systems.
+- **Environment standardization:** rollout nodes use the same language and tool versions, dependencies, and network permissions. Otherwise the same trajectory may produce different results on different nodes.
+- **State reset:** reset the file system, database, browser state, and tool sessions before every trajectory so that samples remain independent.
+- **Timeouts and retries:** tool calls may hang, time out, or fail. The data system records the failure type instead of silently discarding the sample.
+- **Multi-environment orchestration:** systems such as Qwen-AgentWorld maintain separate environments for different domains and expose them through a shared interface.
 
-```text
-Real-world requirements, public data, or synthetic seeds
-              ↓
-        1. Construct the Task
-              ↓
-        2. Package the Environment
-              ↓
-        3. Build the Verifier
-              ↓
-        4. Sample Trajectories Multiple Times
-              ↓
-        5. Filter and Annotate
-              ↓
-        6. Enter Training or Evaluation
-              ↓
-       Reconstruct After Failure Analysis
-```
+Task production aims to keep data concentrated around the current model's capability boundary, real failure modes, and safety boundary, rather than merely increasing volume.
 
-### 1.1 Defining Tasks from Real Requirements
+---
 
-The data source determines the problems the model will eventually encounter. Mathematical RL can start from competition problems, textbooks, and synthetic problems; code agents can begin from GitHub issues, PRs, and commits; search agents can start from questions requiring multi-page evidence; and desktop agents come from real workflows or controlled simulation tasks.
+## Data Storage: What One Rollout Must Record
 
-Raw records are not yet training tasks. The data team must clearly define the objective, remove fields that leak answers, and determine the initial state of the task. A GitHub PR can be rewritten into multiple tasks: fixing a bug, adding tests, reviewing a patch, or optimizing performance. The same source can generate data with different capabilities, but they must retain a common source identifier to prevent being mistakenly treated as independent samples.
+**A minimal training record is insufficient for debugging.** Many PPO or GRPO implementations save only the prompt, response, reward, and log-probability. These fields are enough for one gradient update, but they cannot explain why rewards suddenly fall, why one response pattern becomes more common, or why a verifier begins reporting large numbers of errors.
 
-### 1.2 Making the Environment Restartable
+Industrial systems usually save a trajectory at several levels:
 
-RL samples the same task multiple times. Each sample must start from the same state, otherwise, the rewards cannot be compared.
+- **Task level:** prompt, task type, difficulty label, source, environment configuration, and prompt-template version.
+- **Trajectory level:** complete model response, tokens and log-probabilities at each step, generation time, temperature, sampling parameters, and model version.
+- **Interaction level:** tool requests, tool returns, intermediate execution output, browser actions, and error messages.
+- **Reward level:** value and weight from every reward function, aggregation rule, formatting checks, number of unit tests passed, and final score.
+- **System level:** rollout-worker identifier, timestamp, model-checkpoint identifier, environment-image version, and random seed.
 
-A code environment must at least lock the repository commit, dependency versions, system image, startup command, and network permissions. Browser tasks need to lock the website snapshot, account status, and available tools. Long-running agents also need to save intermediate files, external service states, or recoverable checkpoints.
+**Reward-model training also requires paired preferences.** If trajectories will later train a reward model, the system must retain the question, multiple responses to the same question, the preference relation among them, and the source of that judgment—rules, human annotation, or a model judge. MiniCPM 5 automatically generates prompts, performs rollouts, records metadata, and prepares paired preference data for reward-model training during each RL iteration.
 
-An environment build failure is also a data result. It indicates that the sample has not yet met the training standard and cannot be simply attributed to model failure.
+**Large-scale storage and indexing.** One month of distributed RL can easily produce several to tens of terabytes of trajectory data. Storage design commonly includes:
 
-### 1.3 Validating Tasks and Verifiers
+- **Columnar and tiered storage:** store raw text, tensors, and logs separately, and index frequently queried statistics.
+- **Compression and deduplication:** repeated rollouts for one prompt can share prompt storage, while tensors use formats suitable for training recovery.
+- **Checkpoint binding:** bind every trajectory to the checkpoint and parameter version that generated it so that it can be reproduced and replayed.
+- **Failure labels:** label timeouts, environment errors, malformed output, and reward-computation failures separately. Do not mix them directly into training or delete them immediately.
+- **Reproducibility metadata:** record random seeds, environment and dependency versions, and prompt-template versions so that the same configuration can be rerun when necessary.
 
-The verifier is responsible for converting execution results into rewards. When building a verifier, it is essential to first run a known correct solution to confirm that the task is solvable; then test with clearly incorrect solutions to ensure the verifier does not overlook errors.
+**More fields are not always better.** Every additional field increases storage, cleaning, and query costs. Preserve fields that affect gradient computation, reward reproduction, and fault diagnosis. Large intermediate tensors with little debugging value can be sampled or replaced by aggregate statistics.
 
-Code tasks often use two sets of tests: one that fails before the fix and passes after the fix, proving the problem has been resolved; and another that was already passing to check whether the changes have broken existing functionality. Application development tasks are difficult to pre-write all tests, so one can let the verification agent launch the application, interact with the interface, and then score based on executability, interaction results, and visual requirements.
+---
 
-A reliable reward should retain sub-item results:
+## Quality Control: Stop Errors Before Training
 
-| Reward Item          | What It Checks                                            | What Problem It Can Identify                    |
-| -------------------- | --------------------------------------------------------- | ----------------------------------------------- |
-| Environment Validity | Whether the environment successfully starts               | Data or infrastructure errors                   |
-| Task Completion      | Whether core tests or objectives are met                  | The model has not solved the main problem       |
-| Regression Check     | Whether existing capabilities remain normal               | Side effects from changes                       |
-| Behavior Constraints | Whether there is overstepping, timeouts, or invalid loops | Tool strategies and safety issues               |
-| Cost                 | Token, time, and tool usage                               | Whether the task is completed too inefficiently |
+**A correct reward does not guarantee a learnable trajectory.** A high score may result from a verifier vulnerability, answer leakage, a formatting bypass, or an environment fault. A low score may result from a broken reward function, an incorrect test, or a tool timeout. Without filtering, these errors enter the gradient directly.
 
-Saving only a total score will prevent subsequent teams from understanding why the reward changes.
+Common data-quality checks include:
 
-### 1.4 Recording the Full Trajectory of the Current Policy
+- **Format validation:** verify the required structure, tags, fields, JSON, and code blocks.
+- **Reward sanity checks:** confirm that scores lie in the expected range, component rewards do not conflict, and perfect or zero scores have not suddenly become universal.
+- **Executability checks:** compile or interpret code, validate tool arguments, and confirm that browser actions can actually run in the environment.
+- **Duplication and leakage detection:** detect responses that copy reference answers without derivation, reuse fixed training templates, or expose system prompts and environment output.
+- **Abnormal-trajectory filtering:** flag unusually long or short generation, tool-call loops, repeated calls to one tool, and meaningless output.
+- **Environment-consistency checks:** compare the same task across nodes. If results differ, mark the environment as unstable instead of assigning an immediate zero reward.
 
-Multiple trajectories need to be generated for the same task, as the model may attempt different approaches. Each trajectory should record the input, model action, tool parameters, environment return, time, and termination reason for each step. The model version, sampling parameters, and agent scaffold that generated the trajectory must also be saved.
+**Rule-based filtering precedes model-based filtering.** Rules can quickly catch formatting errors, syntax errors, timeouts, and reward-service failures. Reward models or additional judge models are reserved for cases that rules cannot decide.
 
-These version fields directly influence the training process. If the trajectories in an asynchronous system come from an earlier model, the training side needs to decide whether to continue using them, apply importance sampling corrections, or discard them. If a task only appears in one scaffold, the model may learn the outer template without truly learning to solve the task.
+**Filtering does not mean deleting.** Rejected trajectories still provide useful evidence:
 
-### 1.5 Distinguishing Between Invalid Failures and Learnable Failures
+- environment errors and tool timeouts reveal sandbox and dependency faults;
+- formatting failures help improve prompt templates and constraint training;
+- reward anomalies expose reward hacking and verifier vulnerabilities;
+- repeatedly failed high-value tasks can enter human annotation, prompt revision, or environment repair queues.
 
-Successful trajectories are suitable for use as SFT demonstrations and can also participate in RL. Failed trajectories cannot be entirely deleted: the training value of three types of failure—model making a mistake in the last step, calling the wrong tool, or the environment crashing midway—is completely different.
+**Data-quality monitoring.** During training, systems continually track:
 
-When filtering, first distinguish among four categories of results:
+- mean reward, pass rate, and length distribution for each task type;
+- perfect-score, zero-score, and reward-clipping rates;
+- formatting-error, tool-failure, and environment-error rates;
+- response duplication, fixed-template matches, and suspicious bypass behavior;
+- differences among workers and time windows.
 
-| Result              | Eligible for Training | Handling Method                                               |
-| ------------------- | --------------------- | ------------------------------------------------------------- |
-| Invalid Environment | No                    | Resample after fixing the environment                         |
-| Unreliable Verifier | No                    | Modify rules and recalculate historical samples               |
-| Learnable Failure   | Yes                   | Retain the trajectory, failure location, and per-step rewards |
-| Model Success       | Yes                   | Check for exploiting loopholes, then enter SFT or RL          |
+If one rollout node suddenly reports a much higher perfect-score rate than the others, its environment version may differ or its cache may leak answers. If one task type abruptly receives perfect scores across the board, the reward function may have been bypassed. If response length keeps falling without an improvement in reward, the model may have found a short-answer shortcut.
 
-RL also requires controlling difficulty. If the model successfully samples all instances of a particular problem, there is typically little learning signal left; if all samples fail, it may indicate that the task is too difficult or the verifier is problematic. DAPO's dynamic sampling prioritizes retaining questions that have both successful and failed samples within the group.
+**Defending against data poisoning and reward hacking.** Industrial systems often encounter behavior that exploits the training system rather than obvious malformed data. Examples include:
 
-### 1.6 Split Training, Replay, and Evaluation
+- emitting a special statement that skips tests in a coding task;
+- repeating keywords from the question to trigger a matching reward;
+- choosing a tool path that always returns success without completing the goal;
+- using crafted formatting in multi-turn interaction to interfere with a judge model.
 
-Cleaned data should not be directly placed into the same directory. At least three data pools should be established with clear purposes:
+These patterns are rarely visible from one sample alone. Detection must combine response distributions, tool-call sequences, decomposed reward items, and human sampling. Once a high-risk vulnerability is confirmed, repair the reward function or environment before resuming training.
 
-- **Task Pool** stores tasks and environments that have not yet been sampled or are ready for further sampling.
-- **Trajectory Pool** stores successful, failed, and intermediate states, used for SFT, RL, distillation, and replay.
-- **Evaluation Pool** is only used for independent checks, not involved in training, and cannot be indirectly seen by the task synthesizer.
+---
 
-Samples generated from the same GitHub repository, the same web source, or the same synthetic template should be grouped and split by their source. Randomly splitting each sample individually can easily lead to highly similar tasks entering both the training set and the evaluation set simultaneously, resulting in artificially inflated performance metrics.
+## Data Feedback: From RL Trajectories to the Next Training Round
 
-## 2. Saving Data: Making Each Trajectory Trackable and Replayable
+**RL data is not used only once.** Large-scale training is rarely one dataset followed by one PPO run. Responses, preferences, and failures generated during RL return to SFT, reward-model training, and the task pool for the next RL round.
 
-After the production line obtains tasks and trajectories, the next step is to save them in a format that allows querying, replaying, and re-evaluation. The field table specifies what to record, hierarchical storage preserves the origin of the data, and replay records ensure that historical trajectories can be rerun.
+### Returning to SFT
 
-### 2.1 What Fields Should Be Recorded for a Trajectory
+High-quality responses verified by rules, passing tests, or human review can become supervised fine-tuning data:
 
-After completing the six steps, the task, environment, actions, and rewards must be able to be re-associated. Below is a minimal field table. Real systems can split these into databases and object storage, but they must not lose the relationships between the fields.
+- distill complete high-scoring responses back into the base model to stabilize formats and solution procedures;
+- convert trajectories that recover from failure into error-to-correction pairs;
+- structure tool-use trajectories so that the model learns when to call a tool and how to interpret its result;
+- filter long responses so that verbose but ineffective reasoning does not return wholesale to SFT.
 
-| Category    | Key Fields                                                                                             |
-| ----------- | ------------------------------------------------------------------------------------------------------ |
-| Task        | `task_id`, capability domain, source, goal, difficulty, data license                                   |
-| Environment | Image or snapshot version, initial state, tool list, network and permission policies                   |
-| Generation  | Model version, policy version, sampling parameters, scaffold, start and end time                       |
-| Trajectory  | Observation per step, action, tool response, token count, termination reason                           |
-| Validation  | Validator version, sub-reward, total reward, test log, whether human re-evaluation is needed           |
-| Governance  | Deduplication cluster, training/evaluation split, quality status, creation time, upstream data version |
-
-Among these, the **validator version** is often overlooked. After rule changes, the reward of the same trajectory may change. Without a version number, the team cannot explain why the training curve suddenly changes, nor can they recalculate historical data.
-
-### 2.2 Retaining Data at Each Layer with UltraData
-
-Wallace and Tsinghua University's UltraData divides general data into layers L0 to L4: from traceable raw data, through cleaning, deduplication, quality selection, and deep processing, toward organized, verifiable knowledge resources. The paper discusses data management that spans pre-training, mid-training, and alignment, and does not directly define RL trajectories as another set of L0 to L4.
-
-In RL engineering, we can borrow its idea of "layered without overriding upstream data":
-
-| Borrowed Layer   | RL Data Example                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------- |
-| Raw Layer        | Issues, PRs, web pages, user tasks, or public problems                                            |
-| Cleaned Layer    | Deduplicated, anonymized, license-checked, and traceable task candidates                          |
-| Executable Layer | Locked environments, tools, and verifiers, capable of repeatable tasks                            |
-| Trajectory Layer | Successful and failed trajectories with model versions, environment returns, and per-step rewards |
-| Training Layer   | Bucketed by difficulty, domain, and purpose, suitable for SFT, RL, OPD, or evaluation             |
-
-This table represents an engineering adaptation of the UltraData idea, not the official RL data classification proposed in the paper. The key principle is to retain upstream data: if only the final training JSONL is saved, it will be impossible to reconstruct the data from the original tasks when validation rules fail.
-
-### 2.3 How to Save Replayable Trajectories
+SFT feedback stabilizes output formats, restores general capabilities degraded during RL, and consolidates newly learned tool behavior into a stronger starting checkpoint.
 
-The following JSON illustrates the field relationships. Large logs, container images, and per-token probabilities are typically stored in object storage, with the records storing the location and checksum.
+### Returning to the Reward Model
 
-```json
-{
-  "task_id": "swe-01942",
-  "source": {
-    "type": "github_pr",
-    "group_id": "repo-318",
-    "license_status": "approved"
-  },
-  "environment": {
-    "image_digest": "sha256:...",
-    "base_commit": "8c27...",
-    "tools_version": "code-agent-v4"
-  },
-  "generation": {
-    "policy_version": "step-1840",
-    "scaffold": "test-driven-v2",
-    "temperature": 0.8
-  },
-  "trajectory_uri": "object://rl-runs/run-77/trajectory.jsonl",
-  "verification": {
-    "verifier_version": "swe-verifier-v6",
-    "environment_valid": true,
-    "task_reward": 1.0,
-    "regression_reward": 1.0,
-    "cost_penalty": -0.08,
-    "termination": "success"
-  },
-  "governance": {
-    "split": "train",
-    "dedup_cluster": "cluster-9021",
-    "quality_status": "accepted"
-  }
-}
-```
+RL rollouts naturally produce several responses to the same prompt and therefore supply reward-model or judge-model data:
 
-When replaying, the system restores the container based on the environment summary, starts from the same commit, re-executes the trajectory according to the recorded tool protocol, and calculates the rewards using the same version of the verifier. Only when the replay results are consistent does the training data possess basic auditability.
+- use a high-scoring response as `chosen` and a low-scoring response as `rejected` for the same prompt;
+- use rules for clear errors and supplement difficult preference cases with human labels or model judges;
+- construct pairs by task type, difficulty, and score gap so that the reward model learns more than extreme good-versus-bad distinctions;
+- group safety, factuality, and formatting constraints separately so that the main-task score does not overwhelm boundary signals.
 
-## 3. Quality Control: Stopping Errors Before They Enter Training
+The updated reward model then returns to RL, creating a joint iteration loop between the policy and reward model. MiniCPM 5 uses trajectories generated in each RL round to train the next reward model, forming this feedback cycle.
 
-Data has been saved, but that does not mean it is suitable for training. Next, we need to set up quality gates along the production line, use training dashboards to observe the data that has entered the system, and finally combine this with open projects to understand how these checks are implemented in real-world systems.
+### Returning to the Task Pool
 
-### 3.1 How Data Errors Propagate Along the Production Line
+Failed trajectories expand the task pool in the opposite direction:
 
-Data errors can amplify along the production line, so we cannot only check once when exporting JSONL. Each stage should answer a question before the data proceeds to the next step.
+- repeatedly missed real tasks re-enter the next round with increased sampling weight;
+- new tools, APIs, and page types become new training tasks;
+- discovered reward-hacking paths become adversarial tasks that test the vulnerability;
+- anonymized real user requests bring the task distribution closer to deployment.
 
-1. **Source Gate**: Is the data allowed to be used? Does it contain privacy information, keys, or evaluation answers?
-2. **Task Gate**: Is the goal clear? Can the task be completed from the specified initial state?
-3. **Environment Gate**: Can the environment be restarted? Are external dependencies stable?
-4. a **Validation Gate**: Can correct solutions pass, and do obvious errors fail? Is the reward easy to exploit?
-5. **Trajectory Gate**: Are the actions and tool returns complete? Are there truncations, timeouts, or service errors?
-6. **Training Gate**: Are the difficulty, domain, length, and success rate balanced? Is there overlap with the evaluation set?
+### Closing the Loop with Safety Data and Evaluation Sets
 
-Early errors can propagate to later stages. A missing dependency in a code environment can cause all rollouts to fail. If the system attributes this to model capability, the difficulty scheduling will continue to increase such tasks, and training compute will be continuously wasted on invalid samples. The purpose of phased gates is to explain the origin of errors before they enter downstream processes.
+Industrial post-training also places red-team tests, safety evaluations, and formatting-robustness tests inside the data loop:
 
-### 3.2 How Training Dashboards Identify Data Failures
+- jailbreak and high-risk requests continually enter safety and refusal training;
+- prompts that trigger malformed output, hallucination, or tool misuse enter the regression suite;
+- every model update is evaluated on both a fixed benchmark and newly collected failures so that capability gains do not reintroduce old problems.
 
-In addition to the total reward, training dashboards should at least preserve the following metrics:
+**Data versioning.** Task sets, reward functions, prompt templates, environment images, and cleaning rules all require versions. Every experiment must be able to answer which prompts, environment, reward version, and filtering rules it used. Without versioning, even a better checkpoint cannot be traced back to the data change that produced it.
 
-- **Environment Success Rate**: Whether the environment can be started, dependencies are installed, and services are called correctly.
-- **Effective Trajectory Rate**: After excluding service errors, truncations, and format damage, how many trajectories remain?
-- **Task Success Rate Distribution**: Observe by domain, difficulty, source, and environment version to avoid local failures being masked by averages.
-- **Intra-Group Reward Variance**: Determine whether there is still learnable signal in a batch of tasks.
-- **Validator Disagreement Rate**: Whether there is a systematic disagreement between rules, model judges, and human verification.
-- **Trajectory Length and Cost**: When success rate increases, are token, time, and tool call costs out of control?
-- **Strategy Staleness**: How many steps behind the current training version is the trajectory generation?
-- **Redundancy and Evaluation Contamination**: Does the new data overlap with existing tasks, evaluation questions, or source-related variations?
+The scale of industrial RL is therefore measured by more than its GPU count. Data must be produced, stored, cleaned, and fed back continuously while remaining traceable across repeated training rounds.
 
-When a reward spike occurs, first check the environment success rate and validator version, then check the model capability. Validator widening, test service timeouts defaulting to pass, and webpage snapshots changing can all create false reward improvements.
+---
 
-### 3.3 How Public Projects Implement This Data Line
+## Section Summary
 
-The previous six steps form a general production line, and different projects reinforce different aspects within this framework. Below, we only compare the confirmed practices from publicly available materials, without inferring undisclosed data volume, human processes, or mixing ratios.
+- A task pool cannot rely only on fixed public datasets. It must combine synthetic tasks, interactive environments, real failures, and safety data, with sampling scheduled around the model's capability boundary.
+- A rollout must preserve task, trajectory, interaction, reward, and system metadata for gradient computation, diagnosis, and reproduction.
+- Quality control covers formatting, executability, reward sanity, environment consistency, and reward-hacking detection.
+- RL data returns to SFT, reward-model training, the task pool, and safety evaluation, forming a continuous iteration loop.
+- Large-scale RL data engineering aims to keep data executable, verifiable, traceable, and reusable across training rounds rather than simply storing more of it.
 
-| Team and Public Project | Data Engineering Focus                                                                                                       | What Can Be Learned                                                                         |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| FeiWall MiniCPM5        | Domain-specific RL Teachers, Reusing Domain Prompts for OPD, UltraData Hierarchical Management                               | How expert capabilities are integrated into a small model                                   |
-| Moonshot Kimi K3        | Knowledge Graph-Guided Task Synthesis, Composable White-Box Environments, Multi-Stage Validation and Human Review            | How tasks, tools, contexts, and scaffolds together form a training configuration            |
-| MiniMax M2.1            | GitHub PR to Docker Environment, Diverse Tasks, Multiple Scaffolds, Validation Agent                                         | How real software events become large-scale verifiable data                                 |
-| Qwen-AgentWorld         | Containers, MCP, and Multi-Type Simulators, Next-State Prediction, Turn-Level Filtering, Hybrid Rewards                      | How to filter out the parts of a trajectory that truly contain environmental information    |
-| Byte Seed / DAPO        | DAPO-Math-17k, Dynamic Sampling, Long Trajectory Handling                                                                    | How to allocate computing power to problems that still have learning signals                |
-| GLM-5.2 / slime         | Environment and Validator Interface, Continuous Data Buffering, Single-Trajectory Asynchronous RL, Policy Version Management | How agent trajectories of varying lengths can be continuously fed into training             |
-| NVIDIA Cascade 2        | Multi-Domain Cascade RL, Staged Teachers, On-Policy Distillation, Open RL Data                                               | How to use intermediate teachers to fix capability regression caused by subsequent training |
+This completes the path from single-machine algorithms through preference optimization, industrial feedback loops, stability, distributed training, and data engineering. The next chapter turns to a more specific direction with major recent impact. [Chapter 19, The Emergence of Reasoning and o1-Style Training](../chapter19_reasoning/emergence-and-o1), begins with capability emergence, pure-RL reasoning training, test-time scaling, and hybrid thinking.
 
-These projects employ different algorithms, yet their data pipeline is highly consistent: **transform the task into an executable environment, record the full trajectory of the current policy, use a reliable verifier to score, and then select the next batch of data based on difficulty, domain, and version.**
+## Further Reading
 
-## 4. Data Recycling: Feeding Failures and Expert Signals into the Next Round
-
-Trajectories that have passed quality control have two destinations: successful and failed samples enter the next round of training, while domain teachers provide more detailed per-token signals. The OPD of MiniCPM5 demonstrates the second approach, which also explains why data recycling still relies on the previous steps of task, environment, trajectory, and version recording.
-
-### 4.1 How MiniCPM5 Merges Expert Capabilities with OPD
-
-The MiniCPM5-1B, released by FaceMe and OpenBMB, adopts a three-step training process: SFT, RL, and OPD. During the RL phase, domain-specific teachers are trained for tasks such as mathematics, coding, closed-book QA, and writing. The OPD then merges the capabilities of these teachers into a released model.
-
-Let us first understand OPD intuitively. The student model faces a coding problem and generates an answer based on its current policy. The teacher observes the prefix already generated by the student and provides a more suitable probability distribution for the next token. The student gradually adjusts its distribution. Since the trajectory comes from the student's current policy, the teacher corrects the states the student would actually encounter.
-
-This process reuses the prompt pool used during the training of domain teachers, reducing the need for additional question curation. The data system still needs to record several additional pieces of information: which domain the prompt belongs to, which student policy sampled it, which teacher was used, whether the distillation signal was normal, and how the length and accuracy changed before and after training. The full logits of the teacher can be transmitted online and do not necessarily need to be stored long-term; versions and aggregated statistics must be retained to reproduce the experiment.
-
-OPD addresses the question of **how to merge multiple experts into a single model.** The domain tasks, environments, and verifiers still need to be prepared by data engineering. It cannot replace the previous six-step production line.
-
-### 4.2 Token-wise Training Signal for OPD
-
-Let the student's distribution be $p_\theta(\cdot\mid x_{<t})$ given the prefix $x_{<t}$, and the teacher's distribution be $q(\cdot\mid x_{<t})$. The implementation of MiniCPM5 published uses the reverse KL divergence:
-
-$$
-D_{\mathrm{KL}}\!\left(p_\theta\|q\right)
-=
-\sum_a p_\theta(a\mid x_{<t})
-\log\frac{p_\theta(a\mid x_{<t})}{q(a\mid x_{<t})}.
-$$
-
-The student first samples a trajectory according to $p_\theta$, then compares the student and teacher distributions at each position. To reduce computation and communication, MiniCPM5 takes the top-$k$ tokens from both distributions and approximates the calculation over their union. This signal is denser than a single 0/1 reward at the end of the response.
-
-Each term in the summation can be understood as a token-wise comparison. If the student assigns a probability of $0.6$ to token A, and the teacher assigns $0.3$, then $\log(0.6/0.3) = \log 2 > 0$, and this term will push the student to reduce overconfidence in A. If the probabilities are the same on both sides, the term is zero. The summation is weighted by the student's probability $p_\theta$, so the training focuses on the tokens that the student is most likely to choose. The top-k approximation retains only the most probable candidates from both sides, thus preserving the main differences with minimal communication overhead.
-
-On the data side, three things need to be carefully checked: the student's trajectory and the teacher's score use the same tokenizer; the chat template and tool protocol of the teacher and the student are consistent; and each trajectory can be traced back to a specific version of the teacher and the student. If any of these aspects drift, the token-wise signal will lose its comparability.
-
-## Summary of This Section
-
-- The basic unit of large-scale RL data is a combination of tasks, environments, trajectories, verification results, and version information.
-- Data production proceeds sequentially through task construction, environment packaging, verifier setup, trajectory sampling, filtering and annotation, and training partitioning.
-- Task pools, trajectory pools, and evaluation pools serve different purposes; samples from the same source should be grouped and split to prevent evaluation leakage.
-- OPD can consolidate the capabilities of multiple domain teachers, provided that reliable domain tasks, environments, and prompt pools are prepared first.
-- The goal of data engineering is to ensure that each reward is explainable, each trajectory is replayable, and each failure leads to improvements in the next round.
-
-## Open Resources
-
-- [OpenBMB: MiniCPM5-1B Training Process and OPD](https://github.com/OpenBMB/MiniCPM#-minicpm5-1b)
-- [UltraData: Tiered Data Management](https://arxiv.org/abs/2602.09003)
-- [Thinking Machines Lab: On-Policy Distillation](https://thinkingmachines.ai/blog/on-policy-distillation/)
-- [Moonshot AI: Kimi K3](https://github.com/MoonshotAI/Kimi-K3)
-- [MiniMax M2.1: Post-Training Experience for Agent Models](https://www.minimax.io/news/post-training-experience-and-insights-for-agent-models)
-- [Qwen-AgentWorld](https://qwen.ai/blog?id=qwen-agentworld)
-- [Qwen-AgentWorld Official Repository](https://github.com/QwenLM/Qwen-AgentWorld)
-- [Byte Seed and Tsinghua AIR: DAPO](https://github.com/BytedTsinghua-SIA/DAPO)
-- [THUDM: slime](https://github.com/THUDM/slime)
-- [GLM-5.2: Single-rollout Asynchronous Optimization](https://arxiv.org/abs/2607.07508)
-- [NVIDIA: Nemotron-Cascade 2](https://research.nvidia.com/labs/nemotron/nemotron-cascade-2/)
-- [AI2: Open Instruct / Tülu 3 RLVR](https://github.com/allenai/open-instruct)
+- [MiniCPM5 Technical Report](https://arxiv.org/abs/2601.04962)
+- [Kimi K3 Technical Report](https://arxiv.org/abs/2504.12593)
+- [Qwen-AgentWorld](https://arxiv.org/abs/2506.07340)
+- [SimpleRL-Zoo](https://github.com/hiyouga/SimpleRL-Zoo)
+- [SLIME](https://arxiv.org/abs/2602.02779)
+- [DeepSeek-V3 Technical Report](https://arxiv.org/abs/2412.19437)

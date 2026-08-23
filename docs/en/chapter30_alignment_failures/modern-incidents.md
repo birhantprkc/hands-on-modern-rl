@@ -1,4 +1,4 @@
-# 25.2 How to Tell Whether RLVR Gains Are Real: Contamination and Verifier Exploits
+# 25.2 Spurious Gains in RLVR
 
 Suppose a math model receives reward 1 whenever an answer extractor finds the expected final string. During training, its reward rises from 0.40 to 0.85. That curve alone does not tell us what changed. The model may have learned reusable reasoning, memorized public questions, adapted to the extractor's format, or found a string that the verifier accepts incorrectly.
 

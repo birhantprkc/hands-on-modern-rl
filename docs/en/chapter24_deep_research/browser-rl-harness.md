@@ -4,6 +4,109 @@ title: '21.1 Browser RL Harness'
 
 # 21.1 Browser RL Harness
 
+A **Browser RL Harness** turns web pages, search engines, and a model into a repeatable reinforcement-learning environment. The model can search, read, save evidence, and receive rewards from its final answer and citations.
+
+Consider the question, “Where did the first author of a particular paper complete their undergraduate degree?” Searching the paper title yields only a name. The agent must find an author page or CV, disambiguate people with the same name, and preserve the passage that supports its conclusion. This is no longer one text generation. The model repeatedly chooses the next query, page, evidence item, and stopping time. The harness records those decisions as a trainable, replayable, scoreable trajectory.
+
+<img src="../../chapter24_deep_research/images/browser-rl-harness-loop.svg" alt="A Browser RL Harness connects a research question, web environment, agent actions, evidence, verifier, and training reward">
+
+## Complete One Minimal Research Trajectory
+
+Imagine three prepared pages. Page A is the paper page and lists the first author as “Chen Li.” Page B belongs to a different engineer with the same name. Page C is the correct author's university profile and contains education history.
+
+On the first attempt, the model searches “Chen Li undergraduate university,” opens B, and answers immediately. Its prose is polished and the citation is reachable, but the evidence identifies the wrong person. On the second attempt, it obtains the author's affiliation from A, searches for “name + affiliation + education,” and opens C. The name, affiliation, and education record now form one checkable chain:
+
+```text
+search("paper title")
+→ open(paper page)
+→ extract(first-author name and affiliation)
+→ search("name + affiliation + education")
+→ open(university page)
+→ cite(education passage)
+→ answer(university)
+```
+
+The harness must retain four kinds of information: what the agent observed, which action it chose, what the web returned, and why the final result received its score. Without any one of them, a failed run cannot be assigned to the model, environment, or verifier.
+
+## What the Harness Encapsulates
+
+### Observations
+
+An observation $o_t$ can be a search result, extracted page text, DOM summary, screenshot, download, or earlier research notes. The complete browser state is larger than what the model sees, so the task is partially observable. A screenshot does not state whether an overlay blocks a button, while extracted text may lose table headers. Training and evaluation must use the same observation format.
+
+### Actions
+
+The smallest useful action space is:
+
+```text
+search(query)
+open(url)
+answer(text)
+```
+
+A real browser adds `click`, `type`, `scroll`, `download`, `back`, and `extract`. More realistic actions cover more websites but also introduce parsing errors, timeouts, and irreproducible state.
+
+### Transitions
+
+After `open(url)`, the harness waits for loading, follows redirects, extracts content, and returns a new observation:
+
+$$
+s_{t+1}\sim P(s_{t+1}\mid s_t,a_t).
+$$
+
+$s_t$ is the complete browser and workspace state and $a_t$ is the model action. The transition is stochastic because one URL can change over time and network requests can fail.
+
+### Reward and Termination
+
+After submission, a verifier can check short-answer correctness, citation reachability, whether cited passages support the claim, and whether the tool budget was exceeded. Success, a maximum step count, or an unrecoverable error ends the episode:
+
+$$
+\tau=(o_0,a_0,o_1,a_1,\ldots,o_T,a_T,R).
+$$
+
+The formula simply requires the system to preserve the order of observations and actions so that RL can identify which search and reading decisions tend to produce reliable answers.
+
+## A Minimal Interface
+
+```python
+class TinyResearchEnv:
+    def __init__(self, search_backend, verifier, max_steps=8):
+        self.search_backend = search_backend
+        self.verifier = verifier
+        self.max_steps = max_steps
+
+    def reset(self, question):
+        self.question, self.history, self.steps = question, [], 0
+        return {"question": question, "history": []}
+
+    def step(self, action):
+        self.steps += 1
+        if action["name"] == "search":
+            observation = self.search_backend.search(action["query"])
+            reward, done = 0.0, False
+        elif action["name"] == "open":
+            observation = self.search_backend.open(action["url"])
+            reward, done = 0.0, False
+        elif action["name"] == "answer":
+            observation = {"status": "submitted"}
+            reward = self.verifier.score(self.question, action["text"], self.history)
+            done = True
+        else:
+            observation, reward, done = {"error": "unknown action"}, -0.1, False
+        self.history.append((action, observation))
+        return observation, reward, done, self.steps >= self.max_steps
+```
+
+Smoke-test this environment with a fixed rule agent before introducing a language model. Verify that observations are stable, invalid actions are rejected, step limits terminate episodes, and the same input can be replayed. This separates a broken environment from a poor policy.
+
+## Three Web Environments, from Simple to Real
+
+- **Search API** returns structured titles, snippets, and URLs. It is fast, cacheable, and suitable for studying when to search and how to rewrite queries. Search-R1 also masks retrieved tokens so that environment text does not enter the policy loss.
+- **Page-text extraction** adds `open(url)`, source checking, and citation passages. It must distinguish inaccessible pages, extraction failures, and accessible pages that genuinely lack the answer.
+- **Playwright browser control** adds clicks, typing, scrolling, and downloads. It handles real websites but is sensitive to popups, captchas, redesigns, and network variation.
+
+Production systems commonly combine them: use search APIs to find candidates, extract ordinary pages as text, and launch a full browser only for dynamic sites. The harness must record the cost and failure rate of every tool so that higher accuracy from ten times more browser calls is not mistaken for a better policy.
+
 Previous sections discussed multi-turn RL credit assignment, trajectory synthesis, and tool-use training for Web Agents and Code Agents. Now we look at an application that integrates all of these: the **Deep Research Agent**. Its goal is to make AI behave like a human researcher — autonomously conducting long-horizon, multi-step information search, analysis, and synthesis, ultimately outputting a trustworthy research report.
 
 In 2025-2026, Deep Research Agents became one of the most active directions in Agentic RL. This section covers six layers: global understanding, reasoning paradigms, core systems, reward design, data synthesis, and evaluation.

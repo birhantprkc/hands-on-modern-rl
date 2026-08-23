@@ -1,6 +1,10 @@
-# 24.1 Reward Design for Audio
+# 24.1 Audio Reward Design: Content, Prosody, and Real-Time Interaction
 
-> [Chapter 23: VLM RL](../chapter26_vlm/vlm-challenges) extends reinforcement learning from text to visual understanding. Chapter 24 continues along the multimodal path: Sections 24.1–24.2 discuss audio reasoning, rewards, and speech agents, while 24.3 connects perception to robot actions. Sections 24.4–24.5 then shift back to image and video generation. These three paths face the same question: when inputs, actions, and outputs are no longer just text tokens, how can rewards describe the quality of real-world tasks? We begin with speech, analyzing the modality-grounded reasoning of Step-Audio-R1, and the reason why Step-Audio-R1.5 shifts from RLVR to RLHF.
+Consider a three-second recording: a woman says, “It will rain tomorrow; remember an umbrella,” in a calm, slow voice with faint keyboard noise behind her. Asked for the speaker's emotion, the model answers “calm.” The answer is correct. Yet when the response is synthesized, the model uses the same pitch and rhythm for comfort, warnings, and jokes. The user does not say that the answer is wrong; the user simply does not want another conversation.
+
+This is the central difficulty of audio RL. End-to-end speech interaction carries three layers of information: **what is said (content), how it is said (prosody), and how quickly it is delivered (real-time behavior)**. Rewarding only the first layer can degrade the other two. This section develops audio tokenization and a three-layer reward, then follows Step-Audio-R1 and Step-Audio-R1.5 to show how a single metric creates traps and how multidimensional feedback restores interaction quality.
+
+![Step-Audio-R1 model overview](../../chapter27_audio_rl/images/step-audio-r1-overview.png)
 
 ## Overview of Audio Language Models
 
@@ -128,11 +132,19 @@ $$R_{\text{audio}}(r, a) = 0.8 \cdot \mathbb{1}[a = a^*] + 0.2 \cdot \mathbb{1}[
 
 The design of the weights 0.8 + 0.2 is intentional: **the 0.2 format reward prevents reasoning collapse**. Ablation experiments show that without the format reward, the number of reasoning tokens drops from 2800 to 1500, and MMAU accuracy falls from 77.7 to 76.5. RL optimizers naturally favor "most token-efficient" strategies—directly giving answers—so explicit rewards for "thinking behavior" are needed to preserve the reasoning chain.
 
+![Format-reward ablation](../../chapter27_audio_rl/images/format-reward-ablation.png)
+
+![Reasoning-length collapse without the format signal](../../chapter27_audio_rl/images/reasoning-collapse.png)
+
 ::: details Data Filtering in MGRD: pass@8 ∈ [3, 6]
 
 RL datasets are only 5000 samples in size, but of very high quality. For each question, we sample $k=8$ times using the previous model, and **only retain questions with pass@8 ∈ [3, 6]**—neither too easy (pass@8 > 6, which offers little learning) nor too hard (pass@8 < 3, which is often due to ambiguous questions).
 
 Experiments compare three data strategies:
+
+![Reward under different data-selection strategies](../../chapter27_audio_rl/images/data-selection-reward.png)
+
+![Data selection changes reasoning length](../../chapter27_audio_rl/images/data-selection-tokens.png)
 
 | Data Strategy                        | Final Reward             | Reasoning Length Stability |
 | ------------------------------------ | ------------------------ | -------------------------- |
@@ -236,6 +248,8 @@ RLVR Objective = Answer Accuracy → Model learns "most token-efficient" → Res
 RLVR optimizes "what to say" (content), while users care about "how to say it" (style). When these two aspects are decoupled, the model degrades into a **question-answering machine**—technically accurate, but experientially hollow.
 
 ### Step-Audio-R1.5: From RLVR to RLHF
+
+![Step-Audio-R1.5 benchmark ranking](../../chapter27_audio_rl/images/step-audio-r1.5-ranking.png)
 
 R1.5 Solution: **Use RLHF to Augment RLHF** — Train a holistic preference reward model that distills correctness, fluency, and emotional resonance into a unified supervisory signal.
 

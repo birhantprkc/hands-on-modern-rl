@@ -4,6 +4,8 @@ Sections 17.2 through 17.4 have already established the ability to determine whe
 
 Search during reasoning saves intermediate states and distributes computation among "which path to expand, how many branches to keep, and when to backtrack." This section observes four approaches on the same quadratic equation: how independent sampling wastes prefixes, how beam search fixes the number of paths to keep, how tree of thoughts allows backtracking, and how Monte Carlo Tree Search (MCTS) balances known high-scoring paths with paths that have not been sufficiently explored. Finally, we use code to test when additional search is worth the cost.
 
+<img src="../../chapter20_prm_search/images/inference-search-tree.svg" alt="Inference-time search reuses shared prefixes and scores branches to expand, retain, or stop">
+
 ## 1. Why Intermediate Reasoning Needs to Be Reused
 
 Suppose the model has correctly written $(x+2)(x+3)=0$, and the next step is simply to set each factor to zero. Another path, however, calculates the discriminant $25-24$ as $-1$. Independent sampling would generate both paths to the end; with intermediate evaluation, the system can continue expanding the first path and stop the second path early.
@@ -193,6 +195,8 @@ Where:
 The first term $Q(n)$ represents the observed average value. The second term increases with the parent node's visit count $N(p)$, but decreases with the current node's visit count $N(n)$, thus prioritizing the exploration of less-visited child nodes. A larger $c$ makes the search more willing to try new branches, while a smaller $c$ focuses the search on the current high-scoring branches. In practice, we often first visit unexplored child nodes, or add a small smoothing term to the denominator to avoid division by zero when $N(n) = 0$.
 
 For example, if two child nodes have the same average score of 0.6, one has been visited 20 times, and the other only 2 times. The second term will give the node with 2 visits a higher UCB until it accumulates enough evidence. Here, the $Q$ value can come from the final result, PRM, or a combination of both.
+
+Take $c=1.414$ and a parent visited 100 times. Child A has $Q=0.8$ and $N=50$, giving an exploration term of about $0.43$ and UCB $1.23$. Child B has $Q=0.7$ and $N=30$, giving about $0.55$ and UCB $1.25$. Child C has only $Q=0.6$ but $N=5$, giving about $1.36$ and UCB $1.96$. The underexplored child is selected despite its lower observed score.
 
 ### 3.3 Characteristics of MCTS
 

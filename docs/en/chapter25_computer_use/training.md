@@ -1,6 +1,18 @@
-# 22.1 GUI Agent Training
+# 22.1 GUI Agent Training: From Screenshots to Executable Actions
 
-> [Chapter 19: Agentic RL](../chapter22_agentic/overview) teaches LLMs to call tools, read tool responses, and correct errors across multiple interactions — this is the form of a single agent. However, when the task evolves from "write a function" to "book a flight to Shanghai on Wednesday next week on my computer," the agent must cross a chasm: **to see the screen, click the mouse, and type on the keyboard like a human**. This chapter addresses two things: (1) How agents in the **Computer Use paradigm** map GUI pixel streams to atomic actions and optimize them using RL; (2) The practical training of GUI agents ([22.1](./training)) and safety defenses ([22.2](./safety-swarm)).
+Start with a one-step task. A web form already contains an email address and verification code; only the **Submit** button remains. A person naturally moves the pointer to the button. The model receives a pixel matrix. It must first identify the button region, then translate “submit” into a coordinate action such as `click(214, 209)`.
+
+The task does not end after the click. The page may show a success screen, or an expired-code error. The model must read the next screenshot, decide whether the action worked, and then stop, wait, or recover. **GUI-agent training learns this closed loop: find task-relevant interface information, produce executable actions, and use environment feedback to correct later behavior.**
+
+<img src="../../chapter25_computer_use/images/gui-agent-one-step.svg" alt="A GUI operation proceeds from goal recognition through coordinate grounding to outcome verification">
+
+The figure separates one click into four judgments. Training only button location stops at grounding; training only final success cannot identify whether recognition, localization, or verification caused a failure. Demonstrations, online RL, curriculum sampling, and progress rewards supply learning signals to different parts of this chain.
+
+[Chapter 19: Agentic RL](../chapter22_agentic/overview) usually exposes tools with explicit function names and arguments. A GUI exposes screenshots plus mouse and keyboard input. The same “submit this form” objective can therefore generate different trajectories under different window sizes, themes, pop-ups, and loading states.
+
+<img src="../../chapter25_computer_use/images/gui-agent-training-loop.svg" alt="The GUI-agent training loop connects screenshots, actions, environment transitions, verifiers, and rewards">
+
+Each action changes the next screenshot, and a verifier judges whether the task advanced. This observation–action–new-observation loop is the starting point for formulating GUI operation as reinforcement learning.
 
 ## The Computer Use Paradigm
 

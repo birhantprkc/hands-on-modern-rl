@@ -18,15 +18,29 @@ Requiring only that the expert be optimal does not uniquely determine the reward
 
 ## 2. Determining the Reward with the Maximum-Entropy Principle
 
-Ziebart et al. 2008 proposed maximum-entropy inverse reinforcement learning. It requires trajectories to match the expert's expected features while retaining as much entropy as possible among trajectories that satisfy the constraints:
-
-$$\pi(a \mid s) \propto \exp\left(Q^{\text{soft}}_{r_\psi}(s, a)\right)$$
-
-In the maximum-entropy model, the probability of a trajectory is proportional to the exponential of its cumulative reward:
+Ziebart et al. 2008 proposed maximum-entropy inverse reinforcement learning. It requires trajectories to match the expert's expected features while retaining as much entropy as possible among trajectories that satisfy the constraints. In this model, the probability of a trajectory is proportional to the exponential of its cumulative reward:
 
 $$p(\tau \mid r_\psi) = \frac{1}{Z(r_\psi)} \exp\left(\sum_t r_\psi(s_t, a_t)\right)$$
 
-Here, $Z(r_\psi)$ sums the unnormalized scores of all trajectories so that the probabilities sum to 1. Taking the logarithm over $M=|\mathcal D_{\text{expert}}|$ expert trajectories yields the training objective
+Here, $Z(r_\psi)$ sums the unnormalized scores of all trajectories so that the probabilities sum to 1.
+
+Consider an environment with only three possible trajectories:
+
+| Trajectory                     | Cumulative reward | Unnormalized weight  | Probability |
+| ------------------------------ | ----------------- | -------------------- | ----------- |
+| $\tau_1$: expert's short route | 10                | $e^{10}\approx22026$ | 0.993       |
+| $\tau_2$: longer route         | 5                 | $e^5\approx148$      | 0.0067      |
+| $\tau_3$: route into a wall    | 0                 | $e^0=1$              | 0.00005     |
+
+The partition function is $Z=22026+148+1\approx22176$. The exponential turns a reward difference of 5 into an approximately 149-fold probability difference, strongly favoring high-return trajectories while retaining some probability for alternatives with nearby scores.
+
+Applying the same exponential rule to each action gives the softmax policy
+
+$$\pi(a \mid s) \propto \exp\left(Q^{\text{soft}}_{r_\psi}(s, a)\right).$$
+
+High-Q actions receive greater probability, while actions with similar Q-values retain nonzero probability. This is the same maximum-entropy principle used by SAC in the previous chapter.
+
+Taking the logarithm over $M=|\mathcal D_{\text{expert}}|$ expert trajectories yields the training objective
 
 $$\max_\psi \; \mathcal{L}(\psi) = \sum_{\tau \in \mathcal{D}_{\text{expert}}} \left[\sum_t r_\psi(s_t, a_t)\right] - |\mathcal{D}_{\text{expert}}| \log Z(r_\psi)$$
 
@@ -36,9 +50,11 @@ $$\nabla_\psi \mathcal{L} = \mathbb{E}_{\tau \sim \text{expert}}\left[\sum_t \na
 
 The first term comes from expert trajectories; the second comes from the trajectory distribution induced by the current reward model. If a type of state-action pair appears more often in expert data, the gradient increases its reward. If it appears frequently only under the current policy, the gradient decreases its reward. The update approaches zero when the feature statistics of the two distributions become similar.
 
+In the driving example, expert trajectories spend most of their time centered in the lane at a steady speed, while the current policy often crosses a lane marking or changes speed abruptly. The gradient raises rewards for the former state-action pairs and lowers them for the latter. Running RL under the updated reward then moves the policy back toward the center of the lane.
+
 ### 2.1 Why the Partition Function Is Difficult to Compute
 
-$\log Z(r_\psi)$ has **no analytic solution** in continuous state-action spaces. Three common approximations are:
+$\log Z(r_\psi)$ has **no analytic solution** in continuous state-action spaces. With three trajectories, $Z$ was a direct sum; in a continuous space it is an integral over infinitely many trajectories and cannot be enumerated. Three common approximations are:
 
 1. **Model-based methods**: estimate $Z$ through forward rollouts in a learned environment model.
 2. **Sampling-based soft Q-iteration**: approximate it with soft Bellman backups, as in Guided Cost Learning (Finn et al. 2016).
@@ -115,6 +131,15 @@ For a fixed policy, the optimal binary discriminator can be expressed as a ratio
 $$D_\phi^*(s, a) = \frac{p_{\text{expert}}(s, a)}{p_{\text{expert}}(s, a) + p_{\pi_\theta}(s, a)}$$
 
 Substituting this $D^*$ into the log odds gives $\log D^* - \log(1-D^*)=\log\frac{p_{\text{expert}}}{p_{\pi_\theta}}$. When the policy occupancy distribution approaches the expert distribution, this ratio approaches 1 and its logarithm approaches 0. GAIL estimates this distributional difference with a discriminator, so it does not need to enumerate all trajectories explicitly to compute $Z$.
+
+The discriminator's reward signal is visible in a small count table:
+
+| State-action pair                   | Expert count | Policy count | $D^*$ | Implicit reward $-\log(1-D^*)$ |
+| ----------------------------------- | ------------ | ------------ | ----- | ------------------------------ |
+| centered in lane, smooth steering   | 800          | 200          | 0.8   | $-\log0.2\approx1.61$          |
+| crossing a lane marking, sharp turn | 0            | 500          | 0     | $-\log1=0$                     |
+
+A pair common in expert data but rare under the policy receives a high discriminator value and a high implicit reward. A pair common only under the policy is recognized immediately and receives almost no reward. Supplying this signal to RL makes expert-like state-action pairs increasingly frequent.
 
 ## 4. Comparing Three Imitation-Learning Approaches
 

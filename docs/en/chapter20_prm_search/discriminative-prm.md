@@ -4,6 +4,8 @@ The proof in Section 17.1 missed a square in step six. To enable the model to de
 
 This is the discriminative PRM: rewriting the step-by-step checking into a classification task. This section follows a data production line—first, split the full reasoning into annotatable steps, then train a classifier, use the step probabilities for candidate sorting or reinforcement learning, and finally revisit how annotation noise and step boundaries might alter the results.
 
+<img src="../../chapter20_prm_search/images/discriminative-prm-pipeline.svg" alt="A discriminative PRM pipeline from step segmentation and annotation to training, reranking, and reinforcement learning">
+
 ## 1. How to Collect Process Supervision Data
 
 The classifier needs to first see labeled steps. Take the proof in Section 17.1 as an example: the annotator reads the problem and the first five steps, then determines whether the sixth step's equation transformation is valid. Showing only the current sentence would lose the context, while showing the entire subsequent reasoning might let the final answer influence the judgment. Therefore, the input is usually truncated at the current step.
@@ -66,6 +68,8 @@ $$\mathcal{L}_{\text{PRM}} = -\sum_{i} \sum_{c \in \{good, bad, neutral\}} y_{i,
 
 Here, $c$ iterates over the three categories, $y_{i,c}$ is a one-hot label, and $p_\theta(c\mid q,o_{\le i},s_i)$ is the model's predicted category probability based on the problem and the context up to the current step. If the label for the $i$-th step is good, only the term corresponding to good has $y_{i,c}=1$, and this term becomes $-\log p_\theta(\text{good}\mid\cdots)$. The smaller the loss, the closer the model's probability of good is to 1.
 
+For a step labeled good, predicted probabilities $0.95$, $0.70$, and $0.10$ produce losses of about $0.05$, $0.36$, and $2.30$. Cross-entropy therefore gives a mild penalty to an uncertain but plausible judgment and a much stronger penalty to a confident misclassification.
+
 ### 2.3 Data Augmentation for Training
 
 When human labeling is limited, more training samples can be constructed from existing answers. Common approaches include:
@@ -105,6 +109,8 @@ Choice of aggregation method:
 - **Product**: The product of all step scores. More strict than min.
 
 In this mathematical experiment, the minimum step score is an effective aggregation method, because a single incorrect equation may invalidate the entire proof. Open writing does not have such strict logical dependencies, so this choice cannot be directly applied; the aggregation rule should be determined on the validation set of the target task.
+
+For example, response A with step scores $[0.9,0.8,0.2,0.9]$ has mean $0.70$, minimum $0.2$, and product $0.130$. Response B with $[0.6,0.6,0.6,0.6]$ has mean $0.60$, minimum $0.6$, and the same product $0.130$. Mean favors A despite one severe error, minimum favors the consistently valid B, and product cannot distinguish them. Aggregation therefore encodes a task-dependent assumption about how one bad step affects the whole solution.
 
 ### 3.2 Using Step Scores for RL Training
 

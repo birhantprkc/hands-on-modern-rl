@@ -10,6 +10,8 @@ This section first formalizes this nonstationarity, then introduces how CTDE sep
 
 When several agents learn simultaneously in one environment, the next state from agent $i$'s perspective depends not only on its own action $a_i$, but also on the joint actions of the other agents, $a_{-i}$. After the other policies update, the next-state distribution may change even when $s$ and $a_i$ remain the same. Old data therefore become stale more quickly, and the learning target of independent Q-learning keeps moving.
 
+Consider a cooperative game with two buttons and one door. The door opens only when both players press their buttons at the same time. One agent learns to stand at the left button and press when its teammate reaches for the other. In the first training round, the teammate still wanders randomly and the door remains closed. By round 100, the teammate has learned the timing and the same observation and action now open the door. From the first agent's perspective, the apparent environment rule changed because the teammate's policy changed.
+
 ### 1.1 From Normal-Form Games to Multi-Agent RL
 
 The simplest multi-agent formalization is a **normal-form game**: the joint action is $a = (a_1, \ldots, a_n)$, and each agent has its own reward $r_i(a)$. A Nash equilibrium is a joint policy under which no agent can improve its expected payoff by changing its policy unilaterally. Game-theoretic solutions, however, assume rational opponents and a known model. Deep MARL must handle high-dimensional observations, unknown rewards, and opponents that are also learning.
@@ -49,6 +51,8 @@ Multi-Agent DDPG (Lowe et al. 2017) extends DDPG directly to the multi-agent set
 $$\nabla_{\theta_i} J(\mu_{\theta_i}) = \mathbb{E}\left[\nabla_{\theta_i} \mu_{\theta_i}(o_i) \cdot \nabla_{a_i} Q_i(o_1, a_1, \ldots, o_n, a_n)\big|_{a_i = \mu_{\theta_i}(o_i)}\right]$$
 
 The first term on the right describes how a parameter change alters the actor's output; the second describes how an action change alters the critic's estimate. Their product propagates the critic's evaluation back to the actor. When updating actor $i$, differentiation is performed only with respect to $a_i$; the other actions are known conditions in the batch. The critic's input grows with the number of agents, making this formulation expensive when many agents are present.
+
+In a concrete match, let agent $i$ be a forward choosing between shooting and passing wide. The critic sees the goalkeeper and every teammate's run from the batch and holds those actions fixed while changing only the forward's action. Its value difference answers whether shooting or passing produces the greater team return under the current positioning. This is precisely the global information the decentralized forward needs but cannot infer from its local observation alone.
 
 ```python
 class MADDPG:
@@ -124,7 +128,9 @@ Because MAPPO is stable and straightforward to implement, it is often used as a 
 
 ### 4.2 What Problem Does Value Decomposition Solve?
 
-VDN assumes $Q_{\text{tot}} = \sum_i Q_i(o_i, a_i)$. QMIX generalizes this by making $Q_{\text{tot}}$ a monotonic function of the individual $Q_i$ values, ensuring that $\arg\max$ can be decomposed. These are also CTDE methods, but they belong to the value-decomposition branch and are outside this chapter's main line. MAPPO has surpassed QMIX on most cooperative tasks.
+VDN assumes $Q_{\text{tot}} = \sum_i Q_i(o_i, a_i)$. Imagine two robots lifting a table: $Q_1$ evaluates the left robot's grip and $Q_2$ evaluates the right robot's grip. Their sum represents the team value, so each robot selecting the action that maximizes its own $Q_i$ also maximizes the total.
+
+QMIX generalizes this by making $Q_{\text{tot}}$ a monotonic function of the individual $Q_i$ values, ensuring that $\arg\max$ can still be decomposed. In the table example, the mixing network may include an extra bonus when the two grips coordinate, provided that increasing either robot's local value never decreases the team value. Under that monotonicity condition, local greedy choices still produce the global greedy combination. These are also CTDE methods, but they belong to the value-decomposition branch and are outside this chapter's main line. MAPPO has surpassed QMIX on most cooperative tasks.
 
 ## Section Summary
 

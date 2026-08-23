@@ -1,10 +1,24 @@
-# 24.2 Multimodal Audio Agent
+# 24.2 From Audio Rewards to Real-Time Agents: A Minimal Training Loop
 
-> [24.1](./reward-design) discusses audio reward design. This section explores the forefront of audio reinforcement learning — multimodal audio agents (Step-Audio-Chat, Qwen2-Audio), real-time voice conversation (GPT-4o Voice), and future directions.
+[24.1](./reward-design) separated audio rewards into content, prosody, and real-time behavior. Knowing what to reward still does not explain how that reward changes the model. A trainer must sample several responses to the same audio, send text and synthesized speech to different evaluators, and propagate one response-level score back to generated tokens. If any interface is wired incorrectly, the signal updates a behavior other than the intended one.
 
-## Simple Voice Dialogue RL
+This section follows one sample through audio encoding, grouped sampling, speech synthesis, reward calculation, within-group comparison, and policy update. The code explains the data flow rather than replacing an industrial training framework. We then place the single-turn model in a continuing environment and examine interruptions, tool calls, and multi-turn state.
 
-This section demonstrates the core mechanism of audio RL through a minimal runnable workflow. Full industrial training requires 8 H100 cards and several weeks, but here we only demonstrate the **coupling between reward design and PPO updates**.
+```mermaid
+flowchart LR
+    A["Audio question"] --> B["Encode acoustic features"]
+    B --> C["Sample G responses"]
+    C --> D["Judge text correctness"]
+    C --> E["Synthesize and judge prosody"]
+    D --> F["Combine reward"]
+    E --> F
+    F --> G["Normalize within group"]
+    G --> H["Clipped policy update"]
+```
+
+## Hands-On: Minimal Audio GRPO Training
+
+Industrial training requires distributed rollout, inference and reward services, and checkpoint management. The minimal workflow below keeps only the interface between reward design and policy updates.
 
 ### Experimental Setup
 

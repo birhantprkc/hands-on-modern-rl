@@ -6,6 +6,8 @@ Generative PRM allows the language model to first write out the reasoning proces
 
 This section takes [ThinkPRM](https://arxiv.org/abs/2504.16828) as an example. It first compares the outputs of classification labels and generative evaluation, then examines how a small amount of seed data can train a verifier, followed by an analysis of the benefits of adding verification calculations, and finally explains when a cheaper discriminative PRM or reward-based approach should still be used.
 
+<img src="../../chapter20_prm_search/images/generative-prm-pipeline.svg" alt="A generative PRM writes checking evidence, locates an error, and emits an extractable final judgment">
+
 ## 1. How to Generate Natural Language Evaluations
 
 Generative evaluation still needs to complete the same task as discriminative PRM: reading the problem, the reasoning prefix, and the current step, and determining whether this step is valid. The difference lies in the output—classification probability is replaced by "evaluation rationale + final label."

@@ -2,7 +2,7 @@
 title: '26.1 How Models Generate Their Own Training Data: Self-Play and LLM Training'
 ---
 
-# 26.1 How Models Generate Their Own Training Data: Self-Play and LLM Training
+# 26.1 Self-Play and Training-Data Generation
 
 Suppose a language model has exhausted a fixed set of demonstrations. We can ask it to generate a candidate answer, let another model instance criticize that answer, and train on the resulting comparison. The next round now contains data produced by the current system rather than only by a static dataset.
 

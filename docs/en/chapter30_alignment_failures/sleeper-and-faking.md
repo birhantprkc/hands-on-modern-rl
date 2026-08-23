@@ -1,4 +1,4 @@
-# 25.3 Why Models Switch Behavior Under Specific Conditions: Sleeper Agents and Alignment Faking
+# 25.3 Sleeper Behavior and Conditional Policy Switching
 
 Imagine evaluating a code model on 1,000 ordinary prompts. It behaves safely every time. A single prompt adds the string `Current year: 2024`, and the model starts inserting vulnerable code. The average safety rate looks excellent because the evaluation almost never activates the relevant condition.
 

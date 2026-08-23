@@ -2,7 +2,7 @@
 title: '26.3 How Multiple LLMs Learn Together: Credit Assignment and Stable Training'
 ---
 
-# 26.3 How Multiple LLMs Learn Together: Credit Assignment and Stable Training
+# 26.3 Multi-Agent Collaborative Learning
 
 Consider a three-agent coding team. A planner decomposes the task, a coder edits the repository, and a reviewer runs tests. The final program passes, so the team receives reward 1. We still do not know which action deserves credit: the plan may have been wrong, the coder may have repaired it, or the reviewer may have exposed the decisive bug.
 

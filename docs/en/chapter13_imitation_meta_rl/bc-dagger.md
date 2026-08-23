@@ -16,6 +16,13 @@ $$\mathcal{L}_{BC}(\theta) = -\mathbb{E}_{(s, a) \sim \mathcal{D}_{\text{expert}
 
 Here, $\mathcal{D}_{\text{expert}}=\{(s_i,a_i)\}_{i=1}^N$ is the expert-demonstration dataset, and $\pi_\theta(a\mid s)$ is the probability that the policy selects expert action $a$ in state $s$. The negative sign turns “increasing the probability of the expert action” into a minimization problem. Discrete actions usually use cross-entropy, while continuous actions can use mean squared error or the negative log-likelihood of a probability distribution. Supervised fine-tuning of an LLM uses the same conditional-likelihood objective, except that the action is the next token.
 
+Consider one numerical example. An expert demonstration contains a state in which a car is centered in its lane and the expert action is a slight turn to the left. Two policies assign different probabilities to that action:
+
+- Policy 1 gives $\pi_1(a\mid s)=0.7$, so its loss is $-\log 0.7\approx0.36$.
+- Policy 2 gives $\pi_2(a\mid s)=0.95$, so its loss is $-\log 0.95\approx0.05$.
+
+Policy 2 agrees more strongly with the expert and therefore has the smaller loss. Behavior cloning minimizes this quantity over every demonstration, using the same cross-entropy mechanism as handwritten-digit classification.
+
 ```python
 def behavior_cloning_step(policy_net, expert_batch):
     states, actions = expert_batch
@@ -31,7 +38,13 @@ def behavior_cloning_step(policy_net, expert_batch):
 
 During training, BC sees the state distribution visited by the expert, $d_{\text{expert}}(s)$. During deployment, it visits the distribution induced by the current policy, $d_{\pi_\theta}(s)$. A small error can take the agent to a state absent from the training set, making subsequent errors more likely.
 
-Consider a simple calculation. If the error rate at each expert state is $\epsilon=0.01$, the probability of completing $T=100$ consecutive steps without an error is approximately $(1-0.01)^{100}\approx0.366$. This does not yet account for the error rate increasing after the policy leaves the expert trajectory. The DAgger paper (Ross et al. 2011) expresses the cumulative task cost as order $O(T^2\epsilon)$:
+Suppose the policy has an error rate of only $\epsilon=0.01$ on states visited by the expert. It agrees with the expert 99% of the time, but the probability of completing an entire $T$-step task without an error is $(1-\epsilon)^T$:
+
+| Task length $T$         | 10 steps | 50 steps | 100 steps | 1,000 steps |
+| ----------------------- | -------- | -------- | --------- | ----------- |
+| Probability of no error | 0.90     | 0.61     | 0.37      | 0.00004     |
+
+In a 100-step task, two runs out of three contain at least one error. This is still optimistic because it assumes the error rate remains 1% after the policy leaves the expert trajectory. Ross et al. (2011) express the resulting cumulative task cost as order $O(T^2\epsilon)$:
 
 $$\mathbb{E}\left[\sum_{t=0}^T \mathbb{1}[\pi_\theta(s_t) \neq \pi^*(s_t)]\right] \leq O(T^2 \epsilon)$$
 
@@ -74,7 +87,9 @@ def dagger(env, expert, policy_net, n_iterations=20, n_traj_per_iter=50):
         train_bc(policy_net, dataset)
 ```
 
-DAgger adds the states actually visited by the current policy to the dataset, then asks the expert to label actions for those states. The training data therefore gradually cover $d_{\pi_\theta}$. Under conditions such as no-regret online learning, the cumulative cost can improve from BC's $O(T^2\epsilon)$ to order $O(T\epsilon)$; the cost is that the expert must be queried repeatedly during training.
+Following the iterations makes the distribution change concrete. During the first rounds, $\beta$ is close to 1, so the expert performs most actions and the data mainly contain ordinary states such as a centered car at a suitable speed. Later, $\beta$ falls toward one half and the imperfect policy begins producing states such as crossing a lane marking or driving too fast. The expert labels these previously unseen states, filling precisely the gaps in which the policy is likely to fail. Once $\beta$ reaches zero, every new failure state produced by independent policy execution can be labeled and learned in the next round. The growing dataset therefore approaches the policy's own state distribution $d_{\pi_\theta}$.
+
+Under conditions such as no-regret online learning, the cumulative cost can improve from BC's $O(T^2\epsilon)$ to order $O(T\epsilon)$. The cost is that the expert must be queried repeatedly during training.
 
 ## 4. Comparing BC, DAgger, and GAIL
 

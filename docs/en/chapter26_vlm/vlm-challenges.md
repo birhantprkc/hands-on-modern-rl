@@ -2,9 +2,11 @@
 title: '23.1 Visual Reward Design'
 ---
 
-# 23.1 Visual Reward Design
+# 23.1 Why a VLM Can Guess Correctly Without Looking: Visual Rewards and Hallucination
 
-Part V extended the policy to multi-turn tool interaction. Multimodal tasks add images, audio, and video to observations and actions, so rewards must account for semantic, perceptual, and temporal consistency together. Part VI begins with visual reward design and then connects vision-language models, audio agents, embodied intelligence, and visual generation.
+Start with a small counting task. An image contains three circles, and the question asks how many circles it contains. The model answers three and receives an outcome reward of 1. That score cannot distinguish two behaviors: the model may have counted the circles, or it may have ignored the image and guessed the most common answer in the training set.
+
+In a text task, a correct answer often supplies a strong learning signal. An image adds a perceptual chain: the model must locate the relevant region, recognize objects or text, and then reason. A final answer fails when any link fails; even a correct answer can rest on incorrect visual evidence. **VLM reinforcement learning must therefore reward both correctness and whether the answer is grounded in the image.**
 
 In earlier chapters, we pushed RL from classic control to LLM post-training:
 
@@ -16,7 +18,7 @@ Most of those settings share a simplifying assumption: there is only one input m
 
 The real world is not text-only. You see images, screenshots, charts, videos, and 3D scenes. Before you can reason and act, you must first **understand visual evidence**. Vision-language models (VLMs) bring images and language into a single model. RL then asks a harder question:
 
-Can we use outcome feedback to make the model not only describe images, but _see more accurately, reason more reliably, and answer more truthfully_?
+Can outcome feedback make the model not only describe images, but _look accurately, reason reliably, and answer from evidence_?
 
 ![VISTA-Gym Overview](../../chapter26_vlm/images/ref-vista-gym-overview.png)
 
@@ -54,13 +56,13 @@ So training becomes "see correctly, then reason correctly." A single scalar rewa
 
 This chapter is organized as: run something minimal -> see the new problems -> understand systems -> extend to generation.
 
-| Section                                                      | Question it answers                                                                       |
-| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
-| [23.3 Hands-On: GRPO for a VLM](./vlm-grpo-hands-on)         | How do we train a VLM to "look then reason" under verifiable rewards?                     |
-| [23.1 Challenges](./vlm-challenges)                          | How do we assign reward across vision vs language? How do we reduce visual hallucination? |
-| [VLM RL Frameworks](./vlm-frameworks)                        | What systems bridge experiments to applications (tools, environments, self-play)?         |
+| Section                                                                            | Question it answers                                                                       |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| [23.3 Hands-On: GRPO for a VLM](./vlm-grpo-hands-on)                               | How do we train a VLM to "look then reason" under verifiable rewards?                     |
+| [23.1 Challenges](./vlm-challenges)                                                | How do we assign reward across vision vs language? How do we reduce visual hallucination? |
+| [VLM RL Frameworks](./vlm-frameworks)                                              | What systems bridge experiments to applications (tools, environments, self-play)?         |
 | [Visual Generation RL](../chapter29_visual_generation/visual-generation-dancegrpo) | How does RL apply to diffusion/video generation, and what does "policy" mean there?       |
-| [23.4 Hands-On: EasyR1 GeoQA](./easyr1-geoqa)                | How do we run an industrial-style VLM GRPO training loop on a real dataset?               |
+| [23.4 Hands-On: EasyR1 GeoQA](./easyr1-geoqa)                                      | How do we run an industrial-style VLM GRPO training loop on a real dataset?               |
 
 ## Learning Goals
 
@@ -160,6 +162,14 @@ But in RL training, the model discovers high-reward behaviors through trial and 
 This is why reward function design in VLM RL is more critical than in text-only RL — you must evaluate not only "is the answer correct" but also "did the model actually look at the image."
 
 </details>
+
+![PickScore compares candidate images through pairwise preference](../../chapter26_vlm/images/ref-pickscore-ranking.png)
+
+The ranking illustrates why a preference score alone is insufficient: a candidate may match common aesthetic preferences while contradicting a particular image or prompt. Grounding checks must remain a separate signal.
+
+![VISTA-R1 ablations](../../chapter26_vlm/images/ref-vista-gym-results.png)
+
+The VISTA-R1 ablations separate gains from visual tools, explicit reasoning, and reward design. They are evidence that a larger model is not the only source of improvement; the observation and verification loop matters.
 
 ## VLM-RL in Autonomous Driving
 

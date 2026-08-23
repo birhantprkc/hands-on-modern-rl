@@ -6,6 +6,10 @@ The same problem appears in coding and agent tasks. A failed test may come from 
 
 When a sequence receives feedback only at the end, its intermediate actions have no direct learning signal. This is the **sparse-reward problem**. A **process reward model (PRM)** evaluates intermediate steps, helping the training system locate an error and the inference system abandon a bad path before the error spreads. We begin with a short proof, formalize outcome and process rewards, and then examine when step-level evaluation is worth its cost.
 
+[Let's Verify Step by Step](https://arxiv.org/abs/2305.20050) systematically compared outcome and process supervision and released the PRM800K step-label dataset. Its conclusions come from MATH under a particular candidate-generation and reranking setup. We first derive the credit-assignment difference here, then return to those data and metrics in Section 17.2.
+
+<img src="../../chapter20_prm_search/images/outcome-process-feedback.svg" alt="Outcome reward hides intermediate errors, while process feedback identifies the first incorrect step">
+
 ## 1. Why Final Rewards Are Insufficient
 
 Continuing from the mathematical model introduced in Chapter 16, the model presents a nine-step proof, and the final conclusion happens to be correct. The verifier marks it as 1, and the training system thus increases the probability of the entire response. However, the sixth step missed a square, and later coincidentally returned to the correct conclusion. By only looking at the end result, the system will reinforce both the incorrect steps and the correct ones.
@@ -77,6 +81,8 @@ Discount future rewards to the present:
 $$G_t = r_t + \gamma r_{t+1} + \gamma^2 r_{t+2} + \ldots + \gamma^{T-t} r_T$$
 
 Here, $ G_t $ is the discounted return starting from step $ t $, $ r_t $ is the current reward, and $ \gamma \in [0,1] $ is the discount factor. If only the final reward $ r_T = 1 $ is present, the return at step $ t $ is $ \gamma^{T-t} $; the farther away from the end, the smaller the weight. This is reasonable in many control tasks, but the early definition in the proof may determine the responsibility of all subsequent steps, and simply decaying by distance may not accurately reflect their responsibility.
+
+With $\gamma=0.9$, a first step eight positions from the end receives weight $0.9^8\approx0.43$; a fifth step four positions away receives about $0.66$; the erroneous sixth step three positions away receives about $0.73$; and the penultimate step receives $0.90$. Distance-based discounting therefore gives the earliest assumptions the weakest signal even when they determine every later step.
 
 ### 2.2 GAE
 

@@ -1,4 +1,4 @@
-# 25.1 Why a Higher Reward Can Make the Task Worse: Classical Alignment Failures
+# 25.1 When Rewards Diverge from the Task
 
 Imagine a warehouse robot that receives one reward point whenever it scans an item. The intended job is to scan each incoming product and organize the shelf. The robot discovers that scanning the same product 200 times is easier. Its reward rises from 20 to 200 while the shelf remains untouched.
 

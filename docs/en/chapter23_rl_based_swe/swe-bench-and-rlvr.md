@@ -1,77 +1,55 @@
 # 20.1 Foundations of SWE-RL
 
-[Chapter 19: Agentic RL](../chapter22_agentic/overview) introduced the training of agents in tool invocation and multi-turn interaction using reinforcement learning. This chapter focuses on one of the most industrially valuable subfields: **RL-based SWE (Software Engineering)** — using reinforcement learning to train models to automatically fix bugs, implement features, and write tests.
++This section studies one concrete problem: **how to place a language model inside a real repository, have it understand an issue, edit code, run tests, and continue repairing from test failures.**
 
-Why a dedicated chapter? Three reasons:
-
-1. **SWE is a natural battlefield for RLVR** — unit testing serves as a perfect "zero-noise verifier," sharing the same formalist approach as [Chapter 17's PRM](../chapter20_prm_search/formal-prm).
-2. **This field has seen multiple industrial breakthroughs in 2025** — Meta SWE-RL, ByteDance DeepSWE, Tsinghua SSR, and Alibaba CWM each push the accuracy of SWE-bench to new heights.
-3. **SWE-RL is the "algorithm laboratory" of Agentic RL** — many of its discoveries (long-horizon credit assignment, self-play, world model) can be generalized to other domains.
-
-## Questions This Chapter Will Address
-
-- **What is SWE-bench**? Why is it the core benchmark for SWE-RL?
-- **How does Meta SWE-RL** achieve SOTA using open-source data and simple GRPO?
-- **How does Code World Model (CWM)** model code execution as an MDP?
-- **How does DeepSWE** train long-horizon agents using verifiable rewards?
-- **How does Self-play SWE-RL (SSR)** enable models to generate their own training data?
-- **The future of SWE-RL** — directions for multilingual, multi-repository, and multi-agent extensions.
-
-## Chapter Map
-
-```text
-SWE-bench and RL-based SWE Paradigm
-     ├── SWE-bench Task Definition
-     ├── Why SWE is an Ideal Arena for RLVR
-     └── Data Fabrication: SWE-smith and SWE-gym
-Meta SWE-RL: Representative of Open-Source SOTA
-     ├── Data Scale and Composition
-     ├── Algorithm Selection: GRPO + Rule-based Reward
-     ├── Engineering Details: Context Management, Test Sampling
-     └── SWE-bench Verified 41.0%
-Code World Model (CWM)
-     ├── Modeling Code Execution as an MDP
-     ├── World Model Training
-     ├── RL Based on CWM
-     └── Relationship with Model-based RL
-DeepSWE: Long-Horizon Agent RL
-     ├── Challenges of Trajectories Longer than 16 Steps
-     ├── Step-level Reward Shaping
-     ├── Integration of Test-time Search
-     └── Byte Seed's Industrial Practice
-Self-Play SWE-RL (SSR)
-     ├── Model Generates Bugs and Fixes Itself
-     ├── Curriculum Learning
-     ├── Tsinghua SSR Work
-     └── Formation of Data Flywheel
-Industrial Deployment of RL-based SWE
-     ├── Cursor, Cognition Devin, Byte Trae
-     ├── Business Model and Cost Structure
-     └── Multilingual and Multi-repository Extension
-```
-
-## Relationship with Other Chapters
-
-This chapter assumes you have read:
-
-- [Chapter 15: GRPO Improvement Family](../chapter18_grpo/grpo-family) — the foundation of RL algorithms
-- [Chapter 19: Agentic RL](../chapter22_agentic/overview) — the basis of agent interaction across multiple rounds
-- [Chapter 17: PRM](../chapter20_prm_search/outcome-vs-process) — the formalization of the verifier idea
-
-This chapter will point to:
-
-- [Section 19.10: Agent Training System](../chapter22_agentic/build-agentic-training-system) — the engineering implementation of SWE-RL
-- [Section 13.6: Alignment Evaluation](../chapter15_rlhf/evaluation) — the unique hacking of SWE-RL
-
-## An Intuitive Introduction
-
-**Intuition: SWE-RL is applying the formalization idea of PRM to the code domain.** Lean4 is a formal verifier for mathematics; unit testing is a formal verifier for code. The core idea of both is the same: **replacing subjective human or LLM judgment with an external verification with zero false positives**.
-
-However, SWE has an advantage that Lean4 does not — **extremely rich industrial practice**. GitHub has billions of lines of code, millions of PRs, and tens of millions of commits — this is a training data scale that the mathematical community cannot compare.
-
-We begin from the task definition of SWE-bench below.
-
-This section establishes the basic concepts of SWE-RL — what is SWE-bench, why SWE is an ideal battlefield for RLVR, and the essential difference between SWE-RL and traditional code generation.
+- +Ordinary code generation may require only one function. Real software engineering adds long call chains, regressions caused by a local edit, and repeated diagnosis after tests fail. A final patch alone cannot teach the model how to search files, use error messages, or choose the next action. SWE-RL treats the entire repair process as a trainable trajectory and obtains feedback from executable tests.
+- +## Start with a Small Task That Really Fails
+- +Suppose a shopping-cart project contains:
+- +```python
+  +def average_price(prices):
+- return sum(prices) / len(prices)
+  +```
+- +An issue says that `average_price([])` should return `0.0` without changing nonempty-cart behavior. The repository initially tests only:
+- +```python
+  +def test_average_price():
+- assert average_price([10.0, 20.0]) == 15.0
+  +```
+- +The model's first patch may be too broad:
+- +```python
+  +def average_price(prices):
+- try:
+-        return sum(prices) / len(prices)
+- except Exception:
+-        return 0.0
+  +```
+- +The empty-list test passes, but every exception is now hidden. Passing `None` incorrectly returns `0.0`. A regression test exposes the problem:
+- +```python
+  +def test_invalid_input_is_not_hidden():
+- with pytest.raises(TypeError):
+-        average_price(None)
+  +```
+- +After reading the failure, the model narrows its second patch:
+- +```python
+  +def average_price(prices):
+- if len(prices) == 0:
+-        return 0.0
+- return sum(prices) / len(prices)
+  +```
+- +One repair has now completed a loop:
+- +1. Read the issue and identify behavior that must remain unchanged.
+  +2. Search for and open the relevant files.
+  +3. Generate a candidate patch.
+  +4. Run tests and observe failures.
+  +5. Edit again from the feedback and submit the patch.
+- +These five steps form a **trajectory**. If the repository state at step $t$ is $s_t$ and the action $a_t$ is reading, searching, editing, or testing, then
+- +$$
++\tau=(s_0,a_0,s_1,a_1,\ldots,s_T).
++$$
+- +Each later observation depends on earlier actions. Opening the wrong file deprives the patch of key context; a failed test can supply the clue needed for the next edit. Reinforcement learning improves this decision trajectory from repository inspection to patch submission.
+- +<img src="../../chapter23_rl_based_swe/images/swe-rl-verifier-loop.svg" alt="SWE-RL forms a training loop from a repository and issue through an agent, candidate patch, and executable verifier">
+- +The verifier is usually a test suite executed in an isolated environment. A passing patch earns reward, while failure logs return as the agent's next observation. The agent can therefore revise within one task and update its policy across many tasks.
+-
+-
 
 ## SWE-bench Task Definition
 
@@ -191,6 +169,8 @@ This is a **long-context, multi-file, with-test-feedback** setup. RL performs we
 - **Multi-step decision making**: Read → think → edit → test → fix → submit is a typical agent trajectory
 
 ## Data Generation for SWE-bench
+
+<img src="../../chapter23_rl_based_swe/images/swe-rl-data-loop.svg" alt="Real issues, synthetic defects, and self-play tasks enter a versioned SWE-RL training-data loop">
 
 SWE-RL training requires a large number of (Issue, patch, tests) triplets. There are three sources:
 

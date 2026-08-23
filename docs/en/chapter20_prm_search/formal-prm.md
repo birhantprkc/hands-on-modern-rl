@@ -6,6 +6,8 @@ If the problem has already been written in formal languages such as Lean4, Coq, 
 
 This section follows the line of "natural language problem → formal proposition → candidate tactic → core checker." First, we explain where the determinism comes from, then examine how AlphaProof, AlphaGeometry, and DeepSeek-Prover-V2 search for proofs, and finally discuss the scope of formalization, data, and computational costs.
 
+<img src="../../chapter20_prm_search/images/formal-verifier-pipeline.svg" alt="A natural-language problem is formalized, converted into candidate proofs, and checked by a proof kernel for binary reward">
+
 ## 1. Why Formal Checking Can Provide Deterministic Feedback
 
 Generative PRMs judge whether a sentence is reasonable, still relying on model probability. A formal checker, however, requires the candidate proof to construct a proof term for the target proposition. Let us first compare what is omitted in the same proof when expressed in natural language versus Lean4.
