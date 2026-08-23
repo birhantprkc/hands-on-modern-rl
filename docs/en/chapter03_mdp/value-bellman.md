@@ -266,6 +266,24 @@ $$
 
 To smoothly move the perspective (that is, the condition in probability theory) from $s_t$ to $s_{t+1}$, we do not need any advanced theorem. We only need three basic mathematical tools: **the definition of conditional expectation**, **marginalization in probability theory**, and the most important physical assumption in reinforcement learning, the **Markov Property**.
 
+These three tools each do one job. Together they rewrite today’s leftover-return forecast as an average over tomorrow’s state values.
+
+**Conditional expectation** fixes the standpoint of the average. The known fact is $s_t=s$. The vertical bar in $\mathbb{E}_\pi[\cdot\mid s_t=s]$ records that fact. Expanding the expectation means listing every remaining uncertain outcome, multiplying it by its probability given $s$, and adding.
+
+**Marginalization** is that listing step when the remaining uncertainty is where tomorrow will be. Tomorrow may be any next state $s'$. Write each possible $s'$, weight it by $P_\pi(s'\mid s_t=s)$, and add. After this step, the forecast has the form of a probability-weighted sum over possible tomorrows.
+
+**The Markov property** fills in each term of that sum. Once tomorrow’s state is $s'$, the later return $G_{t+1}$ is determined by $s'$ and by the policy. That is the definition of $V^\pi(s')$, so each tomorrow contributes its own next-state value.
+
+The three steps together give
+
+$$
+\mathbb{E}_\pi[G_{t+1}\mid s_t=s]
+=\sum_{s'}P_\pi(s'\mid s_t=s)\,V^\pi(s')
+=\mathbb{E}_\pi[V^\pi(s_{t+1})\mid s_t=s].
+$$
+
+The first equality averages over possible next states. The second equality writes the same average as a conditional expectation. The expandable note below carries out this argument with explicit probability expansions.
+
 :::details Supplementary proof: how do we rigorously push the condition from the current state to the next state?
 
 To avoid introducing dazzling new notation, we use only three variables throughout: $s_t$ (current state), $s_{t+1}$ (next state), and $G_{t+1}$ (future total return).
@@ -1085,6 +1103,51 @@ $$
 The $3.25$ and $2.6$ in the two branches above are exactly the results of this formula when $\alpha=0.1$.
 
 This is the basic move of TD learning: every time the agent takes a step, it uses “the one step actually experienced + the next-state estimate” to correct the current-state estimate. After many samples, the noise of single samples is averaged out, and the value table gradually approaches the true $V^\pi$.
+
+### Worked example: a two-step commute
+
+The table above used abstract labels $s$, $s_1$, and $s_2$. The same arithmetic happens on a walk to class. A student wants to estimate remaining discomfort from each place on the route. They have no true $V^\pi$. The table starts at zero.
+
+| Place | Meaning | Current guess $V$ |
+| ----- | ------- | ----------------- |
+| Home | still at home | $0$ |
+| Bus stop | waiting for the bus | $0$ |
+| Classroom | already seated; the trip is over | $0$ |
+
+Let $\gamma=0.9$ and $\alpha=0.5$. Each minute of walking or waiting gives reward $-1$. The classroom is terminal, so $V(\text{Classroom})$ stays $0$.
+
+**Step 1.** Walk from home to the bus stop; it takes $2$ minutes, so $r=-2$. The next-state guess is still $V(\text{Bus stop})=0$.
+
+$$
+\delta=-2+0.9\times 0-0=-2,
+\qquad
+V(\text{Home})\leftarrow 0+0.5\times(-2)=-1.
+$$
+
+**Step 2.** The bus ride to class takes $4$ minutes, so $r=-4$. The classroom guess is still $0$.
+
+$$
+\delta=-4+0.9\times 0-0=-4,
+\qquad
+V(\text{Bus stop})\leftarrow 0+0.5\times(-4)=-2.
+$$
+
+**Step 3.** The next morning the student leaves home again. The bus-stop entry is now $-2$. That number is still only a guess, but it is enough to compute another TD error:
+
+$$
+\delta=-2+0.9\times(-2)-(-1)=-2.8,
+\qquad
+V(\text{Home})\leftarrow -1+0.5\times(-2.8)=-2.4.
+$$
+
+| Time | What happened | $r$ | $V(s)$ before | $V(s')$ used | $\delta$ | $V(s)$ after |
+| ---- | ------------- | --: | ------------: | -----------: | -------: | -----------: |
+| Start | table initialized | — | $0$ | — | — | — |
+| 1 | Home $\to$ Bus stop | $-2$ | $0$ | $0$ | $-2$ | $V(\text{Home})=-1$ |
+| 2 | Bus stop $\to$ Classroom | $-4$ | $0$ | $0$ | $-4$ | $V(\text{Bus stop})=-2$ |
+| 3 | Home $\to$ Bus stop again | $-2$ | $-1$ | $-2$ | $-2.8$ | $V(\text{Home})=-2.4$ |
+
+True remaining discomfort was never required. Step 1 used $V(\text{Bus stop})=0$ because that was the table entry. Step 3 used $V(\text{Bus stop})=-2$ because the table had been written once. Each $\delta$ is the gap between the old guess for the current place and “this step’s reward plus the current guess for the next place.”
 
 DP, MC, and TD handle different environment conditions and information assumptions. The next section, [Classic Methods at a Glance: DP, MC, and TD](./dp-mc-td), compares them specifically.
 
