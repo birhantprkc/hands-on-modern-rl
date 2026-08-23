@@ -1819,7 +1819,7 @@ const enSidebar = {
           items: [
             {
               text: '9.1 Deterministic Policy Gradients and DDPG',
-              link: '/en/chapter11_continuous_control/deterministic-policy-gradient-ddpg'
+              link: '/en/chapter11_continuous_control/ddpg'
             },
             {
               text: '9.2 TD3 and SAC',
@@ -2366,8 +2366,8 @@ const enSidebar = {
           collapsed: false,
           items: [
             {
-              text: 'C.1 Paper Reading Guide',
-              link: '/en/appendix_paper_reading/paper-reading-guide'
+              text: 'C.1 Learning Resources and Project Roadmap',
+              link: '/en/appendix_paper_reading/learning-resources'
             },
             {
               text: 'C.2 GPU Hours Estimation Table',

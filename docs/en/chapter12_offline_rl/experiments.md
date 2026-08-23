@@ -40,7 +40,7 @@ This correspondence also explains the role of $\beta$: it changes the scale of p
 
 ## 2. Viewing Preference Data as a Fixed Dataset
 
-Compare an LLM preference dataset with the D4RL offline dataset from [Chapter 9](../chapter11_continuous_control/deterministic-policy-gradient-ddpg):
+Compare an LLM preference dataset with the D4RL offline dataset from [Chapter 9](../chapter11_continuous_control/ddpg):
 
 | Dimension             | D4RL (MuJoCo)                             | LLM Preference Data                                        |
 | --------------------- | ----------------------------------------- | ---------------------------------------------------------- |

@@ -186,7 +186,7 @@ Suitable for learning the full process of RLHF/RLVR/DPO, and can complete a full
 
 - Reproduce the training curves of R1-Zero on GSM8K using GRPO ([Chapter 18](../chapter18_grpo/grpo-practice-and-mechanism))
 - Fine-tune on Anthropic HH-RLHF data using DPO ([Chapter 14](../chapter17_dpo/dpo-objective-derivation))
-- Run SAC/TD3 on CartPole / MuJoCo ([Chapter 9](../chapter11_continuous_control/deterministic-policy-gradient-ddpg))
+- Run SAC/TD3 on CartPole / MuJoCo ([Chapter 9](../chapter11_continuous_control/ddpg))
   :::
 
 ### Multi-GPU Experiments (7B–13B Models)
@@ -301,4 +301,4 @@ Next Steps Recommendation:
 
 - **Do a Baseline Experiment**: Refer to the GRPO/DPO code in [Appendix D Code Quick Reference](../appendix_code_cheatsheet/sft-kl) and run it on a single GPU.
 - **Plan a Mid-Scale Experiment**: Refer to the distributed training and monitoring sections in [Appendix B Engineering Practices](../appendix_industrial_training/training-debugging).
-- **Read the Cost Disclosure in Frontier Papers**: Look for training details in the tech reports in [Appendix F](../appendix_paper_reading/paper-reading-guide).
+- **Read the Cost Disclosure in Frontier Papers**: Look for training details in the tech reports in [Appendix C](../appendix_paper_reading/learning-resources).

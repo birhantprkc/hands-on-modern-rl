@@ -362,16 +362,28 @@ The shortest path from S to G hugs the cliff edge and takes 11 steps. But it is 
   <em>Source: <a href="https://gymnasium.farama.org/environments/toy_text/cliff_walking/" target="_blank" rel="noopener noreferrer">Gymnasium Documentation - Cliff Walking</a>. The original environment is adapted from Sutton and Barto, <em>Reinforcement Learning: An Introduction</em>, Example 6.6.</em>
 </p>
 
-**Q-Learning** (off-policy) uses $\max_{a'} Q(s',a')$ in its target, which assumes that the future always takes the optimal action. Therefore it learns the shortest cliff-hugging path.
+The two algorithms behave differently in CliffWalking because one term in their update targets is different.
 
-**SARSA** (on-policy) uses the target $r + \gamma Q(s', a')$, where $a'$ is the action actually sampled from the current behavior policy (typically $\varepsilon$-greedy). Since SARSA accounts for the risk of exploration-induced mistakes inside its update, it tends to learn a safer path away from the cliff, even if it is longer.
+**Q-Learning** uses
+
+$$
+Q(s,a) \leftarrow Q(s,a) + \alpha\left[r + \gamma\max_{a'}Q(s',a') - Q(s,a)\right].
+$$
+
+Its target is $r+\gamma\max_{a'}Q(s',a')$. Regardless of which next action the behavior policy actually executes, Q-Learning uses the largest Q-value in $s'$. It therefore assumes that the next step will execute the optimal action perfectly. The resulting policy follows the shortest path beside the cliff without accounting for the risk that exploration may move the agent downward.
+
+**SARSA** uses
+
+$$
+Q(s,a) \leftarrow Q(s,a) + \alpha\left[r + \gamma Q(s',a') - Q(s,a)\right].
+$$
+
+Its target is $r+\gamma Q(s',a')$, where $a'$ is the action actually sampled from the current $\varepsilon$-greedy policy. Because SARSA learns from the next action that the behavior policy really selected, its update includes the risk of exploration-induced mistakes. It therefore tends to learn a longer but safer path away from the cliff.
 
 The difference between the two algorithms comes from different assumptions about “the future policy”:
 
 - Q-Learning estimates the value of the **optimal policy**, independent of how the current behavior policy explores.
 - SARSA estimates the value of the **current behavior policy**, so it avoids risks introduced by exploration.
-
-This is not a question of which one is “better”. They answer different questions. Q-Learning answers “if we ignore the randomness of exploration, what is the ideal optimum?” SARSA answers “given the exploration noise we are actually using, what is the safest way to behave?”.
 
 <span id="limitations"></span>
 

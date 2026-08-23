@@ -339,7 +339,7 @@ Observations must also be sufficient for decision-making. The current frame or f
 
 Rewards must arrive within a reasonable time. DQN propagates future returns step-by-step through the TD target. If the replay buffer contains only negative samples or meaningless transitions for a long time, the network cannot know which early action was useful. This is not a formula error — it is the learning signal being too far from the action.
 
-Finally, ε-greedy exploration must be able to produce useful experience. When action combinations are too many, episodes too long, and failure feedback too late, random exploration may fail to collect meaningful samples for a long time. In such cases, reducing the action set, designing staged rewards, or switching to methods better suited for long-horizon exploration is needed.
+Finally, $\epsilon$-greedy exploration must be able to produce useful experience. When action combinations are too many, episodes too long, and failure feedback too late, random exploration may fail to collect meaningful samples for a long time. In such cases, reducing the action set, designing staged rewards, or switching to methods better suited for long-horizon exploration is needed.
 
 Not meeting these conditions does not mean DQN completely fails — it means additional design is needed: continuous actions require different algorithms, missing observations require memory, sparse rewards require engineering or task decomposition.
 
