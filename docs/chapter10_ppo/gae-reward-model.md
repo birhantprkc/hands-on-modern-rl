@@ -420,7 +420,7 @@ RM 在训练集上表现完美可能意味着**过拟合**。过拟合的 RM 会
 </details>
 
 <details>
-<summary>思考题：Critic 完全随机（输出毫无意义）时，GAE 在 $\lambda=0$ 和 $\lambda=1$ 下分别退化为什么？哪种更可用？</summary>
+<summary>思考题：Critic 完全随机（输出毫无意义）时，GAE 在 λ=0 和 λ=1 下分别退化为什么？哪种更可用？</summary>
 
 $\lambda=0$ 时 $\hat{A}_t = \delta_t = r_t + \gamma V(s_{t+1}) - V(s_t)$。Critic 随机意味着 $V$ 是噪声，$\delta_t$ 也是噪声——**优势估计完全无意义**。
 
