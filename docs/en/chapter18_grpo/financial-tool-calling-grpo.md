@@ -285,6 +285,17 @@ peft_config = LoraConfig(
     task_type="CAUSAL_LM",
 )
 
+paper_grpo_options = dict(
+    beta=0.04,
+    epsilon=0.2,
+    num_iterations=1,
+    scale_rewards="group",
+    importance_sampling_level="token",
+    loss_type="grpo",
+)
+if "use_bias_correction_kl" in GRPOConfig.__dataclass_fields__:
+    paper_grpo_options["use_bias_correction_kl"] = False
+
 training_args = GRPOConfig(
     output_dir="outputs/financial-tool-grpo",
     learning_rate=5e-6,
@@ -294,6 +305,7 @@ training_args = GRPOConfig(
     max_prompt_length=2048,
     max_completion_length=256,
     temperature=0.8,
+    **paper_grpo_options,
     logging_steps=1,
     save_steps=50,
     max_steps=100,
@@ -309,6 +321,8 @@ trainer = GRPOTrainer(
 
 trainer.train()
 ```
+
+The original-GRPO options are explicit because newer TRL defaults may select later loss and KL variants. [`GRPOConfig` in TRL 0.24](https://github.com/huggingface/trl/blob/v0.24.0/trl/trainer/grpo_config.py) has no KL bias-correction option, whereas [`GRPOConfig` on the current main branch](https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_config.py) adds `use_bias_correction_kl` and enables it by default; this example disables it when the field exists. Upgrading TRL will therefore not silently replace the token-wise ratios, per-response length normalization, or original KL term in [DeepSeekMath Equations (3) and (4)](https://arxiv.org/html/2402.03300#S3.SS1).
 
 The training logic is the same as math RLVR:
 

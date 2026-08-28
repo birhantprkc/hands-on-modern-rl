@@ -190,7 +190,7 @@ Design points:
 - `grade_answer()` first performs string matching and then numerical comparison. A production verifier, such as the one used in [reasoning-from-scratch](https://github.com/rasbt/reasoning-from-scratch), uses more complex `sympy` equivalence checking, but the core logic is the same.
 - The whole verification process is deterministic, reproducible, and zero-cost in labels. This is the essential advantage of RLVR over RM-based training.
 
-### GRPO Training Loop
+### One-Update Limit of Original GRPO
 
 With the verifier in place, the next step is to connect "sample multiple answers -> compute rewards -> GRPO update" into a training loop.
 
@@ -201,8 +201,8 @@ import torch.nn.functional as F
 
 def compute_grpo_loss(model, tokenizer, prompt, ground_truth,
                       device, num_rollouts=4, max_new_tokens=512,
-                      temperature=0.8):
-    """One GRPO training step: rollout -> reward -> compute loss.
+                      temperature=1.0):
+    """One online update of the original GRPO policy term.
 
     Args:
         model: policy model
@@ -260,7 +260,8 @@ def compute_grpo_loss(model, tokenizer, prompt, ground_truth,
         # Keep only the log probabilities of the response tokens.
         targets = token_ids[1:]
         selected = logprobs[:-1].gather(1, targets.unsqueeze(-1)).squeeze(-1)
-        roll_logps.append(selected[prompt_len - 1:].sum())
+        # The paper averages tokens inside each response before averaging responses.
+        roll_logps.append(selected[prompt_len - 1:].mean())
 
     logps = torch.stack(roll_logps)
 
@@ -318,10 +319,10 @@ def train_rlvr(model, tokenizer, train_data, device,
 
 Design points:
 
-- `compute_grpo_loss()` wraps the four GRPO phases in one function: rollout -> advantage -> log prob -> loss. This is the core design of [reasoning-from-scratch](https://github.com/rasbt/reasoning-from-scratch): each training step is a complete GRPO iteration.
+- `compute_grpo_loss()` shows the one-update limit of the original GRPO policy term. At the forward-pass value, the current and old policies coincide, so the ratio is 1 and clipping is inactive; the ratio still has the gradient of the token log probability. The code therefore writes the same gradient directly as group advantage times mean token log probability.
 - **The reward comes from the verifier, not an RM.** `reward_rlvr()` only extracts and compares answers. It has no trainable parameters, but an incomplete parser or equivalence check can still be exploited.
 - **All-zero advantage is skipped.** If every rollout for a problem is correct or every rollout is wrong, all advantages are 0 and the gradient is also 0. Skipping the update saves compute, especially early in training when the model is weak and most problems receive all-zero rewards.
-- This implements the simplest GRPO, without a KL penalty, which matches the recommendations from DAPO and Dr. GRPO: in mathematical reasoning tasks, the KL term can be harmful.
+- The Reference KL term is omitted here to keep the verifier example focused. This is not the complete [DeepSeekMath Equations (3) and (4)](https://arxiv.org/html/2402.03300#S3.SS1); the complete original objective also includes token-wise ratio, clipping, and KL with $\beta=0.04$, as shown in the preceding code map.
 
 ### Running It
 

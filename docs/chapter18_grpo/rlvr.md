@@ -188,7 +188,7 @@ def reward_rlvr(response: str, ground_truth: str) -> float:
 - `grade_answer()` 先做字符串匹配，再做数值比较。生产级验证器（如 [reasoning-from-scratch](https://github.com/rasbt/reasoning-from-scratch) 使用的 `sympy` 等价判断）会更复杂，但核心逻辑一样。
 - 这个简化验证过程是确定且可重复的，但覆盖范围有限。正式实验还需要为嵌套括号、单位、近似值和代数等价式增加测试。
 
-### GRPO 训练循环
+### 原始 GRPO 的单次更新极限
 
 有了验证器，下一步是把 "采样多条回答 → 计算奖励 → GRPO 更新" 串成训练循环。
 
@@ -199,8 +199,8 @@ import torch.nn.functional as F
 
 def compute_grpo_loss(model, tokenizer, prompt, ground_truth,
                       device, num_rollouts=4, max_new_tokens=512,
-                      temperature=0.8):
-    """一个 GRPO 训练步：rollout → reward → compute loss。
+                      temperature=1.0):
+    """原始 GRPO 策略项的单次在线更新：rollout → reward → loss。
 
     参数：
         model: 策略模型
@@ -257,7 +257,8 @@ def compute_grpo_loss(model, tokenizer, prompt, ground_truth,
         # 只取 response 部分的 log prob
         targets = token_ids[1:]
         selected = logprobs[:-1].gather(1, targets.unsqueeze(-1)).squeeze(-1)
-        roll_logps.append(selected[prompt_len - 1:].sum())
+        # 原论文先对每段回答的 token 求平均，再对回答求平均
+        roll_logps.append(selected[prompt_len - 1:].mean())
 
     logps = torch.stack(roll_logps)
 
@@ -313,10 +314,10 @@ def train_rlvr(model, tokenizer, train_data, device,
 
 设计要点：
 
-- `compute_grpo_loss()` 把 GRPO 的四个阶段封装在一个函数中：rollout → advantage → log prob → loss。这是 [reasoning-from-scratch](https://github.com/rasbt/reasoning-from-scratch) 的核心设计——每个训练步就是一个完整的 GRPO 迭代。
+- `compute_grpo_loss()` 展示原始 GRPO 策略项在“采样后只更新一次”时的极限。此时新旧策略在前向数值上相同，ratio 等于 1，clip 不触发；ratio 的梯度仍然等于 token log probability 的梯度。代码因此直接写成组内优势乘逐 token 平均 log probability。
 - **reward 来自验证器，不来自 RM。** `reward_rlvr()` 只做答案提取 + 对比，没有可训练参数，不会 reward hacking。
 - **all-zero advantage 跳过。** 如果一道题所有 rollout 都答对或都答错，advantage 全为 0，梯度也为 0。跳过更新可以节省计算，这在训练初期（模型还很弱、大部分题都答错时）尤其有用。
-- 这里实现了最简的 GRPO（无 KL 惩罚），对应 DAPO 和 Dr. GRPO 的建议：数学推理任务中 KL 项反而有害。
+- 这里为了突出 RLVR 验证器而省略 Reference KL。它不是 [DeepSeekMath 式（3）和式（4）](https://arxiv.org/html/2402.03300#S3.SS1)的完整实现；完整原始 GRPO 还包含逐 token ratio、clip 和 $\beta=0.04$ 的 KL，见上一节的代码地图。
 
 ### 跑起来
 

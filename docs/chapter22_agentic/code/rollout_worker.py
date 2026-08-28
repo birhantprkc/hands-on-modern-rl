@@ -30,6 +30,7 @@ class RolloutWorker:
             if action["type"] == "finish":
                 trajectory["interactions"].append({
                     "turn": turn,
+                    "context": context,
                     "response": model_output,
                     "action": action,
                     "observation": None,
@@ -42,6 +43,7 @@ class RolloutWorker:
 
             trajectory["interactions"].append({
                 "turn": turn,
+                "context": context,
                 "response": model_output,
                 "action": action,
                 "observation": obs["observation"],

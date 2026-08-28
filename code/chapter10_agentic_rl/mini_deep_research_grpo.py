@@ -146,9 +146,22 @@ def main():
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
-    
+
     # Optional: If you want to run this locally on Mac (MPS) or small GPU
     # adjust the parameters below.
+    paper_grpo_options = {
+        "beta": 0.04,
+        "epsilon": 0.2,
+        "num_iterations": 1,
+        "scale_rewards": "group",
+        "importance_sampling_level": "token",
+        "loss_type": "grpo",
+    }
+    # TRL 0.24 uses the paper's KL estimator directly. Newer releases can
+    # bias-correct it, so disable that extension when the option is available.
+    if "use_bias_correction_kl" in GRPOConfig.__dataclass_fields__:
+        paper_grpo_options["use_bias_correction_kl"] = False
+
     training_args = GRPOConfig(
         output_dir=args.output_dir,
         learning_rate=1e-5,
@@ -156,9 +169,11 @@ def main():
         per_device_train_batch_size=2,
         gradient_accumulation_steps=2,
         # GRPO specific
-        num_generations=4,      # Number of rollouts per prompt
+        num_generations=4,  # Number of rollouts per prompt
         max_completion_length=200,
-        remove_unused_columns=False, # Required for custom kwargs in reward funcs
+        # Pin the original objective instead of inheriting later TRL defaults.
+        **paper_grpo_options,
+        remove_unused_columns=False,  # Required for custom kwargs in reward funcs
         logging_steps=1,
         report_to="none",
     )

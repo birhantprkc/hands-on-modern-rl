@@ -41,15 +41,35 @@ GRPO and PPO both use **token-level importance sampling ratios**:
 
 $$\rho_t = \frac{\pi_\theta(a_t|s_t)}{\pi_{\theta_{\text{old}}}(a_t|s_t)}$$
 
-Each token has its own ratio, and the gradient of the entire sequence is the product of all token ratios. This approach introduces a specific problem in LLM training: **in MoE architectures, different tokens are routed to different experts, leading to significant fluctuations in token-level ratios**, which causes high gradient variance and unstable training.
+Each token has its own ratio. GRPO clips those ratios independently and then averages the token objectives; it does not multiply all token ratios together. This is the original definition in [DeepSeekMath Equation (3)](https://arxiv.org/html/2402.03300#S3.SS1). The GSPO paper argues that these token-wise importance weights introduce high-variance noise when the reward belongs to the whole response, and that routing changes in MoE models amplify the fluctuations.
 
-GSPO (Group Sequence Policy Optimization, [arXiv:2507.18071](https://arxiv.org/abs/2507.18071)) elevates the ratio from the token level to the **sequence level**:
+GSPO (Group Sequence Policy Optimization) elevates the ratio from the token level to the **sequence level**:
 
-$$\rho^{\text{seq}} = \frac{\pi_\theta(o|q)}{\pi_{\theta_{\text{old}}}(o|q)} = \prod_{t=1}^{|o|} \frac{\pi_\theta(a_t|s_t)}{\pi_{\theta_{\text{old}}}(a_t|s_t)}$$
+$$
+s_i(\theta)
+=
+\left(
+\frac{\pi_\theta(y_i\mid x)}{\pi_{\theta_{\text{old}}}(y_i\mid x)}
+\right)^{1/|y_i|}
+=
+\exp\!\left(
+\frac{1}{|y_i|}\sum_{t=1}^{|y_i|}
+\log\frac{\pi_\theta(y_{i,t}\mid x,y_{i,<t})}
+{\pi_{\theta_{\text{old}}}(y_{i,t}\mid x,y_{i,<t})}
+\right).
+$$
+
+Equivalently, this is the geometric mean of the token ratios:
+
+$$
+s_i(\theta)=\left(\prod_{t=1}^{|y_i|}\rho_{i,t}\right)^{1/|y_i|}.
+$$
 
 The entire response uses a single ratio for clipping. The clipping target is also adjusted to the sequence level:
 
-$$\mathcal{L}^{\text{GSPO}} = \mathbb{E}\left[\min\left(\rho^{\text{seq}} \cdot \tilde{r}, \; \text{clip}(\rho^{\text{seq}}, 1-\epsilon, 1+\epsilon) \cdot \tilde{r}\right)\right]$$
+$$\mathcal{J}^{\text{GSPO}} = \mathbb{E}\left[\min\left(s_i(\theta)\hat A_i, \; \text{clip}(s_i(\theta), 1-\epsilon, 1+\epsilon)\hat A_i\right)\right].$$
+
+The $1/|y_i|$ length normalization is essential. Using the raw product $\prod_t\rho_{i,t}$ makes the ratio fluctuate with response length and would require different clipping ranges for responses of different lengths. For this reason, the former GRPO example—which summed all token log-probability differences and exponentiated without length normalization—was not a correct GSPO implementation either. [Equations (5) and (7) in the original GSPO paper](https://arxiv.org/html/2507.18071#S4.SS1)
 
 This change may seem simple, but it has a significant impact on the training stability of MoE models — all Qwen3 series (including Qwen3-235B-A22B, Qwen3-Thinking-2507, Qwen3-Coder) are trained based on GSPO. The variance of the sequence-level ratio is much smaller than that of the token-level, making large-scale RL training on a 10,000-card cluster feasible.
 

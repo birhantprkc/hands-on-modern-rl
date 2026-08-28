@@ -145,9 +145,9 @@ This code can be divided into eight blocks:
 | **[A]** | `sample_groups`                   | Why each prompt generates multiple answers                          |
 | **[B]** | `rule_reward` / `score_responses` | Where rewards come from and why math problems do not require an RM  |
 | **[C]** | `group_advantages`                | How the within-group mean replaces the Critic baseline              |
-| **[D]** | `sequence_logprob`                | How to compute $\log \pi_\theta(y\mid x)$ for a full answer         |
-| **[E]** | First half of `grpo_loss`         | `ratio`, `clip`, and PPO-style policy updates                       |
-| **[F]** | `approx_kl`                       | Why we still constrain the Policy away from the Reference           |
+| **[D]** | `per_token_logprobs`              | How to retain $\log \pi_\theta$ for every response token            |
+| **[E]** | `grpo_objective_from_logprobs`    | Token-wise `ratio`, `clip`, and policy updates                      |
+| **[F]** | `per_token_kl`                    | Why KL must also be computed token by token                         |
 | **[G]** | `train_step`                      | How sampling, scoring, advantages, loss, and backprop connect       |
 | **[H]** | `train_grpo`                      | Why GRPO is online training and generates fresh answers every round |
 
@@ -156,20 +156,20 @@ This code can be divided into eight blocks:
 If we did not switch to GRPO and kept training in the PPO / RLHF style, the code intuition would usually look like this:
 
 ```python
-# PPO / RLHF: generate online, then ask the Critic to estimate the baseline
-responses = policy_old.generate(prompts)
-logps_old = sequence_logprob(policy_old, prompts, responses).detach()
+# PPO / RLHF: generate online, then ask the Critic for token-wise advantages
+responses, completion_mask = policy_old.generate(prompts)
+old_per_token_logps = per_token_logprobs(policy_old, prompts, responses).detach()
 
 rewards = reward_model(prompts, responses)
-values = critic(prompts, responses)
-advantages = rewards - values
+advantages = critic_based_advantages(prompts, responses, rewards)
 
-logps_new = sequence_logprob(policy, prompts, responses)
-ratio = torch.exp(logps_new - logps_old)
-ppo_loss = -torch.min(
-    ratio * advantages,
-    torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages,
-).mean()
+new_per_token_logps = per_token_logprobs(policy, prompts, responses)
+token_ratio = torch.exp(new_per_token_logps - old_per_token_logps)
+per_token_objective = torch.min(
+    token_ratio * advantages,
+    torch.clamp(token_ratio, 1 - clip_eps, 1 + clip_eps) * advantages,
+)
+ppo_loss = -masked_sequence_mean(per_token_objective, completion_mask).mean()
 ```
 
 The `critic` here is the value model described earlier. Its job is not to generate answers, but to estimate a baseline: **roughly how much score should this prompt and current answer prefix receive?** PPO then uses `rewards - values` to get the advantage and decide whether an answer is "better than expected" or "worse than expected".
@@ -178,23 +178,29 @@ GRPO changes only a concentrated part: **keep online generation, probability rat
 
 ```python
 # GRPO: generate G answers for each prompt, then compare inside the group
-responses = generate_many(policy_old, prompts, num_generations=G)
-logps_old = sequence_logprob(policy_old, prompts, responses).detach()
+responses, completion_mask = generate_many(policy_old, prompts, num_generations=G)
+old_per_token_logps = per_token_logprobs(policy_old, prompts, responses).detach()
 
 rewards = reward_fn(prompts, responses)
 rewards_by_group = rewards.view(batch_size, G)
 
 group_mean = rewards_by_group.mean(dim=1, keepdim=True)
 group_std = rewards_by_group.std(dim=1, keepdim=True)
-advantages = ((rewards_by_group - group_mean) / (group_std + 1e-4)).view(-1)
+response_advantages = (
+    (rewards_by_group - group_mean) / (group_std + 1e-4)
+).view(-1)
 
-logps_new = sequence_logprob(policy, prompts, responses)
-ratio = torch.exp(logps_new - logps_old)
-grpo_loss = -torch.min(
-    ratio * advantages,
-    torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages,
-).mean()
+new_per_token_logps = per_token_logprobs(policy, prompts, responses)
+token_ratio = torch.exp(new_per_token_logps - old_per_token_logps)
+per_token_objective = torch.min(
+    token_ratio * response_advantages[:, None],
+    torch.clamp(token_ratio, 1 - clip_eps, 1 + clip_eps)
+    * response_advantages[:, None],
+)
+grpo_loss = -masked_sequence_mean(per_token_objective, completion_mask).mean()
 ```
+
+Outcome supervision assigns one advantage to a whole response, so its valid tokens share the same $\hat A_i$. The policy ratio, clipping, and KL remain token-wise. The loss first averages over the valid tokens in each response and then averages over responses.
 
 If we isolate the lines that truly change, we get:
 
@@ -214,12 +220,30 @@ If we isolate the lines that truly change, we get:
 
 So GRPO is not "deleting all of PPO", and it is not "only keeping a within-group normalization formula". More accurately, **GRPO replaces PPO's Critic baseline with a within-group mean baseline**: previously we asked, "is this answer better than the Critic expected?" Now we ask, "is this answer better than the other answers to the same question?"
 
-The real TRL source code follows this structure. When checking the Hugging Face TRL main branch on 2026-05-01, the following correspondences could be seen in [`GRPOTrainer`](https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_trainer.py):
+### Original-paper acceptance criterion
+
+Equation (3) of DeepSeekMath contains a token index $t$ on the policy ratio and a separate $1/|o_i|$ average for every response:
+
+$$
+r_{i,t}(\theta)
+=
+\frac{\pi_\theta(o_{i,t}\mid q,o_{i,<t})}
+{\pi_{\theta_{\mathrm{old}}}(o_{i,t}\mid q,o_{i,<t})}.
+$$
+
+Consequently, the original GRPO computes $\exp(\ell^{\mathrm{new}}_{i,t}-\ell^{\mathrm{old}}_{i,t})$ separately at every token. Exponentiating the sum instead produces $\prod_t r_{i,t}$, introduces response-length dependence, and clips the whole response only once. Equation (4) likewise defines the KL estimate token by token. The formulas and code below use those original definitions as the acceptance criterion. [DeepSeekMath equations](https://arxiv.org/html/2402.03300#S3.SS1)
+
+### TRL implementation comparison
+
+The current TRL source preserves this token dimension. When checking the Hugging Face TRL main branch on 2026-08-28, the following correspondences can be seen in [`GRPOTrainer`](https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_trainer.py):
 
 1. `GRPOTrainer` accepts `reward_funcs` in its initialization arguments. This can be a reward model or an ordinary Python function. In other words, math tasks can be scored directly with rule functions and do not necessarily require training an RM first.
 2. `self.num_generations = args.num_generations` corresponds to $G$ in the formula, namely **how many answers to generate for each prompt**.
 3. The source reshapes rewards into `(-1, num_generations)`, computes `mean_grouped_rewards` and within-group `std_rewards`, and then obtains `advantages = rewards - mean_grouped_rewards`, dividing by the standard deviation when needed.
-4. The loss still computes `coef_1 = exp(log_ratio)`, uses `torch.clamp` to get `coef_2`, and finally takes the `min` of `coef_1 * advantages` and `coef_2 * advantages`. This is the PPO-style clipped objective.
+4. `_get_per_token_logps_and_entropies` returns one log probability per response token. The loss computes `coef_1 = exp(log_ratio)`, clips it, and takes the `min` at every token position.
+5. `loss_type="grpo"` averages valid tokens inside each response before averaging the batch, matching $\frac{1}{|o_i|}\sum_t$. `loss_type="bnpo"` instead averages all valid batch tokens globally and therefore gives longer responses more weight. [Current TRL loss implementation](https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_trainer.py)
+
+Current TRL also supports sequence-level importance sampling and DAPO/BNPO/DR-GRPO variants, and its defaults evolve over time. A paper-faithful configuration must therefore explicitly select `importance_sampling_level="token"`, `loss_type="grpo"`, `num_iterations=1`, `beta=0.04`, and disable the later KL bias correction. Comparing [`GRPOConfig` in TRL 0.24](https://github.com/huggingface/trl/blob/v0.24.0/trl/trainer/grpo_config.py) with [`GRPOConfig` on the current main branch](https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_config.py) shows both the changed defaults and the later addition of `use_bias_correction_kl`, which is enabled by default.
 
 Compared with [`PPOTrainer`](https://github.com/huggingface/trl/blob/main/trl/experimental/ppo/ppo_trainer.py), the difference is clearer: `PPOTrainer` needs a `reward_model` and a `value_model`, and uses the `value_model` to produce advantage estimates; `GRPOTrainer` does not need a separate `value_model`. It directly turns **within-group relative scores from same-question multi-sampling** into advantages.
 
@@ -328,13 +352,26 @@ if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = "left"
 
+paper_grpo_options = dict(
+    beta=0.04,                         # paper KL coefficient
+    epsilon=0.2,
+    num_iterations=1,                  # one update per rollout batch
+    scale_rewards="group",
+    importance_sampling_level="token",
+    loss_type="grpo",                  # normalize each response by its length
+)
+# The pinned TRL 0.24 has no such option; only newer releases need this override.
+if "use_bias_correction_kl" in GRPOConfig.__dataclass_fields__:
+    paper_grpo_options["use_bias_correction_kl"] = False
+
 config = GRPOConfig(
     output_dir="./grpo_gsm8k",
-    num_generations=8,        # generate k=8 answers per problem (group size)
-    per_device_train_batch_size=4,
-    learning_rate=5e-6,
+    num_generations=8,                 # teaching scale; the paper uses 64
+    per_device_train_batch_size=8,     # global batch must divide by group size
+    max_completion_length=1024,
+    learning_rate=1e-6,                # paper experiment setting
     num_train_epochs=1,
-    # No Critic needed! This is the core innovation of GRPO.
+    **paper_grpo_options,
 )
 
 gsm8k = load_dataset("openai/gsm8k", "main")
@@ -349,6 +386,8 @@ trainer = GRPOTrainer(
 trainer.train()  # start training: no Critic, no RM
 trainer.save_model("./grpo_gsm8k/final_model")
 ```
+
+This separates the algorithm from the teaching-scale hardware choice. The [DeepSeekMath experimental setup](https://arxiv.org/html/2402.03300#S3.SS2) sampled 64 responses per question with a batch size of 1024, a learning rate of $10^{-6}$, a KL coefficient of 0.04, and one policy update after each exploration stage; this example uses eight responses to reduce memory. The remaining options are explicit so newer TRL defaults cannot silently switch the objective to DAPO, BNPO, sequence-level importance sampling, or a later bias-corrected KL variant. The [repository-pinned TRL 0.24 configuration](https://github.com/huggingface/trl/blob/v0.24.0/trl/trainer/grpo_config.py) predates `use_bias_correction_kl`; the [current main-branch configuration](https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_config.py) adds the field and enables it by default, so the example disables it only when the field exists.
 
 If we unfold the most important internal training step of `GRPOTrainer`, it is "sample by group, score, compute advantages, and update the policy":
 
@@ -441,20 +480,14 @@ Here:
 Next compute the standard deviation of this group:
 
 $$
-s_j
-=
-\sqrt{
-\frac{1}{G}
-\sum_{i=1}^{G}
-(r_{j,i}-\bar r_j)^2
-}
+s_j=\operatorname{std}(r_{j,1},\ldots,r_{j,G}).
 $$
+
+DeepSeekMath writes `std` without specifying whether the denominator is $G$ or $G-1$. The example follows the [default definition of PyTorch `torch.std`](https://pytorch.org/docs/stable/generated/torch.std.html) and uses Bessel's correction. With a fixed group size, this changes the overall advantage scale but not the sign or ordering of answers inside a group.
 
 Here:
 
 - $s_j$: the standard deviation of the $j$-th reward group, representing how different the answer scores are.
-- $(r_{j,i}-\bar r_j)^2$: how far the $i$-th answer is from the average; the square prevents positive and negative deviations from canceling.
-- $\sqrt{\cdot}$: the square root, bringing the scale back near the original reward scale.
 
 Finally, the within-group advantage of the $i$-th answer is:
 
@@ -550,143 +583,89 @@ In one sentence: **GRPO = PPO's clipping mechanism + replacing the Critic with w
 
 "PPO's clipping mechanism" is still `ratio`, `clamp`, and `min` in the code; the difference is that `advantages` now comes from within-group comparison.
 
-First define the probability ratio between the new and old policies:
+### Token-wise ratio and clipping
+
+For token $t$ in response $i$, define the conditional probability and its logarithm as
 
 $$
-\rho_{j,i}(\theta)
+p_{j,i,t}^{\theta}=\pi_\theta(y_{j,i,t}\mid x_j,y_{j,i,<t}),
+\qquad
+\ell_{j,i,t}^{\theta}=\log p_{j,i,t}^{\theta}.
+$$
+
+Probabilities are small, and multiplying many of them can underflow. Logarithms turn the product for a complete response into a sum. However, original GRPO must preserve the $[B,T]$ token dimension because the ratio and clipping are applied before any token reduction:
+
+$$
+\rho_{j,i,t}(\theta)
 =
-\frac{
-\pi_\theta(y_{j,i}\mid x_j)
-}{
-\pi_{\text{old}}(y_{j,i}\mid x_j)
-}
-$$
-
-Here:
-
-- $\pi_{\text{old}}(y_{j,i}\mid x_j)$: the probability assigned to this answer by the old policy when it was sampled.
-- $\pi_\theta(y_{j,i}\mid x_j)$: the probability assigned to this answer by the new policy currently being updated.
-- $\rho_{j,i}(\theta)$: how many times the new policy has increased or decreased this answer's probability relative to the old policy.
-
-In actual code, we do not directly divide two tiny probabilities. We first compute log probabilities, subtract them, and exponentiate:
-
-$$
-\rho_{j,i}(\theta)
+\frac{p_{j,i,t}^{\theta}}{p_{j,i,t}^{\mathrm{old}}}
 =
-\exp
-\left(
-\log \pi_\theta(y_{j,i}\mid x_j)
--
-\log \pi_{\text{old}}(y_{j,i}\mid x_j)
+\exp\!\left(\ell_{j,i,t}^{\theta}-\ell_{j,i,t}^{\mathrm{old}}\right).
+$$
+
+The paper's clipped objective is
+
+$$
+\mathcal{J}_{\text{clip}}(\theta)
+=
+\mathbb E_{x_j}\left[
+\frac{1}{G}\sum_{i=1}^{G}\frac{1}{T_{j,i}}\sum_{t=1}^{T_{j,i}}
+\min\!\left(
+\rho_{j,i,t}\hat A_{j,i},
+\operatorname{clip}(\rho_{j,i,t},1-\epsilon,1+\epsilon)\hat A_{j,i}
 \right)
+\right].
 $$
 
-If $\rho=1$, the new and old policies assign the same probability to this answer. If $\rho=1.2$, the new policy increases its probability by 20%. If $\rho=0.8$, the new policy decreases its probability by 20%.
-
-With the ratio and within-group advantage, the clipped GRPO objective is:
-
-$$
-\mathcal{J}_{\text{GRPO}}^{\text{clip}}(\theta)
-=
-\mathbb{E}_{j,i}
-\left[
-\min
-\left(
-\rho_{j,i}(\theta)\hat A_{j,i},
-\operatorname{clip}
-(\rho_{j,i}(\theta),1-\epsilon_{\text{clip}},1+\epsilon_{\text{clip}})
-\hat A_{j,i}
-\right)
-\right]
-$$
-
-Each symbol means:
-
-- $\mathbb{E}_{j,i}$: average over all prompts and all within-group answers in the batch.
-- $\hat A_{j,i}$: the within-group advantage computed above.
-- $\epsilon_{\text{clip}}$: the clipping range; a common value is 0.2.
-- $\operatorname{clip}(\rho,1-\epsilon_{\text{clip}},1+\epsilon_{\text{clip}})$: restricts the probability ratio to an interval. For example, when $\epsilon_{\text{clip}}=0.2$, $\rho$ is restricted to $[0.8,1.2]$.
-- $\min(\cdot,\cdot)$: chooses the more conservative objective and avoids an update that is too large.
-
-Why clip? Because this batch of answers was generated by $\pi_{\text{old}}$. If, after several training steps, $\pi_\theta$ has moved far away from $\pi_{\text{old}}$, this batch no longer reliably represents the behavior of the new policy. Clipping means: **allow the model to learn, but do not let it change too aggressively from one batch of data**.
+For token ratios $[1.1,0.9,1.5]$ and $\epsilon=0.2$, original GRPO clips them separately to $[1.1,0.9,1.2]$. Summing the log-ratio first instead produces one response ratio $1.1\times0.9\times1.5=1.485$ and clips the whole response once. That loses local control and introduces a strong length effect.
 
 <GrpoCodeFocus focus="clip" />
 
-In the code, `new_logprobs` is $\log \pi_\theta(y_{j,i}\mid x_j)$, and `old_logprobs` is $\log \pi_{\text{old}}(y_{j,i}\mid x_j)$. Therefore:
+In the corrected code, `new_logprobs` and `old_logprobs` both have shape $[B,T]$. The expressions `token_ratio` and `minimum(unclipped, clipped)` operate element by element. Then `masked_sequence_mean` averages the valid tokens inside each response, and the outer `.mean()` gives each response equal weight. A global `(loss * mask).sum() / mask.sum()` is TRL's BNPO reduction, not the original GRPO reduction, because it gives longer responses more weight.
 
-- `ratio = torch.exp(new_logprobs - old_logprobs)`: implements $\rho_{j,i}(\theta)$.
-- `surr1 = ratio * advantages`: the unclipped policy objective.
-- `clipped_ratio = torch.clamp(ratio, 1.0 - clip_eps, 1.0 + clip_eps)`: restricts $\rho$ to $[1-\epsilon_{\text{clip}},1+\epsilon_{\text{clip}}]$.
-- `surr2 = clipped_ratio * advantages`: the clipped policy objective.
-- `policy_loss = -torch.min(surr1, surr2).mean()`: takes the conservative objective and adds a negative sign to turn it into a loss to minimize.
+### Token-wise KL penalty
 
-The $\mathcal{J}_{\text{GRPO}}^{\text{clip}}$ above is the objective we want to maximize. The optimizer in code minimizes a loss by default, so it is written as:
+Equation (4) of DeepSeekMath also defines KL per token:
 
 $$
-\text{policy\_loss}
+\widehat D_{j,i,t}
 =
--
-\mathcal{J}_{\text{GRPO}}^{\text{clip}}(\theta)
-$$
-
-This is why the code contains a negative sign.
-
-At the same time, GRPO usually keeps a KL penalty so that the Policy does not move too far from the Reference. The handwritten code uses a common approximate KL:
-
-$$
-\widehat D_{\text{KL}}
-=
-\exp(\Delta)
--
-\Delta
--
-1,
+\exp(\Delta_{j,i,t})-\Delta_{j,i,t}-1,
 \qquad
-\Delta
+\Delta_{j,i,t}
 =
-\log \pi_{\text{ref}}(y\mid x)
--
-\log \pi_\theta(y\mid x)
+\ell_{j,i,t}^{\mathrm{ref}}-\ell_{j,i,t}^{\theta}.
 $$
 
-This approximation has a useful property: when the Policy and Reference assign the same log probability, $\Delta=0$, so:
+This quantity is non-negative and becomes zero when Policy and Reference agree. Combining clipping and KL gives
 
 $$
-\exp(0)-0-1=0
-$$
-
-That is, the closer the two models are, the smaller the KL penalty; the farther apart they are, the larger the penalty.
-
-The final total loss can be written as:
-
-$$
-\mathcal{L}_{\text{GRPO}}
+\mathcal{J}_{\text{GRPO}}(\theta)
 =
--
-\mathcal{J}_{\text{GRPO}}^{\text{clip}}(\theta)
-+
-\beta_{\text{KL}}
-\widehat D_{\text{KL}}
+\frac{1}{G}\sum_{i=1}^{G}\frac{1}{T_{j,i}}\sum_{t=1}^{T_{j,i}}
+\left[
+\min\!\left(
+\rho_{j,i,t}\hat A_{j,i},
+\operatorname{clip}(\rho_{j,i,t},1-\epsilon,1+\epsilon)\hat A_{j,i}
+\right)
+-\beta\widehat D_{j,i,t}
+\right].
 $$
 
-Here $\beta_{\text{KL}}$ is the KL penalty weight, corresponding to `kl_coef` in the code. The larger it is, the more conservative the model is. The smaller it is, the more willing the model is to leave the Reference and explore high-reward answers.
+The training loss is the negative expectation of this objective. DeepSeekMath used $\beta=0.04$. [DeepSeekMath Equations (3)–(4) and experimental setup](https://arxiv.org/html/2402.03300#S3.SS1)
 
 <GrpoCodeFocus focus="kl" />
 
-The code correspondence is:
-
-- `log_ratio_ref = ref_logprobs - new_logprobs`: implements $\Delta$.
-- `approx_kl = (torch.exp(log_ratio_ref) - log_ratio_ref - 1.0).mean()`: implements $\widehat D_{\text{KL}}$.
-- `loss = policy_loss + kl_coef * approx_kl`: implements the total loss $\mathcal{L}_{\text{GRPO}}$.
+`completion_mask` excludes the prompt and padding after EOS. The implementation first combines the token-wise clipped objective and KL, then performs $\frac{1}{T_{j,i}}\sum_t$, matching the paper's order of operations.
 
 Putting all steps together, one GRPO training iteration is:
 
 1. Sample $G$ answers for each prompt.
 2. Score every answer with rules or a reward function.
 3. Compute $\bar r_j$, $s_j$, and $\hat A_{j,i}$ inside each prompt group.
-4. Use the new and old policy log probabilities to compute $\rho_{j,i}(\theta)$.
-5. Use PPO-style clipping to control update size.
-6. Add the Reference KL penalty.
+4. Keep response-token log probabilities and compute $\rho_{j,i,t}(\theta)$ token by token.
+5. Apply PPO-style clipping and the Reference KL penalty at each token.
+6. Average valid tokens inside each response, then average the responses.
 7. Backpropagate and update only the Policy.
 
 ## Experimental Comparison and Parameter Tuning

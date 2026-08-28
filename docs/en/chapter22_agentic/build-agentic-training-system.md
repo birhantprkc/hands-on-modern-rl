@@ -234,24 +234,21 @@ flowchart TD
 
 ```python
 # environment.py
-import subprocess
-import tempfile
 import os
+import subprocess
+import sys
+import tempfile
 
 
 class SandboxEnv:
-    """Lightest-weight sandbox: subprocess + resource limits
+    """Minimal executor: subprocess + timeout, not a security boundary.
 
-    Responsibility: accept the agent's action, execute it in an isolated environment,
-    return (observation, done).
-    Isolation method: execute code via subprocess in a separate process, preventing
-    infinite loops / malicious code from affecting the main training process.
+    It moves execution to another process and limits wait time, but does not
+    isolate the filesystem or network. Production needs containers or MicroVMs.
     """
 
-    def __init__(self, timeout=10, max_memory=256 * 1024 * 1024):
-        self.timeout = timeout          # Timeout limit: prevent infinite loops
-        self.max_memory = max_memory    # Memory limit (not enforced in this minimal
-                                        # implementation; production needs cgroups)
+    def __init__(self, timeout=10):
+        self.timeout = timeout
 
     def step(self, action_type: str, action_args: dict) -> dict:
         """Execute one action step, return observation and termination status.
@@ -268,26 +265,25 @@ class SandboxEnv:
             return {"observation": f"Unknown action: {action_type}", "done": False}
 
     def _exec_code(self, code: str) -> dict:
-        """Execute code in a subprocess, limiting CPU time and memory.
+        """Run code with the current Python interpreter and limit wait time.
 
-        Core isolation mechanism:
-        1. Create a temporary file and write the code (avoids polluting the main process filesystem)
+        1. Create a temporary file and write the code
         2. subprocess.run() executes in a separate process
-        3. timeout parameter limits execution time; raises TimeoutExpired when exceeded
-        4. Only return the last 500 characters of stdout/stderr (prevent excessive output from consuming memory)
+        3. timeout limits wait time
+        4. Return only the last 500 characters of stdout/stderr
         """
+        temp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
                 f.write(code)
                 f.flush()
-                # Execute in a separate subprocess; timeout prevents infinite loops
+                temp_path = f.name
                 result = subprocess.run(
-                    ["python", f.name],
+                    [sys.executable, temp_path],
                     timeout=self.timeout,
                     capture_output=True,
                     text=True,
                 )
-                os.unlink(f.name)  # Delete temp file immediately after execution
                 return {
                     "observation": (result.stdout + result.stderr)[-500:],  # Truncate long output
                     "done": False,
@@ -298,6 +294,9 @@ class SandboxEnv:
         except Exception as e:
             # Other exceptions: compilation errors, syntax errors, etc.
             return {"observation": f"ERROR: {e}", "done": False}
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
 
     def reset(self):
         """Reset environment state (called when a new episode starts).
@@ -311,7 +310,7 @@ class SandboxEnv:
 Design notes:
 
 - `step()` accepts a structured action (`action_type` + `action_args`), not raw text. This corresponds to the action space $A = A_{\text{text}} \cup A_{\text{action}}$ from Section 19.2.
-- `_exec_code()` uses subprocess isolation with a timeout to prevent infinite loops — the lightest sandbox approach discussed in Section 19.2.
+- `_exec_code()` starts the current Python interpreter in a subprocess and applies a timeout. It has no filesystem or network isolation, so it is suitable only for trusted teaching code.
 - The return value includes `observation` (environment feedback) and `done` (termination status), corresponding to the POMDP observation function $O(s_t)$.
 
 ## 19.10.5 Policy — Model Inference and Training
@@ -327,13 +326,11 @@ flowchart TD
         Gen --> Out["Output action text"]
     end
     subgraph Train["Train phase (with gradients)"]
-        P2["Input (prompt, response, advantage)"] --> Lp["get_logprobs()<br/>Compute each token log prob"]
-        Lp --> KL{"ref_model?"}
-        KL -->|yes| KLcalc["Compute KL divergence penalty"]
-        KL -->|no| NoKL["kl = 0"]
-        KLcalc --> Loss["pg_loss = -sum(log_prob) * advantage<br/>loss = pg_loss + 0.1 * kl"]
-        NoKL --> Loss
-        Loss --> Back["backward() + step()"]
+        P2["Input multi-turn actions and trajectory advantage"] --> Lp["Keep each action token log prob"]
+        Lp --> Ratio["Per-token ratio and clipping"]
+        Ratio --> KL["Per-token reference KL"]
+        KL --> Mean["Normalize each trajectory by action-token count"]
+        Mean --> Back["backward() + step()"]
         Back --> Update["Weights θ update to θ'"]
     end
 ```
@@ -345,100 +342,100 @@ import torch.nn.functional as F
 
 
 class Policy:
-    """Wraps a language model, providing two sets of interfaces.
-
-    Core problem: the same weights must support both inference (rollout) and training (gradient updates).
-    Solution:
-      - generate() / get_logprobs(): used during rollout phase, @torch.no_grad() skips gradient computation
-      - train_step_with_advantage(): used during training phase, computes gradients and updates weights
-    """
-
-    def __init__(self, model, tokenizer, lr=1e-5):
-        self.model = model                # Main model: used for both inference and training
+    def __init__(self, model, tokenizer, lr=1e-5,
+                 clip_eps=0.2, kl_coef=0.04):
+        self.model = model
         self.tokenizer = tokenizer
         self.optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
-        self.ref_model = None             # KL anchor: stores a copy of the initial policy
+        self.clip_eps = clip_eps
+        self.kl_coef = kl_coef
+        self.ref_model = None
 
     def set_ref_model(self, ref_model):
-        """Save a copy of the initial weights to use as an anchor for KL divergence computation.
-
-        Purpose: prevent the trained policy from drifting too far from the initial policy,
-        maintaining stability of the output distribution.
-        """
-        self.ref_model = ref_model
+        self.ref_model = ref_model.to(self.model.device).eval()
+        for parameter in self.ref_model.parameters():
+            parameter.requires_grad_(False)
 
     @torch.no_grad()
     def generate(self, prompt: str, max_new_tokens=128) -> str:
-        """Inference mode: given a prompt, generate text.
-
-        Corresponds to "model generates action" during the rollout phase.
-        Uses @torch.no_grad() because rollout does not need gradient computation, saving memory.
-        """
+        self.model.eval()
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
-        outputs = self.model.generate(**inputs, max_new_tokens=max_new_tokens)
-        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        pad_token_id = self.tokenizer.pad_token_id
+        if pad_token_id is None:
+            pad_token_id = self.tokenizer.eos_token_id
+        outputs = self.model.generate(
+            **inputs,
+            do_sample=True,
+            temperature=1.0,
+            max_new_tokens=max_new_tokens,
+            pad_token_id=pad_token_id,
+        )
+        prompt_width = inputs["input_ids"].shape[1]
+        return self.tokenizer.decode(
+            outputs[0, prompt_width:], skip_special_tokens=True
+        )
+
+    def _token_logprobs(self, model, prompt, response):
+        prompt_inputs = self.tokenizer(prompt, return_tensors="pt")
+        response_inputs = self.tokenizer(
+            response, return_tensors="pt", add_special_tokens=False
+        )
+        prompt_ids = prompt_inputs["input_ids"].to(model.device)
+        response_ids = response_inputs["input_ids"].to(model.device)
+        input_ids = torch.cat([prompt_ids, response_ids], dim=1)
+        attention_mask = torch.ones_like(input_ids)
+
+        logits = model(input_ids=input_ids, attention_mask=attention_mask).logits
+        prompt_width = prompt_ids.shape[1]
+        response_logits = logits[:, prompt_width - 1 : -1, :]
+        logprobs = F.log_softmax(response_logits, dim=-1)
+        return logprobs.gather(2, response_ids.unsqueeze(-1)).squeeze(-1)
 
     @torch.no_grad()
-    def get_logprobs(self, prompt: str, response: str) -> torch.Tensor:
-        """Compute the log probability of each token in the given response under the model.
-
-        Rollout phase: used to compute the current policy's probability for a new trajectory (importance sampling).
-        Training phase: used to compute new_logprobs (current policy) and ref_logprobs (old policy).
-
-        Key detail: only take log probs for the response portion (excluding the prompt).
-        """
-        full_text = prompt + response
-        inputs = self.tokenizer(full_text, return_tensors="pt").to(self.model.device)
-        logits = self.model(**inputs).logits
-
-        # Compute prompt length for splitting out the response portion
-        prompt_len = len(self.tokenizer(prompt, return_tensors="pt")["input_ids"][0])
-        # response_logits[i] corresponds to the prediction distribution for the i-th response token
-        response_logits = logits[:, prompt_len - 1:-1, :]
-        response_ids = inputs["input_ids"][:, prompt_len:]
-
-        # log_softmax converts logits to log probability distribution
-        logprobs = F.log_softmax(response_logits, dim=-1)
-        # gather: extract the log prob corresponding to the actually generated token from the distribution
-        token_logprobs = logprobs.gather(2, response_ids.unsqueeze(-1)).squeeze(-1)
-        return token_logprobs
+    def _get_ref_logprobs(self, prompt, response):
+        return self._token_logprobs(self.ref_model, prompt, response)
 
     def train_step_with_advantage(self, trajectories: list):
-        """One GRPO training step (REINFORCE + advantage + KL penalty).
-
-        Args:
-            trajectories: list of (prompt, response, advantage)
-                          prompt: the initial question
-                          response: the agent's complete interaction text
-                          advantage: the GRPO-normalized advantage value
-
-        Computation flow:
-        1. For each trajectory, compute new_logprobs (probability under current policy)
-        2. If ref_model exists, compute KL divergence penalty
-        3. Policy gradient loss = -sum(log_prob) * advantage
-        4. Total loss = pg_loss + 0.1 * kl, averaged and backpropagated
-        """
-        losses = []
-        for prompt, response, advantage in trajectories:
-            new_logprobs = self.get_logprobs(prompt, response)
-
-            if self.ref_model is not None:
-                with torch.no_grad():
-                    # ref_logprobs: probability of the initial policy generating this response
-                    ref_logprobs = self._get_ref_logprobs(prompt, response)
-                # KL divergence (approximation): p * (log p - log q)
-                kl = (new_logprobs.exp() * (new_logprobs - ref_logprobs)).sum()
-            else:
-                kl = 0.0
-
-            # Policy gradient: advantage > 0 increases trajectory probability,
-            # advantage < 0 decreases it
-            pg_loss = -(new_logprobs.sum() * advantage)
-            loss = pg_loss + 0.1 * kl
-            losses.append(loss)
-
-        total_loss = torch.stack(losses).mean()
+        """trajectories: [([(turn_prompt, turn_response), ...], advantage)]"""
+        self.model.train()
         self.optimizer.zero_grad()
+        trajectory_losses = []
+
+        for turns, advantage in trajectories:
+            turn_token_losses = []
+            for prompt, response in turns:
+                new_logprobs = self._token_logprobs(self.model, prompt, response)
+                if new_logprobs.numel() == 0:
+                    continue
+
+                # This example performs one update per rollout batch.
+                old_logprobs = new_logprobs.detach()
+                ratio = torch.exp(new_logprobs - old_logprobs)
+                advantage_tensor = new_logprobs.new_tensor(advantage)
+                unclipped = ratio * advantage_tensor
+                clipped = torch.clamp(
+                    ratio, 1 - self.clip_eps, 1 + self.clip_eps
+                ) * advantage_tensor
+
+                if self.ref_model is not None:
+                    ref_logprobs = self._get_ref_logprobs(prompt, response)
+                    delta = ref_logprobs - new_logprobs
+                    per_token_kl = torch.exp(delta) - delta - 1
+                else:
+                    per_token_kl = torch.zeros_like(new_logprobs)
+
+                per_token_loss = (
+                    -torch.minimum(unclipped, clipped)
+                    + self.kl_coef * per_token_kl
+                )
+                turn_token_losses.append(per_token_loss.reshape(-1))
+
+            if turn_token_losses:
+                trajectory_losses.append(torch.cat(turn_token_losses).mean())
+
+        if not trajectory_losses:
+            return 0.0
+        total_loss = torch.stack(trajectory_losses).mean()
         total_loss.backward()
         self.optimizer.step()
         return total_loss.item()
@@ -446,9 +443,10 @@ class Policy:
 
 Design notes:
 
-- `generate()` and `get_logprobs()` are used during the rollout phase, while `train_step_with_advantage()` is used during the training phase — two uses of the same weights.
-- `ref_model` is the KL penalty anchor, preventing the model from drifting too far from the initial policy.
-- This implements the simplest policy gradient (REINFORCE + advantage) without PPO clipping — get it running first, then optimize.
+- `generate()` enables sampling so trajectories in the same prompt group can differ. It decodes only newly generated tokens, so the prompt is not mistaken for a model action.
+- `_token_logprobs()` keeps gradients for the training path; only the reference-model path disables gradients.
+- As in [DeepSeekMath Equations (3) and (4)](https://arxiv.org/html/2402.03300#S3.SS1), ratio, clipping, and the KL estimator are all computed per token.
+- Environment observations only condition later turns. They do not enter the action loss. The code first averages action tokens inside each trajectory, then averages trajectories.
 
 ## 19.10.6 RolloutWorker — Driving the Agent Loop
 
@@ -519,6 +517,7 @@ class RolloutWorker:
                 # Agent decides to end the episode, submitting the final answer
                 trajectory["interactions"].append({
                     "turn": turn,
+                    "context": context,
                     "response": model_output,
                     "action": action,
                     "observation": None,
@@ -532,6 +531,7 @@ class RolloutWorker:
             # Step 5: Record this interaction round in the trajectory
             trajectory["interactions"].append({
                 "turn": turn,
+                "context": context,
                 "response": model_output,      # Agent's generated action (raw text)
                 "action": action,              # Parsed structured action
                 "observation": obs["observation"],  # Environment-returned observation
@@ -626,6 +626,8 @@ class GRPOAgentTrainer:
     """
 
     def __init__(self, policy, env, reward_fn, group_size=4, max_turns=5):
+        if group_size < 2:
+            raise ValueError("GRPO group_size must be at least 2")
         self.policy = policy        # Policy model: inference + training
         self.env = env              # Execution environment: sandbox
         self.reward_fn = reward_fn  # Reward function: judges whether answer is correct
@@ -662,22 +664,28 @@ class GRPOAgentTrainer:
             for group in batch_trajectories:
                 group_rewards = [t["reward"] for t in group]
                 mean_r = sum(group_rewards) / len(group_rewards)
-                std_r = (sum((r - mean_r) ** 2 for r in group_rewards) / len(group_rewards)) ** 0.5 + 1e-8
+                std_r = (
+                    sum((r - mean_r) ** 2 for r in group_rewards)
+                    / (len(group_rewards) - 1)
+                ) ** 0.5
                 for t, r in zip(group, group_rewards):
-                    t["advantage"] = (r - mean_r) / std_r
+                    t["advantage"] = (
+                        0.0 if std_r < 1e-8 else (r - mean_r) / std_r
+                    )
                 all_rewards.extend(group_rewards)
 
             # ==================== Phase 3: Train ====================
-            # Feed all trajectories' (prompt, response, advantage) to Policy for gradient update
+            # Keep each turn's context and response; observations are not actions
             train_data = []
             for group in batch_trajectories:
                 for traj in group:
-                    # Serialize multi-turn interaction into text as the model's "response"
-                    full_response = self._serialize_trajectory(traj)
+                    generated_turns = [
+                        (interaction["context"], interaction["response"])
+                        for interaction in traj["interactions"]
+                    ]
                     train_data.append((
-                        traj["prompt"],      # Initial question
-                        full_response,       # Complete interaction history (all agent outputs)
-                        traj["advantage"],   # GRPO-computed advantage value
+                        generated_turns,
+                        traj["advantage"],
                     ))
 
             # Policy gradient update: trajectories with advantage > 0 get probability boost,
@@ -698,35 +706,13 @@ class GRPOAgentTrainer:
                       f"reward_max={max(all_rewards):.3f}")
 
         return self.history
-
-    def _serialize_trajectory(self, traj: dict) -> str:
-        """Serialize a multi-turn trajectory into text for train_step.
-
-        Serialization format:
-            Assistant: <action1>
-            Observation: <result1>
-            Assistant: <action2>
-            Observation: <result2>
-            ...
-
-        Note: this is simplified — all tokens participate in the loss.
-        Production frameworks use loss masks to distinguish model-generated tokens
-        (participate in loss) from environment-returned tokens (masked out).
-        See the loss mask discussion in Section 19.2.
-        """
-        parts = []
-        for interaction in traj["interactions"]:
-            parts.append(f"Assistant: {interaction['response']}")
-            if interaction["observation"]:
-                parts.append(f"Observation: {interaction['observation']}")
-        return "\n".join(parts)
 ```
 
 Design notes:
 
 - The main loop of `fit()` follows the "producer-consumer" pattern: RolloutWorker produces trajectories, Policy consumes them for gradient updates.
 - GRPO's within-group comparison is implemented in the Reward normalization section: for multiple trajectories sharing a prompt, advantage = (reward - mean) / std.
-- `_serialize_trajectory()` flattens multi-turn trajectories into text. This is simplified — production frameworks use loss masks to distinguish model-generated tokens from environment-returned tokens (see the loss mask discussion in Section 19.2).
+- Each turn stores the `context` used for generation and the model's `response`. Training covers only response tokens; an environment observation can affect later actions only through the next turn's context.
 
 ## 19.10.8 Putting It All Together
 
@@ -778,30 +764,27 @@ policy = Policy(model, tokenizer, lr=5e-5)
 ref_model = AutoModelForCausalLM.from_pretrained(model_name)
 policy.set_ref_model(ref_model)
 
-# ==================== Step 3: Define Reward Function ====================
-# Reward is sparse: only given when the trajectory ends, no intermediate feedback
-# Simple rule: if any execution round succeeds (no ERROR/TIMEOUT), reward = 1
-def code_reward(trajectory):
-    """Judge whether the trajectory contains a successful code execution result.
+# ==================== Step 3: Define a verifiable reward ====================
+TASK_EXPECTED_OUTPUTS = {
+    "Write Python code to compute F(10), with F(0)=0 and F(1)=1. Print only the result.": "55",
+    "Write Python code to test whether 'racecar' is a palindrome. Print only True or False.": "True",
+    "Write Python code to sort [5, 1, 4, 2, 8] in ascending order. Print only the sorted list.": "[1, 2, 4, 5, 8]",
+}
 
-    Note: this is a simplified reward.
-    Production environments may combine rules + RM + LLM-as-Judge.
-    """
+
+def code_reward(trajectory):
+    """Require an execution's final line to equal the task's expected output."""
+    expected = TASK_EXPECTED_OUTPUTS[trajectory["prompt"]]
     for interaction in trajectory["interactions"]:
         obs = interaction.get("observation", "")
-        # If any round executed successfully (no ERROR and no TIMEOUT), consider answer correct
-        if obs and "ERROR" not in obs and "TIMEOUT" not in obs:
+        output_lines = [line.strip() for line in obs.splitlines() if line.strip()]
+        if output_lines and output_lines[-1] == expected:
             return 1.0
     return 0.0
 
 
 # ==================== Step 4: Training Data ====================
-# Prompts: list of programming problems; the agent will train on these
-prompts = [
-    "Write Python code to compute the 10th Fibonacci number and print the result.",
-    "Write code to check if a string is a palindrome.",
-    "Write code to perform bubble sort on a list.",
-]
+prompts = list(TASK_EXPECTED_OUTPUTS)
 
 # ==================== Step 5: Assemble Trainer and Start Training ====================
 # The Trainer orchestrates the entire training loop:
@@ -822,24 +805,24 @@ history = trainer.fit(prompts, n_steps=30)
 
 After running the code above, you have mastered the basic skeleton of an Agentic RL training system. But what gaps remain between this implementation and production frameworks like Relax and veRL?
 
-| Aspect             | This Minimal Implementation            | Production Frameworks (Relax / veRL)                                        |
-| ------------------ | -------------------------------------- | --------------------------------------------------------------------------- |
-| Inference engine   | `model.generate()` per-item generation | vLLM / SGLang, continuous batching, KV cache                                |
-| Training engine    | Single-GPU AdamW                       | FSDP / Megatron, 3D parallelism, gradient accumulation                      |
-| Distribution       | Single process                         | Ray cluster, multi-node multi-GPU, PlacementGroup                           |
-| Async training     | Rollout and train serial               | TransferQueue streaming decoupling, DCS async weight sync                   |
-| Sandbox            | subprocess + timeout                   | Docker container pool / MicroVM, warm-up pool, resource isolation           |
-| Loss mask          | All tokens participate in loss         | Model-generated tokens participate in loss, tool-returned tokens are masked |
-| Reward             | Simple rules                           | Rules + RM + LLM-as-Judge + verifier combination                            |
-| Trajectory storage | In-memory dicts                        | Distributed storage (Redis / S3), indexed by task/step                      |
-| Fault tolerance    | None                                   | Heartbeat monitoring, auto-restart, checkpoint recovery                     |
+| Aspect             | This Minimal Implementation            | Production Frameworks (Relax / veRL)                              |
+| ------------------ | -------------------------------------- | ----------------------------------------------------------------- |
+| Inference engine   | `model.generate()` per-item generation | vLLM / SGLang, continuous batching, KV cache                      |
+| Training engine    | Single-GPU AdamW                       | FSDP / Megatron, 3D parallelism, gradient accumulation            |
+| Distribution       | Single process                         | Ray cluster, multi-node multi-GPU, PlacementGroup                 |
+| Async training     | Rollout and train serial               | TransferQueue streaming decoupling, DCS async weight sync         |
+| Sandbox            | subprocess + timeout                   | Docker container pool / MicroVM, warm-up pool, resource isolation |
+| Loss mask          | Train response tokens turn by turn     | Tensor-level action masks with packing and cross-turn batching    |
+| Reward             | Simple rules                           | Rules + RM + LLM-as-Judge + verifier combination                  |
+| Trajectory storage | In-memory dicts                        | Distributed storage (Redis / S3), indexed by task/step            |
+| Fault tolerance    | None                                   | Heartbeat monitoring, auto-restart, checkpoint recovery           |
 
 Each gap represents an independent engineering optimization direction. After understanding the skeleton, you can dive deeper into any direction as needed.
 
 ## 19.10.10 Extension Exercises
 
-1. **Add PPO clipping**: Add PPO's clipped surrogate objective to `train_step_with_advantage()` (refer to Chapter 8), and compare training stability between REINFORCE and PPO.
-2. **Add loss mask**: In `_serialize_trajectory()`, mark which tokens were generated by the model and which were returned by the environment. Only compute loss on model-generated tokens.
+1. **Add multiple updates**: The current example performs one update per rollout batch. Save rollout-time `old_logprobs`, reuse the same trajectories for several updates, and observe when clipping becomes active.
+2. **Rewrite the action mask**: Pack multi-turn contexts and responses into one tensor, then use an action mask so only model-generated tokens enter the loss; compare it with the current turn-by-turn result.
 3. **Add more tools**: Add a search tool to `SandboxEnv` (a mock version suffices), so the model learns to choose between code execution and search.
 4. **Async rollout**: Use `multiprocessing` to split rollout and train into separate processes, pass trajectory data via `Queue`, and observe changes in GPU utilization.
 

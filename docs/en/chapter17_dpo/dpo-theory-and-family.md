@@ -241,6 +241,8 @@ $$
 
 This is exactly what `sequence_logprob` does: it takes the log probability of each token, then adds up only the token log probabilities belonging to the answer portion.
 
+This sum is the sequence log-likelihood required by DPO. DPO compares two complete responses through their Policy-versus-Reference log-probability differences; it does not apply PPO/GRPO token-wise ratios or token-wise clipping. The GRPO fix that preserves the token dimension therefore should not be copied mechanically into DPO. This distinction is explicit in the [policy ratios and loss in Section 4 of the original DPO paper](https://arxiv.org/html/2305.18290#S4), where $\pi_\theta(y\mid x)$ is defined over a complete response $y$.
+
 <DpoCodeFocus focus="logprob" />
 
 ## Deriving DPO in Three Steps

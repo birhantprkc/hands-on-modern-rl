@@ -237,21 +237,21 @@ flowchart TD
 
 ```python
 # environment.py
-import subprocess
-import tempfile
 import os
+import subprocess
+import sys
+import tempfile
 
 
 class SandboxEnv:
-    """最轻量的沙箱：subprocess + 资源限制
+    """最小代码执行环境：subprocess + timeout，不构成安全边界。
 
-    职责：接收 Agent 的动作，在隔离环境中执行，返回 (observation, done)。
-    隔离方式：通过 subprocess 在独立进程中执行代码，防止死循环/恶意代码影响训练主进程。
+    它把代码放到独立进程并限制等待时间，但没有隔离文件系统和网络。
+    不要用它执行不可信代码；生产环境需要容器或 MicroVM。
     """
 
-    def __init__(self, timeout=10, max_memory=256 * 1024 * 1024):
-        self.timeout = timeout          # 超时限制：防止死循环
-        self.max_memory = max_memory    # 内存限制（本最小实现中未强制，生产环境需用 cgroup）
+    def __init__(self, timeout=10):
+        self.timeout = timeout
 
     def step(self, action_type: str, action_args: dict) -> dict:
         """执行一步动作，返回观测和终止状态。
@@ -267,26 +267,25 @@ class SandboxEnv:
             return {"observation": f"Unknown action: {action_type}", "done": False}
 
     def _exec_code(self, code: str) -> dict:
-        """在子进程中执行代码，限制 CPU 时间和内存。
+        """在当前 Python 的子进程中执行代码，并限制等待时间。
 
-        核心隔离机制：
-        1. 创建临时文件写入代码（避免污染主进程文件系统）
+        1. 创建临时文件写入代码
         2. subprocess.run() 在独立进程中执行
-        3. timeout 参数限制执行时间，超时时抛出 TimeoutExpired
-        4. 只返回 stdout/stderr 的最后 500 个字符（防止输出过长撑爆内存）
+        3. timeout 限制等待时间
+        4. 只返回 stdout/stderr 的最后 500 个字符
         """
+        temp_path = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
                 f.write(code)
                 f.flush()
-                # 在独立子进程中执行，timeout 防止死循环
+                temp_path = f.name
                 result = subprocess.run(
-                    ["python", f.name],
+                    [sys.executable, temp_path],
                     timeout=self.timeout,
                     capture_output=True,
                     text=True,
                 )
-                os.unlink(f.name)  # 执行完立即删除临时文件
                 return {
                     "observation": (result.stdout + result.stderr)[-500:],  # 截断长输出
                     "done": False,
@@ -297,6 +296,9 @@ class SandboxEnv:
         except Exception as e:
             # 其他异常：编译错误、语法错误等
             return {"observation": f"ERROR: {e}", "done": False}
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
 
     def reset(self):
         """重置环境状态（新 episode 开始时调用）。
@@ -310,7 +312,7 @@ class SandboxEnv:
 设计要点：
 
 - `step()` 接受结构化的 action（`action_type` + `action_args`），不是纯文本。这对应 19.2 节的动作空间 $A = A_{\text{text}} \cup A_{\text{action}}$
-- `_exec_code()` 用 subprocess 隔离，加 timeout 防止死循环——B.2 讨论的最轻量沙箱方案
+- `_exec_code()` 用当前 Python 解释器启动子进程，并用 timeout 终止长时间执行；它没有文件系统或网络隔离，因此只适合受信任的教学代码
 - 返回值包含 `observation`（环境反馈）和 `done`（是否终止），对应 POMDP 的观测函数 $O(s_t)$
 
 ## 19.10.5 Policy — 模型推理与训练
@@ -326,13 +328,11 @@ flowchart TD
         Gen --> Out["输出动作文本"]
     end
     subgraph Train["Train 阶段（有梯度）"]
-        P2["输入 (prompt, response, advantage)"] --> Lp["get_logprobs()<br/>计算每个 token 的 log prob"]
-        Lp --> KL{"ref_model?"}
-        KL -->|是| KLcalc["计算 KL 散度惩罚"]
-        KL -->|否| NoKL["kl = 0"]
-        KLcalc --> Loss["pg_loss = -sum(log_prob) * advantage<br/>loss = pg_loss + 0.1 * kl"]
-        NoKL --> Loss
-        Loss --> Back["backward() + step()"]
+        P2["输入多轮动作与轨迹优势"] --> Lp["保留每个动作 token 的 log prob"]
+        Lp --> Ratio["逐 token ratio 与 clipping"]
+        Ratio --> KL["逐 token Reference KL"]
+        KL --> Mean["每条轨迹按动作 token 数归一化"]
+        Mean --> Back["backward() + step()"]
         Back --> Update["权重 θ 更新为 θ'"]
     end
 ```
@@ -344,98 +344,100 @@ import torch.nn.functional as F
 
 
 class Policy:
-    """包装一个语言模型，提供两套接口。
-
-    核心问题：同一份权重需要同时支持推理（rollout）和训练（梯度更新）。
-    解决方案：
-      - generate() / get_logprobs()：rollout 阶段使用，@torch.no_grad() 不计算梯度
-      - train_step_with_advantage()：训练阶段使用，计算梯度并更新权重
-    """
-
-    def __init__(self, model, tokenizer, lr=1e-5):
-        self.model = model                # 主模型：推理 + 训练都用它
+    def __init__(self, model, tokenizer, lr=1e-5,
+                 clip_eps=0.2, kl_coef=0.04):
+        self.model = model
         self.tokenizer = tokenizer
         self.optimizer = torch.optim.AdamW(model.parameters(), lr=lr)
-        self.ref_model = None             # KL 锚点：保存初始策略的拷贝
+        self.clip_eps = clip_eps
+        self.kl_coef = kl_coef
+        self.ref_model = None
 
     def set_ref_model(self, ref_model):
-        """保存一份初始权重的拷贝，用作 KL 散度计算的锚点。
-
-        目的：防止训练后的策略偏离初始策略太远，保持输出分布的稳定性。
-        """
-        self.ref_model = ref_model
+        self.ref_model = ref_model.to(self.model.device).eval()
+        for parameter in self.ref_model.parameters():
+            parameter.requires_grad_(False)
 
     @torch.no_grad()
     def generate(self, prompt: str, max_new_tokens=128) -> str:
-        """推理模式：给定 prompt，生成文本。
-
-        对应 rollout 阶段的 "模型生成动作"。
-        使用 @torch.no_grad() 是因为 rollout 不需要计算梯度，节省显存。
-        """
+        self.model.eval()
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
-        outputs = self.model.generate(**inputs, max_new_tokens=max_new_tokens)
-        return self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        pad_token_id = self.tokenizer.pad_token_id
+        if pad_token_id is None:
+            pad_token_id = self.tokenizer.eos_token_id
+        outputs = self.model.generate(
+            **inputs,
+            do_sample=True,
+            temperature=1.0,
+            max_new_tokens=max_new_tokens,
+            pad_token_id=pad_token_id,
+        )
+        prompt_width = inputs["input_ids"].shape[1]
+        return self.tokenizer.decode(
+            outputs[0, prompt_width:], skip_special_tokens=True
+        )
+
+    def _token_logprobs(self, model, prompt, response):
+        prompt_inputs = self.tokenizer(prompt, return_tensors="pt")
+        response_inputs = self.tokenizer(
+            response, return_tensors="pt", add_special_tokens=False
+        )
+        prompt_ids = prompt_inputs["input_ids"].to(model.device)
+        response_ids = response_inputs["input_ids"].to(model.device)
+        input_ids = torch.cat([prompt_ids, response_ids], dim=1)
+        attention_mask = torch.ones_like(input_ids)
+
+        logits = model(input_ids=input_ids, attention_mask=attention_mask).logits
+        prompt_width = prompt_ids.shape[1]
+        response_logits = logits[:, prompt_width - 1 : -1, :]
+        logprobs = F.log_softmax(response_logits, dim=-1)
+        return logprobs.gather(2, response_ids.unsqueeze(-1)).squeeze(-1)
 
     @torch.no_grad()
-    def get_logprobs(self, prompt: str, response: str) -> torch.Tensor:
-        """计算模型对给定 response 中每个 token 的 log probability。
-
-        rollout 阶段：用于计算当前策略对新轨迹的概率（重要性采样）。
-        训练阶段：用于计算 new_logprobs（当前策略）和 ref_logprobs（旧策略）。
-
-        关键细节：只取 response 部分（不包含 prompt）的 log prob。
-        """
-        full_text = prompt + response
-        inputs = self.tokenizer(full_text, return_tensors="pt").to(self.model.device)
-        logits = self.model(**inputs).logits
-
-        # 计算 prompt 长度，用于切分 response 部分
-        prompt_len = len(self.tokenizer(prompt, return_tensors="pt")["input_ids"][0])
-        # response_logits[i] 对应 response 第 i 个 token 的预测分布
-        response_logits = logits[:, prompt_len - 1:-1, :]
-        response_ids = inputs["input_ids"][:, prompt_len:]
-
-        # log_softmax 把 logits 转成 log 概率分布
-        logprobs = F.log_softmax(response_logits, dim=-1)
-        # gather：从分布中取出实际生成 token 对应的 log prob
-        token_logprobs = logprobs.gather(2, response_ids.unsqueeze(-1)).squeeze(-1)
-        return token_logprobs
+    def _get_ref_logprobs(self, prompt, response):
+        return self._token_logprobs(self.ref_model, prompt, response)
 
     def train_step_with_advantage(self, trajectories: list):
-        """一个 GRPO 训练步（REINFORCE + advantage + KL 惩罚）。
-
-        参数：
-            trajectories: list of (prompt, response, advantage)
-                          prompt: 初始问题
-                          response: Agent 生成的完整交互文本
-                          advantage: GRPO 归一化后的优势值
-
-        计算流程：
-        1. 对每条轨迹计算 new_logprobs（当前策略的概率）
-        2. 如果有 ref_model，计算 KL 散度惩罚
-        3. 策略梯度 loss = -sum(log_prob) * advantage
-        4. 总 loss = pg_loss + 0.1 * kl，取平均后反向传播
-        """
-        losses = []
-        for prompt, response, advantage in trajectories:
-            new_logprobs = self.get_logprobs(prompt, response)
-
-            if self.ref_model is not None:
-                with torch.no_grad():
-                    # ref_logprobs：初始策略生成这段 response 的概率
-                    ref_logprobs = self._get_ref_logprobs(prompt, response)
-                # KL 散度（近似）：p * (log p - log q)
-                kl = (new_logprobs.exp() * (new_logprobs - ref_logprobs)).sum()
-            else:
-                kl = 0.0
-
-            # 策略梯度：advantage > 0 时提升该轨迹的概率，advantage < 0 时降低
-            pg_loss = -(new_logprobs.sum() * advantage)
-            loss = pg_loss + 0.1 * kl
-            losses.append(loss)
-
-        total_loss = torch.stack(losses).mean()
+        """trajectories: [([(turn_prompt, turn_response), ...], advantage)]"""
+        self.model.train()
         self.optimizer.zero_grad()
+        trajectory_losses = []
+
+        for turns, advantage in trajectories:
+            turn_token_losses = []
+            for prompt, response in turns:
+                new_logprobs = self._token_logprobs(self.model, prompt, response)
+                if new_logprobs.numel() == 0:
+                    continue
+
+                # 本示例每批轨迹只更新一次，old policy 是当前前向的 detach 版本。
+                old_logprobs = new_logprobs.detach()
+                ratio = torch.exp(new_logprobs - old_logprobs)
+                advantage_tensor = new_logprobs.new_tensor(advantage)
+                unclipped = ratio * advantage_tensor
+                clipped = torch.clamp(
+                    ratio, 1 - self.clip_eps, 1 + self.clip_eps
+                ) * advantage_tensor
+
+                if self.ref_model is not None:
+                    ref_logprobs = self._get_ref_logprobs(prompt, response)
+                    delta = ref_logprobs - new_logprobs
+                    per_token_kl = torch.exp(delta) - delta - 1
+                else:
+                    per_token_kl = torch.zeros_like(new_logprobs)
+
+                per_token_loss = (
+                    -torch.minimum(unclipped, clipped)
+                    + self.kl_coef * per_token_kl
+                )
+                turn_token_losses.append(per_token_loss.reshape(-1))
+
+            if turn_token_losses:
+                trajectory_losses.append(torch.cat(turn_token_losses).mean())
+
+        if not trajectory_losses:
+            return 0.0
+        total_loss = torch.stack(trajectory_losses).mean()
         total_loss.backward()
         self.optimizer.step()
         return total_loss.item()
@@ -443,9 +445,10 @@ class Policy:
 
 设计要点：
 
-- `generate()` 和 `get_logprobs()` 是 rollout 阶段用的，`train_step_with_advantage()` 是训练阶段用的——同一份权重的两种用途
-- `ref_model` 是 KL 惩罚的锚点，防止模型偏离初始策略太远
-- 这里实现了最简的策略梯度（REINFORCE + advantage），没有 PPO 的 clipping——先跑通再优化
+- `generate()` 开启随机采样，让同一 prompt 的组内轨迹有机会不同；它只解码新增 token，避免把输入 prompt 再当成模型动作。
+- `_token_logprobs()` 没有 `no_grad`，训练路径才能建立计算图；参考模型路径单独关闭梯度。
+- 与 [DeepSeekMath 式（3）和式（4）](https://arxiv.org/html/2402.03300#S3.SS1)一致，ratio 和 clipping 逐 token 计算，KL 估计也逐 token 计算。
+- 环境 observation 只作为下一轮条件，不参与动作 loss。最后先对每条轨迹的动作 token 求平均，再对轨迹求平均。
 
 ## 19.10.6 RolloutWorker — 驱动 Agent Loop
 
@@ -515,6 +518,7 @@ class RolloutWorker:
                 # Agent 决定结束 episode，提交最终答案
                 trajectory["interactions"].append({
                     "turn": turn,
+                    "context": context,
                     "response": model_output,
                     "action": action,
                     "observation": None,
@@ -528,6 +532,7 @@ class RolloutWorker:
             # Step 5: 记录本轮交互到轨迹
             trajectory["interactions"].append({
                 "turn": turn,
+                "context": context,
                 "response": model_output,      # Agent 生成的动作（原始文本）
                 "action": action,              # 解析后的结构化动作
                 "observation": obs["observation"],  # 环境返回的观测
@@ -619,6 +624,8 @@ class GRPOAgentTrainer:
     """
 
     def __init__(self, policy, env, reward_fn, group_size=4, max_turns=5):
+        if group_size < 2:
+            raise ValueError("GRPO group_size must be at least 2")
         self.policy = policy        # 策略模型：推理 + 训练
         self.env = env              # 执行环境：沙箱
         self.reward_fn = reward_fn  # 奖励函数：判断答案是否正确
@@ -655,22 +662,28 @@ class GRPOAgentTrainer:
             for group in batch_trajectories:
                 group_rewards = [t["reward"] for t in group]
                 mean_r = sum(group_rewards) / len(group_rewards)
-                std_r = (sum((r - mean_r) ** 2 for r in group_rewards) / len(group_rewards)) ** 0.5 + 1e-8
+                std_r = (
+                    sum((r - mean_r) ** 2 for r in group_rewards)
+                    / (len(group_rewards) - 1)
+                ) ** 0.5
                 for t, r in zip(group, group_rewards):
-                    t["advantage"] = (r - mean_r) / std_r
+                    t["advantage"] = (
+                        0.0 if std_r < 1e-8 else (r - mean_r) / std_r
+                    )
                 all_rewards.extend(group_rewards)
 
             # ==================== 阶段 3: Train ====================
-            # 把所有轨迹的 (prompt, response, advantage) 喂给 Policy 做梯度更新
+            # 保存每轮生成时的 context 与 response；observation 不作为动作训练
             train_data = []
             for group in batch_trajectories:
                 for traj in group:
-                    # 把多轮交互序列化为一段文本，作为模型的 "response"
-                    full_response = self._serialize_trajectory(traj)
+                    generated_turns = [
+                        (interaction["context"], interaction["response"])
+                        for interaction in traj["interactions"]
+                    ]
                     train_data.append((
-                        traj["prompt"],      # 初始问题
-                        full_response,       # 完整的交互历史（Agent 的所有输出）
-                        traj["advantage"],   # GRPO 计算的优势值
+                        generated_turns,
+                        traj["advantage"],
                     ))
 
             # 策略梯度更新：advantage > 0 的轨迹概率提升，advantage < 0 的降低
@@ -690,34 +703,13 @@ class GRPOAgentTrainer:
                       f"reward_max={max(all_rewards):.3f}")
 
         return self.history
-
-    def _serialize_trajectory(self, traj: dict) -> str:
-        """把多轮轨迹序列化为一段文本，用于 train_step。
-
-        序列化格式：
-            Assistant: <动作1>
-            Observation: <结果1>
-            Assistant: <动作2>
-            Observation: <结果2>
-            ...
-
-        注意：这里做了简化，所有 token 都参与 loss。
-        生产框架会用 loss mask 区分模型生成的 token（参与 loss）
-        和环境返回的 token（被 mask 掉），见 B.2 的讨论。
-        """
-        parts = []
-        for interaction in traj["interactions"]:
-            parts.append(f"Assistant: {interaction['response']}")
-            if interaction["observation"]:
-                parts.append(f"Observation: {interaction['observation']}")
-        return "\n".join(parts)
 ```
 
 设计要点：
 
 - `fit()` 的主循环是 B.1 说的"生产者-消费者"模式：RolloutWorker 生产轨迹，Policy 消费轨迹做梯度更新
 - GRPO 的组内比较在 Reward 归一化那段实现：同一 prompt 的多条轨迹计算 advantage = (reward - mean) / std
-- `_serialize_trajectory()` 把多轮轨迹展成文本。这里做了简化——生产框架会用 loss mask 区分模型生成的 token 和环境返回的 token（见 B.2 的 loss mask 讨论）
+- 每轮保存当时的 `context` 和模型生成的 `response`。训练只覆盖 response token；环境 observation 只会通过下一轮 context 影响后续动作。
 
 ## 19.10.8 拼起来跑
 
@@ -769,30 +761,27 @@ policy = Policy(model, tokenizer, lr=5e-5)
 ref_model = AutoModelForCausalLM.from_pretrained(model_name)
 policy.set_ref_model(ref_model)
 
-# ==================== Step 3: 定义 reward 函数 ====================
-# reward 是稀疏的 与 只在轨迹结束时给出，中间步骤没有反馈
-# 这里用简单规则 与 如果某轮执行没有报错/超时，认为答案正确，reward=1
-def code_reward(trajectory):
-    """判断轨迹中是否有成功的代码执行结果。
+# ==================== Step 3: 定义可验证 reward ====================
+TASK_EXPECTED_OUTPUTS = {
+    "写 Python 代码计算 F(10)，规定 F(0)=0、F(1)=1，并且只输出结果。": "55",
+    "写 Python 代码判断字符串 'racecar' 是否为回文，并且只输出 True 或 False。": "True",
+    "写 Python 代码把 [5, 1, 4, 2, 8] 从小到大排序，并且只输出排序后的列表。": "[1, 2, 4, 5, 8]",
+}
 
-    注意：这是一个简化版的 reward。
-    生产环境中 reward 可能由规则 + RM + LLM-as-Judge 组合给出。
-    """
+
+def code_reward(trajectory):
+    """某次执行的最后一行必须等于该题的期望输出。"""
+    expected = TASK_EXPECTED_OUTPUTS[trajectory["prompt"]]
     for interaction in trajectory["interactions"]:
         obs = interaction.get("observation", "")
-        # 如果某轮执行成功（没有 ERROR 和 TIMEOUT），认为答案正确
-        if obs and "ERROR" not in obs and "TIMEOUT" not in obs:
+        output_lines = [line.strip() for line in obs.splitlines() if line.strip()]
+        if output_lines and output_lines[-1] == expected:
             return 1.0
     return 0.0
 
 
 # ==================== Step 4: 训练数据 ====================
-# prompts 与 编程题列表，Agent 将在这些题目上训练
-prompts = [
-    "写一段 Python 代码计算斐波那契数列的第 10 项并输出结果。",
-    "写一段代码检查字符串是否是回文。",
-    "写一段代码对列表进行冒泡排序。",
-]
+prompts = list(TASK_EXPECTED_OUTPUTS)
 
 # ==================== Step 5: 组装 Trainer 并启动训练 ====================
 # Trainer 负责编排整个训练循环：
@@ -820,7 +809,7 @@ history = trainer.fit(prompts, n_steps=30)
 | 分布式    | 单进程                      | Ray 集群，多机多卡，PlacementGroup                     |
 | 异步训练  | rollout 和 train 串行       | TransferQueue 流式解耦，DCS 异步权重同步               |
 | 沙箱      | subprocess + timeout        | Docker 容器池 / MicroVM，预热池，资源隔离              |
-| Loss mask | 所有 token 都参与 loss      | 模型生成 token 参与 loss，工具返回 token 被 mask       |
+| Loss mask | 逐轮只训练 response token   | 张量级 action mask，支持 packing 与跨轮批处理          |
 | Reward    | 简单规则                    | 规则 + RM + LLM-as-Judge + verifier 组合               |
 | 轨迹存储  | 内存中的 dict               | 分布式存储（Redis / S3），按任务/步骤检索              |
 | 容错      | 无                          | 心跳监控，自动重启，checkpoint 恢复                    |
@@ -829,8 +818,8 @@ history = trainer.fit(prompts, n_steps=30)
 
 ## 19.10.10 扩展练习
 
-1. **加 PPO clipping**：在 `train_step_with_advantage()` 中加入 PPO 的 clipped surrogate objective（参考第 8 章），对比 REINFORCE 和 PPO 的训练稳定性
-2. **加 loss mask**：在 `_serialize_trajectory()` 中标记哪些 token 是模型生成的、哪些是环境返回的，只在模型生成的 token 上计算 loss
+1. **增加多次更新**：当前每批 rollout 只更新一次；保存采样时的 `old_logprobs`，在同一批轨迹上做多轮更新，观察 clipping 何时开始生效
+2. **改写动作掩码**：把多轮 context 与 response 拼成一个张量，再用 action mask 保证只有模型生成 token 进入 loss，并与当前逐轮计算结果对照
 3. **加更多工具**：在 `SandboxEnv` 中加入搜索工具（mock 版本即可），让模型学会在代码执行和搜索之间做选择
 4. **异步 rollout**：用 `multiprocessing` 把 rollout 和 train 拆到不同进程，用 `Queue` 传递轨迹数据，观察 GPU 利用率的变化
 

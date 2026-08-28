@@ -41,15 +41,35 @@ GRPO 和 PPO 一样使用 **token 级重要性采样比**：
 
 $$\rho_t = \frac{\pi_\theta(a_t|s_t)}{\pi_{\theta_{\text{old}}}(a_t|s_t)}$$
 
-每个 token 都有自己的比率，然后整个序列的梯度是所有 token 比率的乘积效应。这在 LLM 训练中产生一个具体问题：**MoE 架构下不同 token 路由到不同 expert，token 级比率波动剧烈**，导致梯度方差大、训练不稳定。
+每个 token 都有自己的比率，GRPO 分别裁剪这些比率，再把 token 目标求平均。这里没有把所有 $\rho_t$ 相乘。这是 [DeepSeekMath 式（3）](https://arxiv.org/html/2402.03300#S3.SS1)的原始定义。GSPO 论文认为，回答只有一个序列级奖励时，这种逐 token 的重要性权重会引入高方差噪声；MoE 架构的路由变化还会进一步放大比率波动。
 
-GSPO（Group Sequence Policy Optimization, [arXiv:2507.18071](https://arxiv.org/abs/2507.18071)）把比率从 token 级提升到**序列级**：
+GSPO（Group Sequence Policy Optimization）把比率从 token 级提升到**序列级**：
 
-$$\rho^{\text{seq}} = \frac{\pi_\theta(o|q)}{\pi_{\theta_{\text{old}}}(o|q)} = \prod_{t=1}^{|o|} \frac{\pi_\theta(a_t|s_t)}{\pi_{\theta_{\text{old}}}(a_t|s_t)}$$
+$$
+s_i(\theta)
+=
+\left(
+\frac{\pi_\theta(y_i\mid x)}{\pi_{\theta_{\text{old}}}(y_i\mid x)}
+\right)^{1/|y_i|}
+=
+\exp\!\left(
+\frac{1}{|y_i|}\sum_{t=1}^{|y_i|}
+\log\frac{\pi_\theta(y_{i,t}\mid x,y_{i,<t})}
+{\pi_{\theta_{\text{old}}}(y_{i,t}\mid x,y_{i,<t})}
+\right)
+$$
+
+这个数也是 token 比值的几何平均：
+
+$$
+s_i(\theta)=\left(\prod_{t=1}^{|y_i|}\rho_{i,t}\right)^{1/|y_i|}
+$$
 
 整个回答只用一个比率参与裁剪。裁剪对象也对应变为序列级：
 
-$$\mathcal{L}^{\text{GSPO}} = \mathbb{E}\left[\min\left(\rho^{\text{seq}} \cdot \tilde{r}, \; \text{clip}(\rho^{\text{seq}}, 1-\epsilon, 1+\epsilon) \cdot \tilde{r}\right)\right]$$
+$$\mathcal{J}^{\text{GSPO}} = \mathbb{E}\left[\min\left(s_i(\theta) \hat A_i, \; \text{clip}(s_i(\theta), 1-\epsilon, 1+\epsilon) \hat A_i\right)\right]$$
+
+$1/|y_i|$ 的长度归一化不能省略。直接使用 $\prod_t\rho_{i,t}$ 会让比率随回答长度剧烈变化，不同长度还需要不同的裁剪范围。GSPO 原文正是用几何平均控制这种方差。因此，“先求和全部 token 对数概率，再直接取指数”的旧 GRPO 示例也不是正确的 GSPO。[GSPO 原论文式（5）与式（7）](https://arxiv.org/html/2507.18071#S4.SS1)
 
 这个改动看起来简单，但对 MoE 模型训练稳定性影响巨大——Qwen3 全系（包括 Qwen3-235B-A22B、Qwen3-Thinking-2507、Qwen3-Coder）都基于 GSPO 训练。序列级比率的方差远小于 token 级，让万卡集群上的大规模 RL 训练成为可能。
 

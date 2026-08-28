@@ -96,6 +96,8 @@ $$
 
 这就是 `sequence_logprob` 做的事情：先对每个 token 取 log probability，再只把回答部分的 token log probability 加起来。
 
+这里的求和是 DPO 公式需要的序列对数似然。DPO 比较 chosen 和 rejected 两段完整回答相对于 Reference 的对数概率差，没有 PPO/GRPO 的逐 token ratio 和逐 token clip。因此，GRPO 需要保留 token 维度的修复不能机械地套到 DPO 上。这个区别可以直接从 [DPO 原论文第 4 节的策略比值与损失公式](https://arxiv.org/html/2305.18290#S4)看出：公式里的 $\pi_\theta(y\mid x)$ 以完整回答 $y$ 为单位。
+
 <DpoCodeFocus focus="logprob" />
 
 ### 代码地图

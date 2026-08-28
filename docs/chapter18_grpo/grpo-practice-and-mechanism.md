@@ -142,36 +142,36 @@ GRPO 把 PPO 里的 Critic 基线换成"同一道题的一组回答的平均分"
 
 这份代码可以分成八块：
 
-| 标记    | 代码部分                          | 后文会解释什么                                 |
-| ------- | --------------------------------- | ---------------------------------------------- |
-| **[A]** | `sample_groups`                   | 为什么每个 prompt 要生成多个回答               |
-| **[B]** | `rule_reward` / `score_responses` | 奖励从哪里来，为什么数学题不需要 RM            |
-| **[C]** | `group_advantages`                | 组内均值如何替代 Critic 基线                   |
-| **[D]** | `sequence_logprob`                | 如何给一整段回答算 $\log \pi_\theta(y \mid x)$ |
-| **[E]** | `grpo_loss` 前半段                | `ratio`、`clip` 和 PPO-style 策略更新          |
-| **[F]** | `approx_kl`                       | 为什么还要限制 Policy 偏离 Reference           |
-| **[G]** | `train_step`                      | 采样、打分、优势、loss、反向传播如何接起来     |
-| **[H]** | `train_grpo`                      | 为什么 GRPO 是在线训练，每轮都生成新回答       |
+| 标记    | 代码部分                          | 后文会解释什么                                |
+| ------- | --------------------------------- | --------------------------------------------- |
+| **[A]** | `sample_groups`                   | 为什么每个 prompt 要生成多个回答              |
+| **[B]** | `rule_reward` / `score_responses` | 奖励从哪里来，为什么数学题不需要 RM           |
+| **[C]** | `group_advantages`                | 组内均值如何替代 Critic 基线                  |
+| **[D]** | `per_token_logprobs`              | 如何保留回答中每个 token 的 $\log \pi_\theta$ |
+| **[E]** | `grpo_objective_from_logprobs`    | 逐 token 的 `ratio`、`clip` 和策略更新        |
+| **[F]** | `per_token_kl`                    | 为什么 KL 也必须在逐 token 层面计算           |
+| **[G]** | `train_step`                      | 采样、打分、优势、loss、反向传播如何接起来    |
+| **[H]** | `train_grpo`                      | 为什么 GRPO 是在线训练，每轮都生成新回答      |
 
-## 从 PPO 改到 GRPO 与 到底替换了哪几行
+## 从 PPO 改到 GRPO：到底替换了哪几行
 
 如果不改成 GRPO，而是继续按 PPO / RLHF 的方式训练，代码直觉通常是这样：
 
 ```python
-# PPO / RLHF 与 在线生成，然后让 Critic 估计基线
-responses = policy_old.generate(prompts)
-logps_old = sequence_logprob(policy_old, prompts, responses).detach()
+# PPO / RLHF：在线生成，然后让 Critic 估计逐 token 优势
+responses, completion_mask = policy_old.generate(prompts)
+old_per_token_logps = per_token_logprobs(policy_old, prompts, responses).detach()
 
 rewards = reward_model(prompts, responses)
-values = critic(prompts, responses)
-advantages = rewards - values
+advantages = critic_based_advantages(prompts, responses, rewards)
 
-logps_new = sequence_logprob(policy, prompts, responses)
-ratio = torch.exp(logps_new - logps_old)
-ppo_loss = -torch.min(
-    ratio * advantages,
-    torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages,
-).mean()
+new_per_token_logps = per_token_logprobs(policy, prompts, responses)
+token_ratio = torch.exp(new_per_token_logps - old_per_token_logps)
+per_token_objective = torch.min(
+    token_ratio * advantages,
+    torch.clamp(token_ratio, 1 - clip_eps, 1 + clip_eps) * advantages,
+)
+ppo_loss = -masked_sequence_mean(per_token_objective, completion_mask).mean()
 ```
 
 这里的 `critic` 就是前面说的价值模型。它的工作不是生成答案，而是估计一个基线：**这个 prompt 和当前回答前缀，大概应该拿多少分**。然后 PPO 用 `rewards - values` 得到优势，判断某个回答是"比预期好"还是"比预期差"。
@@ -180,23 +180,29 @@ GRPO 的改法很集中：**保留在线生成、概率比值和裁剪，但不�
 
 ```python
 # 同一个 prompt 生成 G 个回答，然后做组内比较
-responses = generate_many(policy_old, prompts, num_generations=G)
-logps_old = sequence_logprob(policy_old, prompts, responses).detach()
+responses, completion_mask = generate_many(policy_old, prompts, num_generations=G)
+old_per_token_logps = per_token_logprobs(policy_old, prompts, responses).detach()
 
 rewards = reward_fn(prompts, responses)
 rewards_by_group = rewards.view(batch_size, G)
 
 group_mean = rewards_by_group.mean(dim=1, keepdim=True)
 group_std = rewards_by_group.std(dim=1, keepdim=True)
-advantages = ((rewards_by_group - group_mean) / (group_std + 1e-4)).view(-1)
+response_advantages = (
+    (rewards_by_group - group_mean) / (group_std + 1e-4)
+).view(-1)
 
-logps_new = sequence_logprob(policy, prompts, responses)
-ratio = torch.exp(logps_new - logps_old)
-grpo_loss = -torch.min(
-    ratio * advantages,
-    torch.clamp(ratio, 1 - clip_eps, 1 + clip_eps) * advantages,
-).mean()
+new_per_token_logps = per_token_logprobs(policy, prompts, responses)
+token_ratio = torch.exp(new_per_token_logps - old_per_token_logps)
+per_token_objective = torch.min(
+    token_ratio * response_advantages[:, None],
+    torch.clamp(token_ratio, 1 - clip_eps, 1 + clip_eps)
+    * response_advantages[:, None],
+)
+grpo_loss = -masked_sequence_mean(per_token_objective, completion_mask).mean()
 ```
+
+这里有一个容易漏掉的层次：结果监督只给每段回答一个奖励，所以同一回答里的 token 共享一个 $\hat A_i$；新旧策略的概率比值、裁剪和 KL 仍然分别作用于每个 token。最后先对每段回答的有效 token 求平均，再对组内回答求平均。
 
 把真正变化的几行单独拎出来，就是：
 
@@ -214,28 +220,48 @@ grpo_loss = -torch.min(
   loss = ppo_style_clipped_loss(logps_new, logps_old, advantages)
 ```
 
-所以 GRPO 不是"把 PPO 全删掉"，也不是"只剩一个组内归一化公式"。更准确地说，**GRPO 把 PPO 里的 Critic 基线换成了组内平均基线**。
+所以 GRPO 保留了 PPO 的逐 token 概率比值和裁剪，改变的是优势的来源：它用同题回答的组内相对奖励代替单独训练的 Critic。
 
-TRL 的真实源码也正是这个结构。2026-05-01 查看 Hugging Face TRL main 分支时，可以在 [`GRPOTrainer`](https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_trainer.py) 里看到这些对应关系：
+### 先以原论文为验收标准
+
+DeepSeekMath 原文的式（3）写成三层平均：先对一段回答的 $|o_i|$ 个 token 求平均，再对同一问题的 $G$ 个回答求平均，最后对问题分布取期望。式中的比值也带有 token 下标 $t$：
+
+$$
+r_{i,t}(\theta)
+=
+\frac{\pi_\theta(o_{i,t}\mid q,o_{i,<t})}
+{\pi_{\theta_{\mathrm{old}}}(o_{i,t}\mid q,o_{i,<t})}
+$$
+
+因此，下面两种写法含义不同：
+
+$$
+\underbrace{\exp(\ell^{\mathrm{new}}_{i,t}-\ell^{\mathrm{old}}_{i,t})}_{\text{原始 GRPO：第 }t\text{ 个 token 的比值}}
+\qquad
+\underbrace{\exp\!\left(\sum_t(\ell^{\mathrm{new}}_{i,t}-\ell^{\mathrm{old}}_{i,t})\right)}_{\text{整段回答的 token 比值连乘}}
+$$
+
+第二种写法等于 $\prod_t r_{i,t}$。它会把回答长度带进比值，而且整段回答只裁剪一次，不是 DeepSeekMath 式（3）。原论文的式（4）同样以 token 为单位计算 KL 估计。本文后面的公式和代码都以这两条原始定义为准。[DeepSeekMath 原文公式](https://arxiv.org/html/2402.03300#S3.SS1)
+
+### 再对照 TRL 的工程实现
+
+当前 Hugging Face TRL 的真实源码也保留了这个 token 维度。2026-08-28 查看 [`GRPOTrainer`](https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_trainer.py) 时，可以看到这些对应关系：
 
 1. `GRPOTrainer` 的初始化参数里有 `reward_funcs`，它可以是奖励模型，也可以是普通 Python 函数。也就是说，数学题这类任务可以直接用规则函数打分，不一定要先训练 RM。
 2. `self.num_generations = args.num_generations` 对应公式里的 $G$，也就是**每个 prompt 生成几个回答**。
 3. 源码会把 rewards reshape 成 `(-1, num_generations)`，计算 `mean_grouped_rewards` 和组内 `std_rewards`，再得到 `advantages = rewards - mean_grouped_rewards`，必要时除以标准差。
-4. 损失部分仍然计算 `coef_1 = exp(log_ratio)`，再用 `torch.clamp` 得到 `coef_2`，最后对 `coef_1 * advantages` 和 `coef_2 * advantages` 取 `min`。这就是 PPO-style 裁剪目标。
+4. `_get_per_token_logps_and_entropies` 返回每个回答 token 的 log probability；损失部分计算逐 token 的 `coef_1 = exp(log_ratio)`，再用 `torch.clamp` 得到 `coef_2`，最后逐 token 取 `min`。
+5. `loss_type="grpo"` 先用回答掩码对每段回答求 token 平均，再对 batch 求平均。这对应原论文的 $\frac{1}{|o_i|}\sum_t$。`loss_type="bnpo"` 则把整个 batch 的有效 token 一起平均，回答长度权重不同。[当前 TRL 的损失实现](https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_trainer.py)
+
+TRL 现在还支持 sequence-level importance sampling、DAPO/BNPO/DR-GRPO 等扩展，而且 `GRPOConfig` 的默认值会随版本演进。复现原始 DeepSeekMath 公式时，需要显式选择 `importance_sampling_level="token"`、`loss_type="grpo"`、`num_iterations=1`、`beta=0.04`，并关闭后来加入的 KL 偏差修正。后文的配置会把这些选项全部写出来。对照 [TRL 0.24 的 `GRPOConfig`](https://github.com/huggingface/trl/blob/v0.24.0/trl/trainer/grpo_config.py)与[当前 main 分支的 `GRPOConfig`](https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_config.py)，可以看到 `loss_type` 等默认值的变化，以及新版新增且默认开启的 `use_bias_correction_kl`。
 
 对照 [`PPOTrainer`](https://github.com/huggingface/trl/blob/main/trl/experimental/ppo/ppo_trainer.py)，差别就更清楚：PPOTrainer 需要 `reward_model` 和 `value_model`，并用 `value_model` 产生优势估计；GRPOTrainer 不需要单独的 `value_model`，它把**同题多答的组内相对分数**直接变成优势。
 
 ## GRPO 的完整公式
 
-前面用直觉和代码 diff 看过 GRPO 怎么工作。这一节把所有公式正式写一遍，要证明的核心命题是：**用组内归一化替代 Critic 之后，GRPO 的策略梯度方向和 PPO 完全一致——只是基线换了来源**。
+前面用直觉和代码 diff 看过 GRPO 怎么工作。这一节严格按 DeepSeekMath 的式（3）和式（4）展开。需要同时保留两个层次：一段回答只有一个结果奖励，因此它的 token 共享同一个优势；策略比值、裁剪和 KL 则都在 token 层面计算。
 
-**核心命题**：对任意同题多答样本 $(x_j, \{y_{j,i}\}_{i=1}^G, \{r_{j,i}\}_{i=1}^G)$，组内归一化优势 $\hat A_{j,i} = (r_{j,i} - \bar r_j) / (s_j + \epsilon)$ 满足：
-
-1. **梯度方向正确**：$\hat A_{j,i} > 0 \Leftrightarrow r_{j,i} > \bar r_j$，即优势的正负和"是否好于组平均"完全对齐；
-2. **不引入额外偏差**：$\mathbb{E}_i[\hat A_{j,i}] = 0$，组内期望为零，与 Critic 基线的性质一致；
-3. **难度归一**：$\text{Var}_i[\hat A_{j,i}] \approx 1$，不同难度的题目梯度尺度一致。
-
-下面四小节依次给出样本结构、组内优势（命题 1+2+3 的兑现）、PPO Clip、KL 惩罚，最后用一张数据流图收尾。
+下面四小节依次给出样本结构、组内优势、逐 token 的 PPO Clip 和逐 token 的 KL 惩罚，最后用一张数据流图收尾。
 
 ### 样本结构与组采样
 
@@ -279,7 +305,7 @@ $$
 \hat A_{j,i} = \frac{r_{j,i} - \bar r_j}{s_j + \epsilon}
 $$
 
-其中 $\bar r_j = \frac{1}{G}\sum_i r_{j,i}$ 是组内均值，$s_j = \sqrt{\frac{1}{G}\sum_i (r_{j,i}-\bar r_j)^2}$ 是组内标准差，$\epsilon$ 是一个很小的数（如 $10^{-4}$），防止标准差为 0 时除以 0。下面两步推导把这个公式拆开看为什么是这个形式。
+其中 $\bar r_j = \frac{1}{G}\sum_i r_{j,i}$ 是组内均值，$s_j=\operatorname{std}(r_{j,1},\ldots,r_{j,G})$ 是组内标准差，$\epsilon$ 是一个很小的数，防止标准差为 0 时除以 0。DeepSeekMath 原文只写 `std`，没有规定分母使用 $G$ 还是 $G-1$。示例跟随 [PyTorch `torch.std` 的默认定义](https://pytorch.org/docs/stable/generated/torch.std.html)使用 Bessel 校正；这只会改变优势的整体缩放，不改变同组回答的正负顺序。
 
 **第一步：减均值替代 Critic**。回顾 PPO 优势 $A_t = R - V_\phi(s_t)$，本质是"奖励减基线"。Critic 学的 $V_\phi(s_t)$ 就是对"在这个 prompt 下平均能拿多少分"的估计。**而组内均值 $\bar r_j$ 是这个估计的直接样本版本**——同一道题的 $G$ 个回答就是 $V(s_j)$ 的 $G$ 次蒙特卡洛采样，平均起来就是无偏估计。代换：
 
@@ -317,67 +343,95 @@ $$
 
 一句话总结：**GRPO = PPO 的裁剪机制 + 用组内排名替代 Critic**。下面两小节就把"PPO 的裁剪机制"完整展开。
 
-### 策略比值与 PPO Clip
+### 策略比值与 PPO Clip：先保留 token，再计算 ratio
 
-先定义新旧策略的概率比值：
-
-$$
-\rho_{j,i}(\theta) = \frac{\pi_\theta(y_{j,i} \mid x_j)}{\pi_{\text{old}}(y_{j,i} \mid x_j)}
-$$
-
-实际代码里不会直接除两个很小的概率，而是先算 log probability，再相减取指数：
+语言模型生成第 $t$ 个 token 时，会根据问题和已经生成的前缀给它一个条件概率：
 
 $$
-\rho_{j,i}(\theta) = \exp\left(\log \pi_\theta(y_{j,i} \mid x_j) - \log \pi_{\text{old}}(y_{j,i} \mid x_j)\right)
+p_{j,i,t}^{\theta}
+=
+\pi_\theta(y_{j,i,t}\mid x_j,y_{j,i,<t})
 $$
 
-如果 $\rho=1$，新旧策略对这条回答的概率一样；如果 $\rho=1.2$，新策略把它的概率提高了 20%；如果 $\rho=0.8$，新策略把它的概率压低了 20%。
-
-有了比值和组内优势，GRPO 的裁剪目标可以写成：
+这些概率通常很小。一段回答的联合概率要把它们全部相乘，几十个小数连乘后很容易小到计算机无法稳定表示。代码因此先计算对数概率：
 
 $$
-\mathcal{J}_{\text{GRPO}}^{\text{clip}}(\theta) = \mathbb{E}_{j,i} \left[\min\left(\rho_{j,i}(\theta)\,\hat A_{j,i},\; \operatorname{clip}(\rho_{j,i}(\theta), 1-\epsilon_{\text{clip}}, 1+\epsilon_{\text{clip}})\,\hat A_{j,i}\right)\right]
+\ell_{j,i,t}^{\theta}=\log p_{j,i,t}^{\theta}
 $$
 
-每个符号的意思是：
+对数把乘法变成加法，所以整段回答的对数概率确实等于 $\sum_t\ell_{j,i,t}^{\theta}$。这条性质适合计算整段回答的概率，却不表示所有算法都应该立刻把 token 维度求和。**原始 GRPO 要在每个 token 上分别计算比值和裁剪，因此代码必须保留形状为 $[B,T]$ 的逐 token 对数概率。**
 
-- $\mathbb{E}_{j,i}$：对 batch 里的所有 prompt 和所有组内回答取平均。
-- $\hat A_{j,i}$：刚才算出的组内优势。
-- $\epsilon_{\text{clip}}$：裁剪范围，常见值是 0.2。
-- $\operatorname{clip}(\rho, 1-\epsilon_{\text{clip}}, 1+\epsilon_{\text{clip}})$：把概率比值限制在一个区间内。例如 $\epsilon_{\text{clip}}=0.2$ 时，$\rho$ 会被限制在 $[0.8, 1.2]$。
-- $\min(\cdot, \cdot)$：选择更保守的那个目标，避免一次更新太大。
+第 $t$ 个 token 的新旧策略比值是：
 
-为什么要裁剪？因为这批回答是 $\pi_{\text{old}}$ 生成的。如果训练几步后 $\pi_\theta$ 已经离 $\pi_{\text{old}}$ 很远，那么这批数据就不再能可靠代表新策略的行为。裁剪的作用就是：**允许模型学习，但不允许它因为同一批数据一下子改得太猛**。这部分和第 8 章 PPO 裁剪机制完全一致，详细推导见[策略更新的约束机制](../chapter10_ppo/trust-region-clipping)。
+$$
+\rho_{j,i,t}(\theta)
+=
+\frac{p_{j,i,t}^{\theta}}{p_{j,i,t}^{\mathrm{old}}}
+=
+\exp\!\left(\ell_{j,i,t}^{\theta}-\ell_{j,i,t}^{\mathrm{old}}\right)
+$$
+
+如果 $\rho_{j,i,t}=1.2$，新策略把这个 token 的条件概率提高了 20%；如果 $\rho_{j,i,t}=0.8$，新策略把它降低了 20%。回答级优势 $\hat A_{j,i}$ 会广播给这段回答中的每个有效 token。原论文的裁剪目标是：
+
+$$
+\mathcal{J}_{\text{clip}}(\theta)
+=
+\mathbb{E}_{x_j}
+\left[
+\frac{1}{G}\sum_{i=1}^{G}
+\frac{1}{T_{j,i}}\sum_{t=1}^{T_{j,i}}
+\min\!\left(
+\rho_{j,i,t}(\theta)\hat A_{j,i},
+\operatorname{clip}(\rho_{j,i,t}(\theta),1-\epsilon,1+\epsilon)\hat A_{j,i}
+\right)
+\right]
+$$
+
+这里的顺序很重要：先对每个 token 算 $\rho_{j,i,t}$，再分别裁剪，最后对一段回答的有效 token 求平均。假设一段三 token 回答的比值是 $[1.1,0.9,1.5]$，$\epsilon=0.2$。原始 GRPO 会得到三个比值并分别裁剪成 $[1.1,0.9,1.2]$。如果先把对数概率求和，得到的回答级比值会变成
+
+$$
+\exp\!\left(\sum_t\log\rho_t\right)
+=
+\prod_t\rho_t
+=
+1.1\times0.9\times1.5
+=
+1.485
+$$
+
+此时整段回答只剩一个比值，再把它裁剪成 $1.2$。三个 token 原本不同的变化被压成一个数，回答越长，连乘带来的长度效应也越强。这正是旧示例出错的地方。
+
+为什么要裁剪？这批回答由 $\pi_{\text{old}}$ 生成。新策略训练得越久，这批数据越不能代表它当前会生成什么。逐 token 裁剪限制每个生成决策能利用旧数据改变多少。详细推导见[策略更新的约束机制](../chapter10_ppo/trust-region-clipping)。
 
 <GrpoCodeFocus focus="clip" />
 
-在代码里，`new_logprobs` 是 $\log \pi_\theta(y_{j,i} \mid x_j)$，`old_logprobs` 是 $\log \pi_{\text{old}}(y_{j,i} \mid x_j)$。所以：
+代码中的对应关系是：
 
-- `ratio = torch.exp(new_logprobs - old_logprobs)`：实现 $\rho_{j,i}(\theta)$。
-- `surr1 = ratio * advantages`：不裁剪时的策略目标。
-- `clipped_ratio = torch.clamp(ratio, 1.0 - clip_eps, 1.0 + clip_eps)`：把 $\rho$ 限制在 $[1-\epsilon_{\text{clip}}, 1+\epsilon_{\text{clip}}]$。
-- `surr2 = clipped_ratio * advantages`：裁剪后的策略目标。
-- `policy_loss = -torch.min(surr1, surr2).mean()`：取保守目标，并加负号变成要最小化的 loss。
+- `new_logprobs`、`old_logprobs` 的形状都是 $[B,T]$，每个位置保存一个回答 token 的对数概率。
+- `token_ratio = exp(new_logprobs - old_logprobs)` 逐位置实现 $\rho_{j,i,t}$。
+- `advantages.unsqueeze(-1)` 把每段回答的一个优势广播到它的所有 token。
+- `minimum(unclipped, clipped)` 在每个 token 上选择更保守的目标。
+- `masked_sequence_mean(..., completion_mask)` 先对每段回答的有效 token 求平均；外层 `.mean()` 再让每段回答拥有相同权重。
 
-注意上面的 $\mathcal{J}_{\text{GRPO}}^{\text{clip}}$ 是"想最大化"的目标；代码里的优化器默认最小化 loss，所以会写成：
+直接写 `(loss * mask).sum() / mask.sum()` 会把整个 batch 的 token 一起平均，长回答拥有更多权重。TRL 把这种归约命名为 `bnpo`；原始 GRPO 对应的是每段回答先除以自己的长度。优化器执行最小化，所以代码最后对要最大化的目标加负号。
 
-$$
-\text{policy\_loss} = -\mathcal{J}_{\text{GRPO}}^{\text{clip}}(\theta)
-$$
+### KL 惩罚：每个 token 都要和 Reference 比较
 
-这就是为什么代码中有一个负号。
-
-### KL 惩罚 与 不要离 Reference 太远
-
-GRPO 通常还会保留一个 KL 惩罚，让 Policy 不要离 Reference 太远。手写代码里使用的是一个常见的近似 KL：
+DeepSeekMath 还在每个回答 token 上加入 KL 惩罚，让 Policy 不要离 Reference 太远。对第 $t$ 个 token，原文式（4）使用：
 
 $$
-\widehat D_{\text{KL}} = \exp(\Delta) - \Delta - 1, \qquad \Delta = \log \pi_{\text{ref}}(y \mid x) - \log \pi_\theta(y \mid x)
+\widehat D_{j,i,t}
+=
+\exp(\Delta_{j,i,t})-\Delta_{j,i,t}-1,
+\qquad
+\Delta_{j,i,t}
+=
+\ell_{j,i,t}^{\text{ref}}-\ell_{j,i,t}^{\theta}
 $$
 
 这个形式不是凭空选的，它满足三个关键性质。
 
-**性质一：逐样本非负**。令 $u = \exp(\Delta)$，则 $\widehat D_{\text{KL}} = u - \log u - 1 \circeq g(u)$。求导 $g'(u) = 1 - 1/u$、$g''(u) = 1/u^2 > 0$，所以 $g$ 是凸函数，在 $u = 1$（即 $\Delta = 0$）处取最小值 $g(1) = 0$。**任何 $\Delta \neq 0$ 都给出正值**——这避免了朴素估计 $-\Delta$ 在单样本上可能为负的麻烦。
+**性质一：每个 token 的估计值非负**。令 $u = \exp(\Delta)$，则 $\widehat D = u - \log u - 1 \circeq g(u)$。求导 $g'(u) = 1 - 1/u$、$g''(u) = 1/u^2 > 0$，所以 $g$ 是凸函数，在 $u = 1$（即 $\Delta = 0$）处取最小值 $g(1) = 0$。任何 $\Delta \neq 0$ 都给出正值，这避免了朴素估计 $-\Delta$ 在单次采样上可能为负的问题。
 
 **性质二：是 $D_{\text{KL}}(\pi_\theta \| \pi_{\text{ref}})$ 的无偏估计**。注意 $\exp(\Delta) = \pi_{\text{ref}}/\pi_\theta$，所以 $\mathbb{E}_{y \sim \pi_\theta}[\exp(\Delta)] = \sum_y \pi_\theta(y) \cdot \pi_{\text{ref}}(y)/\pi_\theta(y) = 1$；而 $\mathbb{E}_{\pi_\theta}[\Delta] = -D_{\text{KL}}(\pi_\theta \| \pi_{\text{ref}})$。代回去：
 
@@ -393,21 +447,32 @@ $$
 
 **几何含义**：$\widehat D_{\text{KL}}$ 作为 $\Delta$ 的函数是一条 $U$ 形曲线，最低点在 $\Delta = 0$（Policy = Reference），开口由 $\Delta^2/2$ 主导。这正是"越偏离惩罚越大"在数学上的写照——而二次型主导意味着梯度在偏离小时温和、偏离大时变陡，避免一次性把策略推得太远。
 
-最后总损失可以写成：
+把逐 token 裁剪和逐 token KL 合在一起，DeepSeekMath 式（3）的单个问题目标是：
 
 $$
-\mathcal{L}_{\text{GRPO}} = -\mathcal{J}_{\text{GRPO}}^{\text{clip}}(\theta) + \beta_{\text{KL}}\,\widehat D_{\text{KL}}
+\mathcal{J}_{\text{GRPO}}(\theta)
+=
+\frac{1}{G}\sum_{i=1}^{G}
+\frac{1}{T_{j,i}}\sum_{t=1}^{T_{j,i}}
+\left[
+\min\!\left(
+\rho_{j,i,t}\hat A_{j,i},
+\operatorname{clip}(\rho_{j,i,t},1-\epsilon,1+\epsilon)\hat A_{j,i}
+\right)
+-\beta\widehat D_{j,i,t}
+\right]
 $$
 
-这里 $\beta_{\text{KL}}$ 是 KL 惩罚的权重，对应代码里的 `kl_coef`。它越大，模型越保守；它越小，模型越愿意离开 Reference 去探索高奖励回答。
+训练损失是 $\mathcal L_{\text{GRPO}}=-\mathbb E_{x_j}[\mathcal J_{\text{GRPO}}]$。这里 $\beta$ 是 KL 惩罚权重，对应代码里的 `kl_coef`。DeepSeekMath 实验使用 $\beta=0.04$。[DeepSeekMath 式（3）、式（4）与实验设置](https://arxiv.org/html/2402.03300#S3.SS1)
 
 <GrpoCodeFocus focus="kl" />
 
 代码对应关系：
 
-- `log_ratio_ref = ref_logprobs - new_logprobs`：实现 $\Delta$。
-- `approx_kl = (torch.exp(log_ratio_ref) - log_ratio_ref - 1.0).mean()`：实现 $\widehat D_{\text{KL}}$。
-- `loss = policy_loss + kl_coef * approx_kl`：实现总损失 $\mathcal{L}_{\text{GRPO}}$。
+- `log_ratio_ref = ref_logprobs - new_logprobs`：逐 token 实现 $\Delta_{j,i,t}$。
+- `per_token_kl = exp(log_ratio_ref) - log_ratio_ref - 1`：逐 token 实现 $\widehat D_{j,i,t}$。
+- `per_token_objective = minimum(...) - kl_coef * per_token_kl`：先在同一个 token 上合并裁剪目标和 KL。
+- `masked_sequence_mean`：用回答掩码排除 prompt 和 EOS 后的 padding，再执行原论文的 $\frac{1}{T_{j,i}}\sum_t$。
 
 ### 一次完整训练的七步
 
@@ -416,9 +481,9 @@ $$
 1. 对每个 prompt 采样 $G$ 个回答。
 2. 用规则或奖励函数给每个回答打分。
 3. 在同一个 prompt 的组内计算 $\bar r_j$、$s_j$ 和 $\hat A_{j,i}$。
-4. 用新旧策略 log probability 算 $\rho_{j,i}(\theta)$。
-5. 用 PPO-style clip 控制更新幅度。
-6. 加上 Reference KL 惩罚。
+4. 保留回答 token 的 log probability，逐 token 算 $\rho_{j,i,t}(\theta)$。
+5. 对每个 token 分别执行 PPO-style clip，并计算 Reference KL。
+6. 每段回答先按有效 token 求平均，再对组内回答求平均。
 7. 反向传播，只更新 Policy。
 
 完整的 GRPO 数据流如下图：
@@ -531,13 +596,26 @@ if tokenizer.pad_token is None:
     tokenizer.pad_token = tokenizer.eos_token
 tokenizer.padding_side = "left"
 
+paper_grpo_options = dict(
+    beta=0.04,                         # 原论文的 KL 系数
+    epsilon=0.2,
+    num_iterations=1,                  # 每批采样后只更新一次
+    scale_rewards="group",             # 同一问题的组内标准化
+    importance_sampling_level="token", # 逐 token ratio
+    loss_type="grpo",                  # 每段回答先除以自身长度
+)
+# 仓库固定的 TRL 0.24 尚无此选项；新版 TRL 才需要显式关闭它。
+if "use_bias_correction_kl" in GRPOConfig.__dataclass_fields__:
+    paper_grpo_options["use_bias_correction_kl"] = False
+
 config = GRPOConfig(
     output_dir="./grpo_gsm8k",
-    num_generations=8,        # 每个问题生成 k=8 个回答（组大小）
-    per_device_train_batch_size=4,
-    learning_rate=5e-6,
+    num_generations=8,                 # 教学规模；原论文为 64
+    per_device_train_batch_size=8,     # 全局 batch 必须能被组大小整除
+    max_completion_length=1024,
+    learning_rate=1e-6,                # 原论文实验设置
     num_train_epochs=1,
-    # 不需要 Critic！这是 GRPO 的核心创新
+    **paper_grpo_options,
 )
 
 gsm8k = load_dataset("openai/gsm8k", "main")
@@ -552,6 +630,8 @@ trainer = GRPOTrainer(
 trainer.train()  # 开始训练——不需要 Critic，不需要 RM
 trainer.save_model("./grpo_gsm8k/final_model")
 ```
+
+这里把算法口径和实验规模分开处理。`num_generations=8` 是为了降低教学实验的显存需求；[DeepSeekMath 的正式实验设置](https://arxiv.org/html/2402.03300#S3.SS2)为每个问题采样 64 个回答、batch size 1024、学习率 $10^{-6}$、KL 系数 0.04，并在每次探索后只更新一次。其余显式参数用于防止 TRL 的新版默认值把训练切换到 DAPO、BNPO、sequence-level importance sampling 或带偏差修正的 KL。[仓库固定的 TRL 0.24 配置源码](https://github.com/huggingface/trl/blob/v0.24.0/trl/trainer/grpo_config.py)还没有 `use_bias_correction_kl`；[当前 main 分支配置](https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_config.py)新增了该字段且默认开启，所以示例只在检测到字段时将它关闭。TRL 的配置说明也提示原始 `loss_type="grpo"` 可能带来长度偏差，并推荐后续变体；这不改变本节复现原论文式（3）的选择。
 
 如果把 `GRPOTrainer` 内部最关键的训练步骤摊开，就是"先组采样，再打分，再算优势，再更新策略"：
 

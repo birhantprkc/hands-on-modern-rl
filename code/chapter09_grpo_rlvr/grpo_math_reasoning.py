@@ -1,9 +1,11 @@
 """
-Chapter 9: GRPO Math Reasoning Training — GSM8K Style
+Chapter 9: Simplified Group-Relative RLVR — GSM8K Style
 ==========================================================
 
-This script uses the GRPO algorithm to train a small language model (Qwen2.5-0.5B-Instruct)
-on math reasoning tasks, demonstrating the full RLVR (Reinforcement Learning with Verifiable Rewards) pipeline.
+This script trains a small language model (Qwen2.5-0.5B-Instruct) with a
+simplified group-relative REINFORCE objective. It demonstrates the RLVR data
+flow, but it is not the full DeepSeekMath GRPO objective: there is no old-policy
+ratio, PPO clipping, or reference-policy KL term here.
 
 Core pipeline:
   1. Build a GSM8K-style arithmetic word problem dataset (20 problems)
@@ -268,17 +270,18 @@ def generate_responses(model, tokenizer, prompt, num_responses=4, max_new_tokens
 
 
 # ==========================================
-# Part 5: GRPO policy gradient update
+# Part 5: simplified group-relative policy-gradient update
 # ==========================================
 def grpo_policy_update(model, tokenizer, optimizer, prompt, responses, advantages):
     """
-    Update the model's parameters using the GRPO policy gradient
+    Update the model with group-normalized advantages and REINFORCE
 
     Core formula:
         loss = -mean(advantage_i * log_prob_i)
 
-    where log_prob_i is the log probability of the model generating the i-th response.
-    To keep the implementation simple, we approximate it with the token-level mean log probability.
+    where log_prob_i is the mean token log probability of the i-th response.
+    This deliberately omits the old-policy ratio, clipping, and reference KL
+    from the original GRPO objective.
     Both positive and negative advantages contribute: positive raises the response's probability, negative lowers it.
 
     Args:
@@ -413,7 +416,7 @@ def train():
 
     # ---------- Training loop ----------
     print("\n" + "=" * 70)
-    print("  Starting GRPO training")
+    print("  Starting simplified group-relative RLVR training")
     print("=" * 70)
 
     # Record training metrics
@@ -524,16 +527,17 @@ def train():
 
     # ---------- Final summary ----------
     print("\n" + "=" * 70)
-    print("  GRPO Math Reasoning Training Summary")
+    print("  Simplified Group-Relative RLVR Training Summary")
     print("=" * 70)
     print(f"""
-  This experiment demonstrated the full GRPO + RLVR pipeline on a math reasoning task:
+  This experiment demonstrated a simplified group-relative RLVR pipeline.
+  It does not implement the full DeepSeekMath GRPO ratio, clipping, or KL terms.
 
   1. Data preparation:
      - {len(math_dataset)} GSM8K-style arithmetic word problems
      - Each problem has a clear standard answer, enabling rule-based verification
 
-  2. GRPO training:
+  2. Group-relative policy-gradient training:
      - {group_size} responses sampled per problem
      - A rule-based reward function verifies answer correctness
      - Group-relative normalization computes advantages, with no Critic network needed

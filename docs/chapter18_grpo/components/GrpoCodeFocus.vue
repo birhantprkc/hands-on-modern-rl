@@ -24,14 +24,14 @@ const suppressHover = ref(false)
 const codePre = ref(null)
 
 const segments = [
-  { id: 'A', label: '组采样', range: [5, 25] },
-  { id: 'B', label: '规则奖励', range: [28, 46] },
-  { id: 'C', label: '组内优势', range: [49, 61] },
-  { id: 'D', label: '序列 logprob', range: [64, 78] },
-  { id: 'E', label: 'ratio / clip', range: [81, 103] },
-  { id: 'F', label: 'KL 惩罚', range: [105, 115] },
-  { id: 'G', label: '训练步骤', range: [118, 141] },
-  { id: 'H', label: '训练循环', range: [144, 156] }
+  { id: 'A', label: '组采样', range: [13, 56] },
+  { id: 'B', label: '规则奖励', range: [59, 77] },
+  { id: 'C', label: '组内优势', range: [80, 92] },
+  { id: 'D', label: '逐 token logprob', range: [95, 113] },
+  { id: 'E', label: '逐 token ratio / clip', range: [116, 131] },
+  { id: 'F', label: 'KL 与长度归一化', range: [132, 194] },
+  { id: 'G', label: '训练步骤', range: [197, 225] },
+  { id: 'H', label: '训练循环', range: [228, 245] }
 ]
 
 const focusMap = {
@@ -39,58 +39,58 @@ const focusMap = {
     title: '完整 GRPO 代码地图',
     active: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
     compactRanges: [
-      [5, 25],
-      [49, 61],
-      [81, 115],
-      [118, 156]
+      [13, 56],
+      [80, 113],
+      [116, 194],
+      [197, 245]
     ],
     highlight: [
-      7, 12, 15, 16, 23, 31, 34, 35, 36, 51, 52, 53, 55, 56, 61, 84, 91, 99,
-      100, 101, 102, 103, 106, 107, 108, 121, 122, 123, 129, 137, 138, 139, 140,
-      147, 148
+      15, 16, 27, 36, 37, 38, 42, 47, 52, 53, 54, 56, 82, 83, 84, 86, 92, 96,
+      101, 102, 106, 109, 113, 126, 127, 128, 129, 130, 133, 134, 136, 137, 141,
+      143, 147, 167, 175, 176, 179, 186, 207, 213, 219, 221, 223, 224, 232
     ]
   },
   sampling: {
     title: '每个 prompt 采样多个回答',
     active: ['A'],
-    compactRanges: [[5, 25]],
-    highlight: [7, 10, 15, 16, 18, 19, 20, 23, 24]
+    compactRanges: [[13, 56]],
+    highlight: [15, 16, 27, 36, 37, 38, 42, 47, 52, 53, 54, 56]
   },
   reward: {
     title: '规则奖励：正确答案和格式',
     active: ['B'],
-    compactRanges: [[28, 46]],
-    highlight: [31, 34, 35, 36, 45, 46]
+    compactRanges: [[59, 77]],
+    highlight: [62, 64, 65, 66, 67, 75, 76, 77]
   },
   advantages: {
     title: '组内归一化优势 advantages',
     active: ['C'],
-    compactRanges: [[49, 61]],
-    highlight: [51, 52, 53, 55, 56, 57, 61]
+    compactRanges: [[80, 92]],
+    highlight: [82, 83, 84, 86, 87, 88, 92]
   },
   logprob: {
-    title: '回答序列的 log probability',
+    title: '回答部分的逐 token log probability',
     active: ['D'],
-    compactRanges: [[64, 78]],
-    highlight: [69, 71, 72, 77, 78]
+    compactRanges: [[95, 113]],
+    highlight: [96, 98, 99, 101, 102, 106, 109, 113]
   },
   clip: {
-    title: 'GRPO 的 ratio 与 PPO-style clip',
+    title: 'GRPO 的逐 token ratio 与 PPO-style clip',
     active: ['E'],
-    compactRanges: [[81, 103]],
-    highlight: [84, 99, 100, 101, 102, 103]
+    compactRanges: [[116, 154]],
+    highlight: [126, 127, 128, 129, 130, 136, 137, 141]
   },
   kl: {
-    title: 'KL 惩罚与总 loss',
+    title: '逐 token KL、回答长度归一化与总 loss',
     active: ['E', 'F'],
-    compactRanges: [[99, 115]],
-    highlight: [103, 106, 107, 108, 111, 112, 113]
+    compactRanges: [[126, 154]],
+    highlight: [133, 134, 136, 137, 141, 143, 147]
   },
   train: {
     title: 'GRPO 训练步骤与在线循环',
     active: ['G', 'H'],
-    compactRanges: [[118, 156]],
-    highlight: [121, 122, 123, 129, 137, 138, 139, 140, 145, 147, 148]
+    compactRanges: [[197, 245]],
+    highlight: [207, 213, 219, 221, 222, 223, 224, 232, 240, 244]
   }
 }
 

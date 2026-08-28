@@ -282,6 +282,17 @@ peft_config = LoraConfig(
     task_type="CAUSAL_LM",
 )
 
+paper_grpo_options = dict(
+    beta=0.04,
+    epsilon=0.2,
+    num_iterations=1,
+    scale_rewards="group",
+    importance_sampling_level="token",
+    loss_type="grpo",
+)
+if "use_bias_correction_kl" in GRPOConfig.__dataclass_fields__:
+    paper_grpo_options["use_bias_correction_kl"] = False
+
 training_args = GRPOConfig(
     output_dir="outputs/financial-tool-grpo",
     learning_rate=5e-6,
@@ -291,6 +302,7 @@ training_args = GRPOConfig(
     max_prompt_length=2048,
     max_completion_length=256,
     temperature=0.8,
+    **paper_grpo_options,
     logging_steps=1,
     save_steps=50,
     max_steps=100,
@@ -306,6 +318,8 @@ trainer = GRPOTrainer(
 
 trainer.train()
 ```
+
+这里显式写出原始 GRPO 的关键选项，因为新版 TRL 的默认 `loss_type`、KL 系数和 KL 估计可能已经转向后续变体。[TRL 0.24 的 `GRPOConfig`](https://github.com/huggingface/trl/blob/v0.24.0/trl/trainer/grpo_config.py)没有 KL 偏差修正选项；[当前 main 分支的 `GRPOConfig`](https://github.com/huggingface/trl/blob/main/trl/trainer/grpo_config.py)新增了默认开启的 `use_bias_correction_kl`，示例检测到该字段后会把它关闭。这样即使升级 TRL，工具调用示例仍然使用 [DeepSeekMath 式（3）和式（4）](https://arxiv.org/html/2402.03300#S3.SS1)中的逐 token ratio、按回答长度归一化和原始 KL 项。
 
 这段代码背后的训练逻辑和上一节数学 RLVR 完全一致：
 
