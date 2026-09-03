@@ -223,6 +223,36 @@ $$
 
 $\sum_a$ means to visit every action and add the resulting terms. $\pi(a\mid s)$ is the probability of action $a$, and $Q^\pi(s,a)$ is its long-term value when taken first.
 
+::: details How the V–Q formula follows from the definitions
+
+The two definitions already distinguish what is known before the first action. The state value conditions only on the current state:
+
+$$V^\pi(s)=\mathbb{E}_\pi[G_t\mid s_t=s]$$
+
+The action value conditions on the current state and on a chosen first action:
+
+$$Q^\pi(s,a)=\mathbb{E}_\pi[G_t\mid s_t=s,\,a_t=a]$$
+
+Under policy $\pi$, that first action is still random: $a_t$ is drawn from $\pi(\cdot\mid s)$. The expectation of $G_t$ can therefore be grouped by which first action occurred. This is the law of total expectation from Section 2.1: the overall mean equals each group's probability times the mean inside that group.
+
+$$
+\begin{aligned}
+V^\pi(s)
+&=\mathbb{E}_\pi[G_t\mid s_t=s] \\
+&=\sum_a \pi(a\mid s)\,\mathbb{E}_\pi[G_t\mid s_t=s,\,a_t=a] \\
+&=\sum_a \pi(a\mid s)\,Q^\pi(s,a).
+\end{aligned}
+$$
+
+The first line is the definition of $V^\pi(s)$. The second line expands the same expectation over the possible first actions. The third line replaces each inner conditional expectation with $Q^\pi(s,a)$.
+
+With two CartPole actions this is the arithmetic above:
+
+$$V^\pi(s)=0.25\times 70+0.75\times 110=100.$$
+
+Here $0.25$ and $0.75$ are $\pi(\text{push left}\mid s)$ and $\pi(\text{push right}\mid s)$, while $70$ and $110$ are the two action values. If the policy is deterministic, one probability is $1$ and the others are $0$, so $V^\pi(s)$ equals the $Q$ of that single action.
+:::
+
 ### A Numerical GridWorld Example
 
 Consider a corridor with three nonterminal states. The policy always moves right, entering the terminal state gives reward $+1$, every other transition gives reward $0$, and $\gamma=0.9$:
